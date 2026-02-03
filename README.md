@@ -1,6 +1,6 @@
 # TFG Victor
 
-# How to use
+## How to use
 
 1. Setup <br>
     `cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -S . -B build`

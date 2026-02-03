@@ -2,8 +2,10 @@
 build/
 cmake_build/
 _install/
+_downloaded_resources
 _bin/
 .vscode/
+.cache/
 
 # Files to ignore
 imgui.ini

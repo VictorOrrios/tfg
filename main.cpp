@@ -40,7 +40,7 @@
 #include <nvvk/profiler_vk.hpp>
 #include <nvutils/parameter_parser.hpp>
 
-class SampleElement : public nvapp::IAppElement
+class AppElement : public nvapp::IAppElement
 {
 public:
   struct Info
@@ -50,14 +50,14 @@ public:
   };
 
 
-  SampleElement(const Info& info)
+  AppElement(const Info& info)
       : m_info(info)
   {
     // let's add a command-line option to toggle animation
     m_info.parameterRegistry->add({"animate"}, &m_animate);
   }
 
-  ~SampleElement() override = default;
+  ~AppElement() override = default;
 
   void onAttach(nvapp::Application* app) override
   {
@@ -74,21 +74,13 @@ public:
     m_samplerPool.init(app->getDevice());
     m_stagingUploader.init(&m_alloc, true);
 
-#if 0
-    // VMA might report memory leaks for example:
-    // "UNFREED ALLOCATION; Offset: 1158736; Size: 16; UserData: 0000000000000000; Name: allocID: 45; Type: BUFFER; Usage: 131107"
-    // Then look for the leak name: "allocID: 45" and feed that ID to the following function.
-    m_alloc.setLeakID(45);
-    // You should get a breakpoint at the creation of the resource that was leaked.
-#endif
-
     // Create a 1x1 Vulkan texture
     VkCommandBuffer   cmd       = m_app->createTempCmdBuffer();
     VkImageCreateInfo imageInfo = DEFAULT_VkImageCreateInfo;
     imageInfo.extent            = {1, 1, 1};
     imageInfo.format            = VK_FORMAT_R32G32B32A32_SFLOAT;
     imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;  // Added transfer dst bit
-    std::array<float, 4> imageData = {0.46F, 0.72F, 0, 1};                           // NVIDIA Green
+    std::array<float, 4> imageData = {0.46F, 0.72F, 0, 1};           // NVIDIA Green
 
     VkImageViewCreateInfo viewInfo = DEFAULT_VkImageViewCreateInfo;
     viewInfo.components            = {.a = VK_COMPONENT_SWIZZLE_ONE};  // Force alpha to 1.0
@@ -148,7 +140,7 @@ public:
 
   void onPreRender() override { m_profilerTimeline->frameAdvance(); }
 
-  void onRender(VkCommandBuffer cmd)
+  void onRender(VkCommandBuffer cmd) override
   {
     if(m_animate)
     {
@@ -197,6 +189,7 @@ public:
     {
       m_app->setVsync(vsync);
     }
+
   }
 
 private:
@@ -224,11 +217,11 @@ int main(int argc, char** argv)
   nvutils::ParameterParser   parameterParser;
 
   // setup sample element
-  SampleElement::Info sampleInfo = {
+  AppElement::Info sampleInfo = {
       .profilerManager   = &profilerManager,
       .parameterRegistry = &parameterRegistry,
   };
-  std::shared_ptr<SampleElement> sampleElement = std::make_shared<SampleElement>(sampleInfo);
+  std::shared_ptr<AppElement> appElement = std::make_shared<AppElement>(sampleInfo);
 
   // setup logger element, `true` means shown by default
   // we add it early so outputs are captured early on, you might want to defer this to a later timer.
@@ -240,6 +233,7 @@ int main(int argc, char** argv)
   nvvk::ContextInitInfo vkSetup{
       .instanceExtensions = {VK_EXT_DEBUG_UTILS_EXTENSION_NAME},
       .deviceExtensions   = {{VK_KHR_SWAPCHAIN_EXTENSION_NAME}},
+      .enableValidationLayers = true
   };
 
   // let's add a command-line option to enable/disable validation layers
@@ -263,7 +257,7 @@ int main(int argc, char** argv)
   }
 
   nvapp::ApplicationCreateInfo appInfo;
-  appInfo.name           = "The Empty Example";
+  appInfo.name           = "Victor's TFG"; //TODO: Change to a *cooler* name
   appInfo.useMenu        = true;
   appInfo.instance       = vkContext.getInstance();
   appInfo.device         = vkContext.getDevice();
@@ -286,14 +280,12 @@ int main(int argc, char** argv)
   app.init(appInfo);
 
   // add the sample main element
-  app.addElement(sampleElement);
+  app.addElement(appElement);
   app.addElement(std::make_shared<nvapp::ElementDefaultWindowTitle>());
   // add profiler element
   app.addElement(std::make_shared<nvapp::ElementProfiler>(&profilerManager));
   // add logger element
   app.addElement(elementLogger);
-
-  LOGI("%s", "Wohoo let's run this sample!\n");
 
   // enter the main loop
   app.run();
