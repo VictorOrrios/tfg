@@ -21,7 +21,17 @@
 // Vulkan utility libraries. It creates a window displaying a single colored
 // pixel that animates through the HSV color space.
 
+// TODO: Change the comment paragraph
+
 #define VMA_IMPLEMENTATION
+// TODO: Organize and label imports
+
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <imgui/imgui.h>
+#include <imgui/backends/imgui_impl_vulkan.h>
+
+#include "shaders/shaderio.h"           // Shared between host and device
 
 #include <backends/imgui_impl_vulkan.h>
 #include <nvapp/application.hpp>
@@ -39,6 +49,14 @@
 #include <nvvk/staging.hpp>
 #include <nvvk/profiler_vk.hpp>
 #include <nvutils/parameter_parser.hpp>
+#include <nvvk/gbuffers.hpp>                // GBuffer management
+#include <nvslang/slang.hpp>              // Slang compiler
+#include "nvvk/descriptors.hpp"           // Descriptor set management
+#include <nvapp/elem_camera.hpp>           // Camera manipulator
+#include <nvutils/camera_manipulator.hpp>
+#include <nvgui/camera.hpp>                // Camera widget
+#include "shaders/shaderio.h"                 
+
 
 class AppElement : public nvapp::IAppElement
 {
@@ -54,7 +72,7 @@ public:
       : m_info(info)
   {
     // let's add a command-line option to toggle animation
-    m_info.parameterRegistry->add({"animate"}, &m_animate);
+    //m_info.parameterRegistry->add({"animate"}, &m_animate);
   }
 
   ~AppElement() override = default;
@@ -67,6 +85,7 @@ public:
         .physicalDevice = app->getPhysicalDevice(),
         .device         = app->getDevice(),
         .instance       = app->getInstance(),
+        .vulkanApiVersion = VK_API_VERSION_1_4,
     };
 
     // Initialize core components
@@ -74,34 +93,7 @@ public:
     m_samplerPool.init(app->getDevice());
     m_stagingUploader.init(&m_alloc, true);
 
-    // Create a 1x1 Vulkan texture
-    VkCommandBuffer   cmd       = m_app->createTempCmdBuffer();
-    VkImageCreateInfo imageInfo = DEFAULT_VkImageCreateInfo;
-    imageInfo.extent            = {1, 1, 1};
-    imageInfo.format            = VK_FORMAT_R32G32B32A32_SFLOAT;
-    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;  // Added transfer dst bit
-    std::array<float, 4> imageData = {0.46F, 0.72F, 0, 1};           // NVIDIA Green
-
-    VkImageViewCreateInfo viewInfo = DEFAULT_VkImageViewCreateInfo;
-    viewInfo.components            = {.a = VK_COMPONENT_SWIZZLE_ONE};  // Force alpha to 1.0
-    NVVK_CHECK(m_alloc.createImage(m_viewportImage, imageInfo, viewInfo));
-    NVVK_CHECK(m_samplerPool.acquireSampler(m_viewportImage.descriptor.sampler));
-
-    NVVK_DBG_NAME(m_viewportImage.image);
-    NVVK_DBG_NAME(m_viewportImage.descriptor.imageView);
-    NVVK_DBG_NAME(m_viewportImage.descriptor.sampler);
-
-    // upload image
-    NVVK_CHECK(m_stagingUploader.appendImage(m_viewportImage, std::span<float>(imageData.data(), imageData.size()),
-                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
-    m_stagingUploader.cmdUploadAppended(cmd);
-    m_app->submitAndWaitTempCmdBuffer(cmd);
-    m_stagingUploader.releaseStaging();
-
-    // Add image to ImGui, for display
-    m_imguiImage = ImGui_ImplVulkan_AddTexture(m_viewportImage.descriptor.sampler, m_viewportImage.descriptor.imageView,
-                                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
+    // TODO: Figure out how to use the profiler tool
     // Init profiler with a single queue
     m_profilerTimeline = m_info.profilerManager->createTimeline({"graphics"});
     m_profilerGpuTimer.init(m_profilerTimeline, app->getDevice(), app->getPhysicalDevice(), app->getQueue(0).familyIndex, true);
@@ -111,8 +103,6 @@ public:
   {
     NVVK_CHECK(vkDeviceWaitIdle(m_app->getDevice()));
 
-    ImGui_ImplVulkan_RemoveTexture(m_imguiImage);
-    m_alloc.destroyImage(m_viewportImage);
     m_stagingUploader.deinit();
     m_samplerPool.deinit();
     m_alloc.deinit();
@@ -123,7 +113,6 @@ public:
   void onUIRender() override
   {
     ImGui::Begin("Settings");
-    ImGui::Checkbox("Animated Viewport", &m_animate);
     ImGui::TextDisabled("%d FPS / %.3fms", static_cast<int>(ImGui::GetIO().Framerate), 1000.F / ImGui::GetIO().Framerate);
 
     // Add window information
@@ -134,7 +123,7 @@ public:
 
     // Rendered image displayed fully in 'Viewport' window
     ImGui::Begin("Viewport");
-    ImGui::Image((ImTextureID)m_imguiImage, ImGui::GetContentRegionAvail());
+    // TODO: Insert gbuffer
     ImGui::End();
   }
 
@@ -142,20 +131,7 @@ public:
 
   void onRender(VkCommandBuffer cmd) override
   {
-    if(m_animate)
-    {
-      auto timerSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Animation");
-
-      VkClearColorValue clearColor{};
-      ImGui::ColorConvertHSVtoRGB((float)ImGui::GetTime() * 0.05f, 1, 1, clearColor.float32[0], clearColor.float32[1],
-                                  clearColor.float32[2]);
-      VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      nvvk::cmdImageMemoryBarrier(cmd, {m_viewportImage.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL});
-      vkCmdClearColorImage(cmd, m_viewportImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1, &range);
-      nvvk::cmdImageMemoryBarrier(cmd, {m_viewportImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
-    }
+    
   }
 
   // Called if showMenu is true
@@ -193,20 +169,31 @@ public:
   }
 
 private:
+
+  nvapp::Application*     m_app{};            // The application framework
+  nvvk::ResourceAllocator m_alloc{};          // Resource allocator for Vulkan resources, used for buffers and images
+  nvvk::StagingUploader  m_stagingUploader{}; // Utility to upload data to the GPU, used for staging buffers and images
+  nvvk::SamplerPool      m_samplerPool{};     // Texture sampler pool, used to acquire texture samplers for images
+  nvvk::GBuffer          m_gBuffers{};        // The G-Buffer: color + depth
+  nvslang::SlangCompiler m_slangCompiler{};   // The Slang compiler used to compile the shaders
+
+  // Pipeline
+  VkShaderEXT m_shader{};                         // Compute shader module
+  VkPipelineLayout m_pipelineLayout{};            // Compute pipeline layout
+  nvvk::DescriptorPack m_descPack;                // The descriptor bindings used to create the descriptor set layout and descriptor sets
+
+  // Push constants to send 
+  shaderio::PushConstant m_pushConst = {.time = 0.0f};
+
+  // Pre-built components
+  std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()}; // Camera manipulator
+
+  // Startup managers for profiler and paramter registry
   Info m_info;
-  bool m_animate = false;
 
-  nvvk::ResourceAllocator m_alloc{};
-  nvapp::Application*     m_app{};
-  nvvk::SamplerPool       m_samplerPool{};
-  nvvk::StagingUploader   m_stagingUploader{};
-
+  // TODO: Figure out how to use the profiler tool
   nvutils::ProfilerTimeline* m_profilerTimeline{};
   nvvk::ProfilerGpuTimer     m_profilerGpuTimer;
-
-  nvvk::Image m_viewportImage{};
-
-  VkDescriptorSet m_imguiImage{};
 };
 
 

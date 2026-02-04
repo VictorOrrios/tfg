@@ -31,11 +31,19 @@ set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT $
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
   nvpro2::nvapp
+  nvpro2::nvgui
+  nvpro2::nvimageformats
+  nvpro2::nvslang
+  nvpro2::nvvk
 )
 
 add_project_definitions(${PROJECT_NAME})
 
 # This sample doesn't need addtional files, but one might need to
 # copy required dlls, additional commands etc. through this command
-copy_to_runtime_and_install(${PROJECT_NAME} AUTO)
+copy_to_runtime_and_install(${PROJECT_NAME} 
+  FILES ${Slang_GLSLANG} ${Slang_GLSL_MODULE} ${Slang_DLL}
+  PROGRAMS ${Slang_SLANGD_EXECUTABLE}
+  AUTO
+)
 
