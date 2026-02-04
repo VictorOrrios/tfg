@@ -23,8 +23,11 @@
 
 // TODO: Change the comment paragraph
 
+
 #define VMA_IMPLEMENTATION
 // TODO: Organize and label imports
+
+#include <vulkan/vulkan_core.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -32,6 +35,8 @@
 #include <imgui/backends/imgui_impl_vulkan.h>
 
 #include "shaders/shaderio.h"           // Shared between host and device
+#include "utils/path_utils.hpp"
+#include "utils/utils.hpp"
 
 #include <backends/imgui_impl_vulkan.h>
 #include <nvapp/application.hpp>
@@ -40,6 +45,7 @@
 #include <nvapp/elem_default_menu.hpp>
 #include <nvapp/elem_default_title.hpp>
 #include <nvutils/logger.hpp>
+#include <nvutils/timers.hpp>              // Timers for profiling
 #include <nvvk/check_error.hpp>
 #include <nvvk/context.hpp>
 #include <nvvk/debug_util.hpp>
@@ -54,8 +60,14 @@
 #include "nvvk/descriptors.hpp"           // Descriptor set management
 #include <nvapp/elem_camera.hpp>           // Camera manipulator
 #include <nvutils/camera_manipulator.hpp>
+#include <nvgui/sky.hpp>                   // Sky widget
+#include <nvgui/tonemapper.hpp>            // Tonemapper widget
+#include <nvshaders_host/sky.hpp>          // Sky shader
+#include <nvshaders_host/tonemapper.hpp>   // Tonemapper shader
 #include <nvgui/camera.hpp>                // Camera widget
-#include "shaders/shaderio.h"                 
+#include <nvvk/formats.hpp>
+#include <nvvk/shaders.hpp>
+#include <nvvk/pipeline.hpp>
 
 
 class AppElement : public nvapp::IAppElement
@@ -81,10 +93,10 @@ public:
   {
     m_app                                = app;
     VmaAllocatorCreateInfo allocatorInfo = {
-        .flags          = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
-        .physicalDevice = app->getPhysicalDevice(),
-        .device         = app->getDevice(),
-        .instance       = app->getInstance(),
+        .flags            = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+        .physicalDevice   = app->getPhysicalDevice(),
+        .device           = app->getDevice(),
+        .instance         = app->getInstance(),
         .vulkanApiVersion = VK_API_VERSION_1_4,
     };
 
@@ -93,16 +105,35 @@ public:
     m_samplerPool.init(app->getDevice());
     m_stagingUploader.init(&m_alloc, true);
 
+    setupSlangCompiler();         // Setup slang compiler with correct build config flags
+    setupGBuffers();              // Set up the GBuffers to render to
+    createScene();                // Create the scene and fill it up with sdfs
+    createDescriptorSetLayout();  // Create the descriptor set layout for the pipeline
+    createPipelineLayout();       // Create the pipeline layout
+    compileAndCreateShaders();    // Compile the shaders and create the shader modules
+    createComputePipeline();      // Create the pipeline using the layout and the shaders
+
     // TODO: Figure out how to use the profiler tool
     // Init profiler with a single queue
     m_profilerTimeline = m_info.profilerManager->createTimeline({"graphics"});
     m_profilerGpuTimer.init(m_profilerTimeline, app->getDevice(), app->getPhysicalDevice(), app->getQueue(0).familyIndex, true);
   }
 
+  //-------------------------------------------------------------------------------
+  // Destroy all elements that were created
+  // - Called when the application is shutting down
   void onDetach() override
   {
     NVVK_CHECK(vkDeviceWaitIdle(m_app->getDevice()));
 
+    VkDevice device = m_app->getDevice();
+
+    m_descPack.deinit();
+    vkDestroyPipeline(device,m_computePipeline,nullptr);
+    vkDestroyPipelineLayout(device,m_pipelineLayout,nullptr);
+    vkDestroyShaderModule(device,m_shaderModule,nullptr);
+
+    m_gBuffers.deinit();
     m_stagingUploader.deinit();
     m_samplerPool.deinit();
     m_alloc.deinit();
@@ -110,6 +141,9 @@ public:
     m_info.profilerManager->destroyTimeline(m_profilerTimeline);
   }
 
+  //---------------------------------------------------------------------------------------------------------------
+  // Rendering all UI elements, this includes the image of the GBuffer, the camera controls, and the sky parameters.
+  // - Called every frame
   void onUIRender() override
   {
     ImGui::Begin("Settings");
@@ -127,14 +161,9 @@ public:
     ImGui::End();
   }
 
-  void onPreRender() override { m_profilerTimeline->frameAdvance(); }
-
-  void onRender(VkCommandBuffer cmd) override
-  {
-    
-  }
-
-  // Called if showMenu is true
+  //---------------------------------------------------------------------------------------------------------------
+  // This renders the toolbar of the window
+  // - Called when the ImGui menu is rendered
   void onUIMenu() override
   {
     bool vsync = m_app->isVsync();
@@ -166,7 +195,163 @@ public:
       m_app->setVsync(vsync);
     }
 
+
   }
+
+  void onPreRender() override { m_profilerTimeline->frameAdvance(); }
+
+  //---------------------------------------------------------------------------------------------------------------
+  // When the viewport is resized, the GBuffer must be resized
+  // - Called when the Window "viewport is resized
+  void onResize(VkCommandBuffer cmd, const VkExtent2D& size) override { NVVK_CHECK(m_gBuffers.update(cmd, size)); }
+
+  //---------------------------------------------------------------------------------------------------------------
+  // Rendering the scene
+  // The scene is rendered to a GBuffer and the GBuffer is displayed in the ImGui window.
+  // Only the ImGui is rendered to the swapchain image.
+  // - Called every frame
+  void onRender(VkCommandBuffer cmd) override
+  {
+    
+  }
+
+  void setupSlangCompiler(){
+    m_slangCompiler.addSearchPaths(nvsamples::getShaderDirs());
+    m_slangCompiler.defaultTarget();
+    m_slangCompiler.defaultOptions();
+#ifdef NDEBUG
+    LOGI("Slang compiler: RELEASE configuration\n");
+    m_slangCompiler.addOption({slang::CompilerOptionName::Optimization,
+        { slang::CompilerOptionValueKind::Int, SLANG_OPTIMIZATION_LEVEL_HIGH }
+    });
+    m_slangCompiler.addOption({slang::CompilerOptionName::DebugInformation,
+        { slang::CompilerOptionValueKind::Int, SLANG_DEBUG_INFO_LEVEL_NONE }
+    });
+    m_slangCompiler.addOption({slang::CompilerOptionName::WarningsAsErrors,
+        { slang::CompilerOptionValueKind::Int, 1 }
+    });
+#else
+    LOGI("Slang compiler: DEBUG configuration\n");
+    m_slangCompiler.addOption({slang::CompilerOptionName::Optimization,
+        { slang::CompilerOptionValueKind::Int, SLANG_OPTIMIZATION_LEVEL_DEFAULT }
+    });
+    m_slangCompiler.addOption({slang::CompilerOptionName::DebugInformation,
+        { slang::CompilerOptionValueKind::Int, SLANG_DEBUG_INFO_LEVEL_STANDARD }
+    });
+    m_slangCompiler.addOption({slang::CompilerOptionName::WarningsAsErrors,
+        { slang::CompilerOptionValueKind::Int, 0 }
+    });
+#endif
+  }
+
+  void setupGBuffers(){
+    // Acquiring the texture sampler which will be used for displaying the GBuffer
+    VkSampler linearSampler{};
+    NVVK_CHECK(m_samplerPool.acquireSampler(linearSampler));
+    NVVK_DBG_NAME(linearSampler);
+
+    // Create the G-Buffers
+    nvvk::GBufferInitInfo gBufferInit{
+        .allocator      = &m_alloc,
+        .colorFormats   = {VK_FORMAT_R32G32B32A32_SFLOAT, VK_FORMAT_R8G8B8A8_UNORM},  // Render target, tonemapped
+        .depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
+        .imageSampler   = linearSampler,
+        .descriptorPool = m_app->getTextureDescriptorPool(),
+    };
+    m_gBuffers.init(gBufferInit);
+  }
+
+  void createScene(){
+    // TODO
+  }
+
+  //---------------------------------------------------------------------------------------------------------------
+  // The Vulkan descriptor set defines the resources that are used by the shaders.
+  // Here we add the bindings for the textures.
+  void createDescriptorSetLayout(){
+    nvvk::DescriptorBindings bindings;
+    // Add bindings here, if needed
+    bindings.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+
+    // Creating the descriptor set and set layout from the bindings
+    // TODO: Understand the flags to know what they do
+    m_descPack.init(bindings, m_app->getDevice(), 1, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
+                    VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT);
+
+    NVVK_DBG_NAME(m_descPack.getLayout());
+    NVVK_DBG_NAME(m_descPack.getPool());
+    NVVK_DBG_NAME(m_descPack.getSet(0));
+  }
+
+  void createPipelineLayout(){
+    // Push constant is used to pass data to the shader at each frame
+    const VkPushConstantRange pushConstantsRange{
+      .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS, 
+      .offset = 0, 
+      .size = sizeof(shaderio::PushConstant)
+    };
+
+    // The pipeline layout is used to pass data to the pipeline, anything with "layout" in the shader
+    const VkPipelineLayoutCreateInfo pipelineLayoutInfo{
+        .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount         = 1,
+        .pSetLayouts            = m_descPack.getLayoutPtr(),
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges    = &pushConstantsRange,
+    };
+    NVVK_CHECK(vkCreatePipelineLayout(m_app->getDevice(), &pipelineLayoutInfo, nullptr, &m_pipelineLayout));
+    NVVK_DBG_NAME(m_pipelineLayout);
+  }
+
+  void compileAndCreateShaders(){
+    // Destroy the previous shader module, if it exist
+    vkDestroyShaderModule(m_app->getDevice(), m_shaderModule, nullptr);
+
+    // Get .slang file and compile to spirv
+    std::filesystem::path shaderSource = nvutils::findFile("compute.slang", nvsamples::getShaderDirs());
+    if(!m_slangCompiler.compileFile(shaderSource)){
+      LOGE("Error compiling shader: %s\n%s\n", shaderSource.string().c_str(),
+           m_slangCompiler.getLastDiagnosticMessage().c_str());
+    }
+
+    // Create shader module using the pcode
+    const uint32_t* spirvPtr = reinterpret_cast<const uint32_t*>(m_slangCompiler.getSpirv());
+    size_t spirvWordCount = m_slangCompiler.getSpirvSize() / sizeof(uint32_t); // TODO: Checj if this really works
+    NVVK_CHECK(nvvk::createShaderModule(m_shaderModule, m_app->getDevice(), 
+    std::span<const uint32_t>(spirvPtr, spirvWordCount)));
+    NVVK_DBG_NAME(m_shaderModule);
+  }
+
+  void createComputePipeline(){
+    VkPipelineShaderStageCreateInfo stage{};
+    stage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stage.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
+    stage.module = m_shaderModule;
+    stage.pName  = "computeMain";
+
+    VkComputePipelineCreateInfo cpci{};
+    cpci.sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    cpci.stage  = stage;
+    cpci.layout = m_pipelineLayout;
+
+    NVVK_CHECK(vkCreateComputePipelines(
+        m_app->getDevice(),
+        VK_NULL_HANDLE,
+        1,
+        &cpci,
+        nullptr,
+        &m_computePipeline));
+    NVVK_DBG_NAME(m_computePipeline);
+  }
+
+  void onLastHeadlessFrame() override
+  {
+    m_app->saveImageToFile(m_gBuffers.getColorImage(), m_gBuffers.getSize(),
+                           nvutils::getExecutablePath().replace_extension(".jpg").string());
+  }
+
+  // Accessor for camera manipulator
+  std::shared_ptr<nvutils::CameraManipulator> getCameraManipulator() const { return m_cameraManip; }
 
 private:
 
@@ -178,9 +363,10 @@ private:
   nvslang::SlangCompiler m_slangCompiler{};   // The Slang compiler used to compile the shaders
 
   // Pipeline
-  VkShaderEXT m_shader{};                         // Compute shader module
-  VkPipelineLayout m_pipelineLayout{};            // Compute pipeline layout
-  nvvk::DescriptorPack m_descPack;                // The descriptor bindings used to create the descriptor set layout and descriptor sets
+  VkPipeline            m_computePipeline;    // Compute shader module
+  VkShaderModule        m_shaderModule{};     // Compute shader module
+  VkPipelineLayout      m_pipelineLayout{};   // Compute pipeline layout
+  nvvk::DescriptorPack  m_descPack;           // The descriptor bindings used to create the descriptor set layout and descriptor sets
 
   // Push constants to send 
   shaderio::PushConstant m_pushConst = {.time = 0.0f};

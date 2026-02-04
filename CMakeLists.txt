@@ -16,17 +16,33 @@ find_package(NvproCore2 REQUIRED)
 # Source files for this project
 #
 
-set(SOURCE_FILES
-  main.cpp
+# Utils
+file(GLOB CONFIGURE_DEPENDS UTILS_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.h
 )
 
-source_group("Source Files" FILES ${SOURCE_FILES})
 
 #####################################################################################
 # Executable
-#
 
-add_executable(${PROJECT_NAME} ${SOURCE_FILES})
+add_executable(${PROJECT_NAME}
+  main.cpp
+)
+
+target_sources(${PROJECT_NAME}
+  PRIVATE
+    ${UTILS_SOURCES}
+)
+
+source_group(
+  TREE ${CMAKE_CURRENT_SOURCE_DIR}/utils
+  PREFIX "Utils"
+  FILES ${UTILS_SOURCES}
+)
+
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
