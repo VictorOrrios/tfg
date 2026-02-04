@@ -27,10 +27,17 @@ NAMESPACE_SHADERIO_BEGIN()
 #define WORKGROUP_SIZE 32
 
 // Shared between Host and Device
+enum BindingPoints
+{
+  gBuffers = 0,  // Binding point for textures
+};
+
 struct PushConstant
 {
   float time;
 };
+
+
 
 NAMESPACE_SHADERIO_END()
 

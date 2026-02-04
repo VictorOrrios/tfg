@@ -68,6 +68,7 @@
 #include <nvvk/formats.hpp>
 #include <nvvk/shaders.hpp>
 #include <nvvk/pipeline.hpp>
+#include <nvvk/compute_pipeline.hpp>
 
 
 class AppElement : public nvapp::IAppElement
@@ -112,6 +113,8 @@ public:
     createPipelineLayout();       // Create the pipeline layout
     compileAndCreateShaders();    // Compile the shaders and create the shader modules
     createComputePipeline();      // Create the pipeline using the layout and the shaders
+    updateDescriptorSets();
+
 
     // TODO: Figure out how to use the profiler tool
     // Init profiler with a single queue
@@ -158,6 +161,7 @@ public:
     // Rendered image displayed fully in 'Viewport' window
     ImGui::Begin("Viewport");
     // TODO: Insert gbuffer
+    ImGui::Image((ImTextureID)m_gBuffers.getDescriptorSet(), ImGui::GetContentRegionAvail());
     ImGui::End();
   }
 
@@ -210,10 +214,25 @@ public:
   // The scene is rendered to a GBuffer and the GBuffer is displayed in the ImGui window.
   // Only the ImGui is rendered to the swapchain image.
   // - Called every frame
-  void onRender(VkCommandBuffer cmd) override
-  {
-    
+  void onRender(VkCommandBuffer cmd) override{
+    NVVK_DBG_SCOPE(cmd);
+
+    // Update data
+    shaderio::PushConstant pc{};
+    pc.time = static_cast<float>(ImGui::GetTime());
+
+    // Bind pipeline
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipeline);  
+    // Bind descriptor sets
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipelineLayout,
+                            0, 1, m_descPack.getSetPtr(), 0, nullptr);  
+    // Push constants
+    vkCmdPushConstants(cmd, m_pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &pc);
+    // Dispatch
+    VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE);
+    vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
   }
+
 
   void setupSlangCompiler(){
     m_slangCompiler.addSearchPaths(nvsamples::getShaderDirs());
@@ -253,12 +272,13 @@ public:
     // Create the G-Buffers
     nvvk::GBufferInitInfo gBufferInit{
         .allocator      = &m_alloc,
-        .colorFormats   = {VK_FORMAT_R32G32B32A32_SFLOAT, VK_FORMAT_R8G8B8A8_UNORM},  // Render target, tonemapped
+        .colorFormats   = {VK_FORMAT_R8G8B8A8_UNORM},  // Render target, tonemapped
         .depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
         .imageSampler   = linearSampler,
         .descriptorPool = m_app->getTextureDescriptorPool(),
     };
     m_gBuffers.init(gBufferInit);
+    LOGI("GBuffers size %dx%d\n",m_gBuffers.getSize().width,m_gBuffers.getSize().height);
   }
 
   void createScene(){
@@ -274,10 +294,8 @@ public:
     bindings.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
 
     // Creating the descriptor set and set layout from the bindings
-    // TODO: Understand the flags to know what they do
-    m_descPack.init(bindings, m_app->getDevice(), 1, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-                    VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT);
-
+    // TODO: You can put flags here, maybe this is important
+    NVVK_CHECK(m_descPack.init(bindings, m_app->getDevice(), 1));
     NVVK_DBG_NAME(m_descPack.getLayout());
     NVVK_DBG_NAME(m_descPack.getPool());
     NVVK_DBG_NAME(m_descPack.getSet(0));
@@ -286,7 +304,7 @@ public:
   void createPipelineLayout(){
     // Push constant is used to pass data to the shader at each frame
     const VkPushConstantRange pushConstantsRange{
-      .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS, 
+      .stageFlags = VK_SHADER_STAGE_ALL, 
       .offset = 0, 
       .size = sizeof(shaderio::PushConstant)
     };
@@ -316,7 +334,8 @@ public:
 
     // Create shader module using the pcode
     const uint32_t* spirvPtr = reinterpret_cast<const uint32_t*>(m_slangCompiler.getSpirv());
-    size_t spirvWordCount = m_slangCompiler.getSpirvSize() / sizeof(uint32_t); // TODO: Checj if this really works
+    size_t spirvWordCount = m_slangCompiler.getSpirvSize() / sizeof(uint32_t);
+    LOGI("Compiled SPIRV word count:%zu\n",spirvWordCount);
     NVVK_CHECK(nvvk::createShaderModule(m_shaderModule, m_app->getDevice(), 
     std::span<const uint32_t>(spirvPtr, spirvWordCount)));
     NVVK_DBG_NAME(m_shaderModule);
@@ -343,6 +362,21 @@ public:
         &m_computePipeline));
     NVVK_DBG_NAME(m_computePipeline);
   }
+
+  void updateDescriptorSets(){
+    LOGI("ENTER updateDescriptorSets\n");
+
+    // Update the descriptor set for the GBuffer to work, I think... TODO fix later
+    nvvk::WriteSetContainer writeContainer{};
+    VkWriteDescriptorSet wds = m_descPack.makeWrite(shaderio::BindingPoints::gBuffers,0, 0, uint32_t(1));
+    auto imInfo = m_gBuffers.getDescriptorImageInfo();
+    writeContainer.append(wds, imInfo);
+    vkUpdateDescriptorSets(m_app->getDevice(),  
+                         static_cast<uint32_t>(writeContainer.size()),  
+                         writeContainer.data(), 0, nullptr);
+
+    LOGI("EXIT updateDescriptorSets\n");
+  }  
 
   void onLastHeadlessFrame() override
   {

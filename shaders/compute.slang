@@ -19,7 +19,7 @@
 
 #include "shaderio.h"
 
-[[vk::binding(0)]] RWTexture2D<float4> outImage;
+[[vk::binding(BindingPoints::gBuffers)]] RWTexture2D<float4> outImage;
 [[vk::push_constant]]  ConstantBuffer<PushConstant> pushConst;
 
 

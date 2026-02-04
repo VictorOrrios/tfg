@@ -2,9 +2,10 @@
 
 ## How to use
 
-1.A Setup for release
+1. Setup for release <br>
     `cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -S . -B build -DCMAKE_BUILD_TYPE=Release`
-1.B Setup for debug <br>
+    
+    Setup for debug <br>
     `cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -S . -B build -DCMAKE_BUILD_TYPE=Debug`
 2. Compile <br>
     `cmake --build build --parallel`
