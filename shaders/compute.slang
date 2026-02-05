@@ -30,7 +30,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   float2 fragCoord = threadIdx.xy;
   uint2 iResolution;
   outImage.GetDimensions(iResolution.x, iResolution.y); //DispatchRaysDimensions();
-  
-  float3 finalColor = float3(fragCoord.x/iResolution.x,fragCoord.y/iResolution.y,0.5F);
+  float xColor = (fragCoord.x+pushConst.time*100.0)%iResolution.x/iResolution.x;
+  float yColor = (fragCoord.y+pushConst.time*50.0)%iResolution.y/iResolution.y;
+  float3 finalColor = float3(xColor,yColor,0.5F);
   outImage[int2(fragCoord)] = float4(finalColor, 1.0F);
 }

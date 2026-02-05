@@ -113,8 +113,6 @@ public:
     createPipelineLayout();       // Create the pipeline layout
     compileAndCreateShaders();    // Compile the shaders and create the shader modules
     createComputePipeline();      // Create the pipeline using the layout and the shaders
-    updateDescriptorSets();
-
 
     // TODO: Figure out how to use the profiler tool
     // Init profiler with a single queue
@@ -207,7 +205,17 @@ public:
   //---------------------------------------------------------------------------------------------------------------
   // When the viewport is resized, the GBuffer must be resized
   // - Called when the Window "viewport is resized
-  void onResize(VkCommandBuffer cmd, const VkExtent2D& size) override { NVVK_CHECK(m_gBuffers.update(cmd, size)); }
+  void onResize(VkCommandBuffer cmd, const VkExtent2D& size) override { 
+    NVVK_CHECK(m_gBuffers.update(cmd, size)); 
+
+    // CRITICAL: Needs to update the descriptor set if it resizes the gbuffers
+    nvvk::WriteSetContainer writeContainer;
+    VkWriteDescriptorSet m_writeSet = m_descPack.makeWrite(shaderio::BindingPoints::gBuffers);
+    writeContainer.append(m_writeSet, m_gBuffers.getDescriptorImageInfo());
+    vkUpdateDescriptorSets(m_app->getDevice(),  
+                        static_cast<uint32_t>(writeContainer.size()),  
+                        writeContainer.data(), 0, nullptr);
+  }
 
   //---------------------------------------------------------------------------------------------------------------
   // Rendering the scene
@@ -272,13 +280,12 @@ public:
     // Create the G-Buffers
     nvvk::GBufferInitInfo gBufferInit{
         .allocator      = &m_alloc,
-        .colorFormats   = {VK_FORMAT_R8G8B8A8_UNORM},  // Render target, tonemapped
+        .colorFormats   = {VK_FORMAT_R32G32B32A32_SFLOAT,VK_FORMAT_R8G8B8A8_UNORM},  // Render target, tonemapped
         .depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
         .imageSampler   = linearSampler,
         .descriptorPool = m_app->getTextureDescriptorPool(),
     };
     m_gBuffers.init(gBufferInit);
-    LOGI("GBuffers size %dx%d\n",m_gBuffers.getSize().width,m_gBuffers.getSize().height);
   }
 
   void createScene(){
@@ -363,20 +370,6 @@ public:
     NVVK_DBG_NAME(m_computePipeline);
   }
 
-  void updateDescriptorSets(){
-    LOGI("ENTER updateDescriptorSets\n");
-
-    // Update the descriptor set for the GBuffer to work, I think... TODO fix later
-    nvvk::WriteSetContainer writeContainer{};
-    VkWriteDescriptorSet wds = m_descPack.makeWrite(shaderio::BindingPoints::gBuffers,0, 0, uint32_t(1));
-    auto imInfo = m_gBuffers.getDescriptorImageInfo();
-    writeContainer.append(wds, imInfo);
-    vkUpdateDescriptorSets(m_app->getDevice(),  
-                         static_cast<uint32_t>(writeContainer.size()),  
-                         writeContainer.data(), 0, nullptr);
-
-    LOGI("EXIT updateDescriptorSets\n");
-  }  
 
   void onLastHeadlessFrame() override
   {
