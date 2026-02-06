@@ -134,6 +134,8 @@ public:
     vkDestroyPipelineLayout(device,m_pipelineLayout,nullptr);
     vkDestroyShaderModule(device,m_shaderModule,nullptr);
 
+    m_alloc.destroyBuffer(m_sceneInfoB);
+
     m_gBuffers.deinit();
     m_stagingUploader.deinit();
     m_samplerPool.deinit();
@@ -153,6 +155,9 @@ public:
     // Add window information
     const VkExtent2D& viewportSize = m_app->getViewportSize();
     ImGui::Text("Viewport Size: %d x %d", viewportSize.width, viewportSize.height);
+
+    if(ImGui::CollapsingHeader("Camera"))
+        nvgui::CameraWidget(m_cameraManip);
 
     ImGui::End();
 
@@ -225,9 +230,10 @@ public:
   void onRender(VkCommandBuffer cmd) override{
     NVVK_DBG_SCOPE(cmd);
 
-    // Update data
+    // Update data TODO: Encapsulate
     shaderio::PushConstant pc{};
     pc.time = static_cast<float>(ImGui::GetTime());
+    updateSceneBuffer(cmd);
 
     // Bind pipeline
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipeline);  
@@ -289,7 +295,27 @@ public:
   }
 
   void createScene(){
-    // TODO
+    SCOPED_TIMER(__FUNCTION__);
+    nvvk::ResourceAllocator* allocator = m_stagingUploader.getResourceAllocator();
+    
+    VkCommandBuffer cmd = m_app->createTempCmdBuffer();
+
+      // TODO: Try size = sizeof(shaderio::SceneInfo)
+      NVVK_CHECK(allocator->createBuffer(m_sceneInfoB,
+                                     std::span<const shaderio::SceneInfo>(&m_sceneInfo, 1).size_bytes(),
+                                     VK_BUFFER_USAGE_2_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT));
+      NVVK_DBG_NAME(m_sceneInfoB.buffer);
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneInfoB, 0,
+                                          std::span<const shaderio::SceneInfo>(&m_sceneInfo, 1)));
+
+      m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
+
+    m_app->submitAndWaitTempCmdBuffer(cmd); 
+
+
+    // Camera setup
+    m_cameraManip->setClipPlanes({0.01F, 100.0F});
+    m_cameraManip->setLookat({0.0F, 0.5F, 5.0}, {0.F, 0.F, 0.F}, {0.0F, 1.0F, 0.0F});
   }
 
   //---------------------------------------------------------------------------------------------------------------
@@ -298,7 +324,8 @@ public:
   void createDescriptorSetLayout(){
     nvvk::DescriptorBindings bindings;
     // Add bindings here, if needed
-    bindings.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::gBuffers, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::sceneInfo, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
     // Creating the descriptor set and set layout from the bindings
     // TODO: You can put flags here, maybe this is important
@@ -306,6 +333,13 @@ public:
     NVVK_DBG_NAME(m_descPack.getLayout());
     NVVK_DBG_NAME(m_descPack.getPool());
     NVVK_DBG_NAME(m_descPack.getSet(0));
+
+    nvvk::WriteSetContainer writeContainer;
+    VkWriteDescriptorSet m_writeSet = m_descPack.makeWrite(shaderio::BindingPoints::sceneInfo);
+    writeContainer.append(m_writeSet, m_sceneInfoB.buffer);
+    vkUpdateDescriptorSets(m_app->getDevice(),  
+                        static_cast<uint32_t>(writeContainer.size()),  
+                        writeContainer.data(), 0, nullptr);
   }
 
   void createPipelineLayout(){
@@ -370,6 +404,23 @@ public:
     NVVK_DBG_NAME(m_computePipeline);
   }
 
+  void updateSceneBuffer(VkCommandBuffer cmd){
+    NVVK_DBG_SCOPE(cmd);
+
+    const glm::mat4& viewMatrix = m_cameraManip->getViewMatrix();
+    const glm::mat4& projMatrix = m_cameraManip->getPerspectiveMatrix();
+
+    m_sceneInfo.viewProjMatrix = projMatrix * viewMatrix;  // Combine the view and projection matrices
+    m_sceneInfo.cameraPosition = m_cameraManip->getEye();  // Get the camera position
+
+    // Making sure the scene information buffer is updated before rendering
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneInfoB.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                       VK_PIPELINE_STAGE_2_TRANSFER_BIT});
+    vkCmdUpdateBuffer(cmd, m_sceneInfoB.buffer, 0, sizeof(shaderio::SceneInfo), &m_sceneInfo);
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneInfoB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
+  }
+
 
   void onLastHeadlessFrame() override
   {
@@ -390,13 +441,17 @@ private:
   nvslang::SlangCompiler m_slangCompiler{};   // The Slang compiler used to compile the shaders
 
   // Pipeline
-  VkPipeline            m_computePipeline;    // Compute shader module
+  VkPipeline            m_computePipeline;    // Compute pipeline
   VkShaderModule        m_shaderModule{};     // Compute shader module
   VkPipelineLayout      m_pipelineLayout{};   // Compute pipeline layout
   nvvk::DescriptorPack  m_descPack;           // The descriptor bindings used to create the descriptor set layout and descriptor sets
 
   // Push constants to send 
   shaderio::PushConstant m_pushConst = {.time = 0.0f};
+
+  // Scene information. TODO: encapsulate this into a class
+  shaderio::SceneInfo   m_sceneInfo{};        // Struct containing the scene information
+  nvvk::Buffer          m_sceneInfoB;    // Buffer binded to the UBO of scene info
 
   // Pre-built components
   std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()}; // Camera manipulator
@@ -479,13 +534,20 @@ int main(int argc, char** argv)
   nvapp::Application app;
   app.init(appInfo);
 
-  // add the sample main element
+  // add camera element
+  auto elemCamera = std::make_shared<nvapp::ElementCamera>();
+  auto camManip = appElement->getCameraManipulator();
+  elemCamera->setCameraManipulator(camManip);
+  app.addElement(elemCamera);
+  // add the app element
   app.addElement(appElement);
+  // add the window element
   app.addElement(std::make_shared<nvapp::ElementDefaultWindowTitle>());
   // add profiler element
   app.addElement(std::make_shared<nvapp::ElementProfiler>(&profilerManager));
   // add logger element
   app.addElement(elementLogger);
+  
 
   // enter the main loop
   app.run();

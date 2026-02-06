@@ -16,11 +16,14 @@
  * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
+// TODO: Change banner
 
 #include "shaderio.h"
 
-[[vk::binding(BindingPoints::gBuffers)]] RWTexture2D<float4> outImage;
 [[vk::push_constant]]  ConstantBuffer<PushConstant> pushConst;
+
+[[vk::binding(BindingPoints::gBuffers)]] RWTexture2D<float4> outImage;
+[[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 
 
 [shader("compute")]
@@ -32,6 +35,6 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   outImage.GetDimensions(iResolution.x, iResolution.y); //DispatchRaysDimensions();
   float xColor = (fragCoord.x+pushConst.time*100.0)%iResolution.x/iResolution.x;
   float yColor = (fragCoord.y+pushConst.time*50.0)%iResolution.y/iResolution.y;
-  float3 finalColor = float3(xColor,yColor,0.5F);
+  float3 finalColor = float3(xColor,yColor,sceneInfo.cameraPosition.x/255.0);
   outImage[int2(fragCoord)] = float4(finalColor, 1.0F);
 }

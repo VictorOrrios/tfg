@@ -20,6 +20,12 @@
 #ifndef SHADERIO_H
 #define SHADERIO_H
 
+#ifdef __cplusplus
+#define CHECK_STRUCT_ALIGNMENT(_s) static_assert(sizeof(_s) % 8 == 0);
+#elif defined(__SLANG__)
+#define CHECK_STRUCT_ALIGNMENT(_s)
+#endif
+
 #include "nvshaders/slang_types.h"
 
 NAMESPACE_SHADERIO_BEGIN()
@@ -29,13 +35,21 @@ NAMESPACE_SHADERIO_BEGIN()
 // Shared between Host and Device
 enum BindingPoints
 {
-  gBuffers = 0,  // Binding point for textures
+  gBuffers = 0,
+  sceneInfo = 1,
 };
 
 struct PushConstant
 {
   float time;
 };
+
+struct SceneInfo{
+  float4x4  viewProjMatrix;     // View projection matrix for the scene
+  float3    cameraPosition;     // Camera position in world space
+  float     _pad;
+};
+CHECK_STRUCT_ALIGNMENT(SceneInfo)
 
 
 
