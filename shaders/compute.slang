@@ -68,20 +68,19 @@ float3 cast(Ray r){
   if(d >= 0.0){
     return float3(1.0,0.0,0.0);
   }else{
-    return float3(0.0,0.0,0.0);
+    return r.dir;
   }
 }
 
+
 Ray get_ray(float2 uv){
   // Calculate offsets
-  float2 ndc = uv * 2.0 - float2(1.0);
-  ndc.y = -ndc.y;
-  float4 rayClip = float4(ndc.x, ndc.y, 1.0, 1.0);
+  float2 ndc = uv * 2.0 - 1.0;
+  float4 rayClip = float4(ndc.x, ndc.y, -1.0, 1.0);
 
-  float4 view = mul(sceneInfo.projMatrix,rayClip);
-  view.xyz /= view.w;
-  float4 world = mul(sceneInfo.viewMatrix,view);
-  float3 dir = normalize(world.xyz- sceneInfo.cameraPosition);
+  float4 view = mul(rayClip,sceneInfo.projMatrix);
+  float3 world = mul(float4(normalize(view.xyz),0.0),sceneInfo.viewMatrix).xyz;
+  float3 dir = normalize(world);
 
   Ray ray;
   ray.orig = sceneInfo.cameraPosition;
@@ -89,7 +88,6 @@ Ray get_ray(float2 uv){
 
   return ray;
 }
-
 
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE, WORKGROUP_SIZE, 1)]
