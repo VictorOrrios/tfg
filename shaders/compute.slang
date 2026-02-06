@@ -25,6 +25,71 @@
 [[vk::binding(BindingPoints::gBuffers)]] RWTexture2D<float4> outImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 
+struct Ray {
+  float3 orig;
+  float3 dir;
+};
+
+float sdSphere(float3 p, float s){
+    return length(p) - s;
+}
+
+float sdf_global(float3 p){
+  return sdSphere(p, 0.5);
+}
+
+float rayMarch(Ray ray)
+{
+    const float MAX_DIST = 100.0;
+    const float MIN_DIST = 0.001;
+    
+    float depth = 0.0;
+    
+    for(int i = 0; i < 100; i++){
+        float3 p = ray.orig + ray.dir * depth;
+        float dist = sdf_global(p);
+        
+        if(abs(dist) < MIN_DIST){
+            return depth;  // Hit
+        }
+        
+        if(depth > MAX_DIST){
+            return -1.0;  // No hit
+        }
+        
+        depth += dist;
+    }
+    
+    return -1.0;
+}
+
+float3 cast(Ray r){
+  float d = rayMarch(r);
+  if(d >= 0.0){
+    return float3(1.0,0.0,0.0);
+  }else{
+    return float3(0.0,0.0,0.0);
+  }
+}
+
+Ray get_ray(float2 uv){
+  // Calculate offsets
+  float2 ndc = uv * 2.0 - float2(1.0);
+  ndc.y = -ndc.y;
+  float4 rayClip = float4(ndc.x, ndc.y, 1.0, 1.0);
+
+  float4 view = mul(sceneInfo.projMatrix,rayClip);
+  view.xyz /= view.w;
+  float4 world = mul(sceneInfo.viewMatrix,view);
+  float3 dir = normalize(world.xyz- sceneInfo.cameraPosition);
+
+  Ray ray;
+  ray.orig = sceneInfo.cameraPosition;
+  ray.dir = dir;
+
+  return ray;
+}
+
 
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE, WORKGROUP_SIZE, 1)]
@@ -32,9 +97,12 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 {
   float2 fragCoord = threadIdx.xy;
   uint2 iResolution;
-  outImage.GetDimensions(iResolution.x, iResolution.y); //DispatchRaysDimensions();
-  float xColor = (fragCoord.x+pushConst.time*100.0)%iResolution.x/iResolution.x;
-  float yColor = (fragCoord.y+pushConst.time*50.0)%iResolution.y/iResolution.y;
-  float3 finalColor = float3(xColor,yColor,sceneInfo.cameraPosition.x/255.0);
+  outImage.GetDimensions(iResolution.x, iResolution.y);
+  float2 uv = fragCoord/iResolution;
+  Ray r = get_ray(uv);
+  float3 finalColor = cast(r);
+  //finalColor = r.dir;
+  //finalColor = float3(uv,0.0);
+
   outImage[int2(fragCoord)] = float4(finalColor, 1.0F);
 }

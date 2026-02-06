@@ -24,6 +24,7 @@
 // TODO: Change the comment paragraph
 
 
+#include "glm/matrix.hpp"
 #define VMA_IMPLEMENTATION
 // TODO: Organize and label imports
 
@@ -410,7 +411,9 @@ public:
     const glm::mat4& viewMatrix = m_cameraManip->getViewMatrix();
     const glm::mat4& projMatrix = m_cameraManip->getPerspectiveMatrix();
 
-    m_sceneInfo.viewProjMatrix = projMatrix * viewMatrix;  // Combine the view and projection matrices
+    m_sceneInfo.viewMatrix = glm::inverse(viewMatrix);
+    m_sceneInfo.projMatrix = glm::inverse(projMatrix);
+    m_sceneInfo.viewProjMatrix = glm::inverse(projMatrix * viewMatrix);
     m_sceneInfo.cameraPosition = m_cameraManip->getEye();  // Get the camera position
 
     // Making sure the scene information buffer is updated before rendering

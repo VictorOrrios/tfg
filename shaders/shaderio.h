@@ -39,13 +39,14 @@ enum BindingPoints
   sceneInfo = 1,
 };
 
-struct PushConstant
-{
+struct PushConstant{
   float time;
 };
 
 struct SceneInfo{
-  float4x4  viewProjMatrix;     // View projection matrix for the scene
+  float4x4  viewProjMatrix;
+  float4x4  viewMatrix;
+  float4x4  projMatrix;
   float3    cameraPosition;     // Camera position in world space
   float     _pad;
 };
