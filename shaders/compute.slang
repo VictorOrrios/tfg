@@ -101,8 +101,9 @@ float sdSnowMan(float3 p){
 }
 
 float map(float3 p){
+  float t = sin(pushConst.time)*0.5+0.5;
   float r = 100000.0;
-  r = min(r,sdSnowMan(p));
+  r = min(r,lerp(sdSnowMan(p),sdSphere(p,1.0),t*t));
   r = min(r,sdPlane(p,float3(0,1,0),1.0));
   return r;
 }
