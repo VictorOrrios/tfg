@@ -30,24 +30,116 @@ struct Ray {
   float3 dir;
 };
 
-float sdSphere(float3 p, float s){
-    return length(p) - s;
+//---------------------------------------
+// Operations from Iñigo Quilez
+//---------------------------------------
+
+float opUnion(float a, float b){
+    return min(a,b);
+}
+float opSubtraction(float a, float b){
+    return max(-a,b);
+}
+float opIntersection(float a, float b){
+    return max(a,b);
+}
+float opXor(float a, float b){
+    return max(min(a,b),-max(a,b));
+}
+float opSmoothUnion(float a, float b, float k){
+    k *= 4.0;
+    float h = max(k-abs(a-b),0.0);
+    return min(a, b) - h*h*0.25/k;
+}
+float opSmoothSubtraction(float a, float b, float k){
+    return -opSmoothUnion(a,-b,k);
+
+    // k *= 4.0;
+    // float h = max(k-abs(-a-b),0.0);
+    // return max(-a, b) + h*h*0.25/k;
+}
+float opSmoothIntersection(float a, float b, float k){
+    return -opSmoothUnion(-a,-b,k);
+
+    // k *= 4.0;
+    // float h = max(k-abs(a-b),0.0);
+    // return max(a, b) + h*h*0.25/k;
 }
 
-float sdf_global(float3 p){
-  return sdSphere(p, 0.5);
+//---------------------------------------
+// 3D SDF Primitives from Iñigo Quilez
+//---------------------------------------
+
+float sdSphere(float3 p, float s){
+  return length(p) - s;
+}
+// Pre: n must be normalized
+float sdPlane(float3 p, float3 n, float h ){
+  return dot(p,n) + h;
+}
+float sdCapsule(float3 p, float3 a, float3 b, float r){
+  float3 pa = p - a, ba = b - a;
+  float h = clamp( dot(pa,ba)/dot(ba,ba), 0.0, 1.0 );
+  return length( pa - ba*h ) - r;
+}
+float sdRoundedCylinder(float3 p, float ra, float rb, float h){
+  float2 d = float2( length(p.xz)-ra+rb, abs(p.y) - h + rb );
+  return min(max(d.x,d.y),0.0) + length(max(d,0.0)) - rb;
+}
+
+float sdSnowMan(float3 p){
+  float r = sdSphere(p,1.0);
+  r = opSmoothUnion(r,sdSphere(p-float3(0,1.5,0),0.6),0.1);
+  r = opSmoothUnion(r,sdSphere(p-float3(0.3,1.6,0.5),0.1),0.01);
+  r = opSmoothUnion(r,sdSphere(p-float3(-0.3,1.6,0.5),0.1),0.01);
+  r = opSmoothUnion(r,sdCapsule(p,float3(0.0),float3(1.6,0.8,0.0),0.15),0.05);
+  r = opSmoothUnion(r,sdCapsule(p,float3(0.0),float3(-1.6,0.8,0.0),0.15),0.05);
+  r = opSmoothUnion(r,sdCapsule(p,float3(0.0,1.4,0.0),float3(0.0,1.3,0.8),0.05),0.01);
+  r = opUnion(r,sdRoundedCylinder(p-float3(0.0,2.1,0.0),0.7,0.05,0.1));
+  r = opUnion(r,sdRoundedCylinder(p-float3(0.0,2.5,0.0),0.4,0.05,0.5));
+  return r;
+}
+
+float map(float3 p){
+  float r = 100000.0;
+  r = min(r,sdSnowMan(p));
+  r = min(r,sdPlane(p,float3(0,1,0),1.0));
+  return r;
+}
+
+// True numerical
+float3 calcNormalSlow(float3 p){
+  const float eps = 0.0001;
+  const float2 h = float2(eps,0.0);
+  return normalize(float3(
+    map(p+h.xyy)-map(p-h.xyy),
+    map(p+h.yxy)-map(p-h.yxy),
+    map(p+h.yyx)-map(p-h.yyx)
+  ));
+}
+
+// Tetrahedron aproximation
+float3 calcNormal(float3 p){
+  const float h = 0.0001;
+  const float2 k = float2(1,-1);
+  return normalize(
+    k.xyy*map(p + k.xyy*h) +
+    k.yyx*map(p + k.yyx*h) + 
+    k.yxy*map(p + k.yxy*h) + 
+    k.xxx*map(p + k.xxx*h)
+  );
 }
 
 float rayMarch(Ray ray)
 {
     const float MAX_DIST = 100.0;
-    const float MIN_DIST = 0.001;
+    const float MIN_DIST = 0.0001;
     
     float depth = 0.0;
     
-    for(int i = 0; i < 100; i++){
+    for(int i = 0; i < 500; i++){
         float3 p = ray.orig + ray.dir * depth;
-        float dist = sdf_global(p);
+        float dist = map(p);
         
         if(abs(dist) < MIN_DIST){
             return depth;  // Hit
@@ -66,7 +158,14 @@ float rayMarch(Ray ray)
 float3 cast(Ray r){
   float d = rayMarch(r);
   if(d >= 0.0){
-    return float3(1.0,0.0,0.0);
+    float3 p = r.orig+r.dir*d;
+    float3 n = calcNormal(p);
+    float3 sunDir = float3(1.0,1.0,0.5);
+    float3 sunColor = float3(0.839, 0.921, 1);
+    float3 shadowColor = float3(0, 0.172, 0.341);
+
+    //return dot(n,sunDir)*sunColor;
+    return lerp(shadowColor,sunColor,dot(n,sunDir));
   }else{
     return r.dir;
   }
