@@ -281,6 +281,9 @@ public:
     VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE);
     vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
   
+    nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgRendered), VK_IMAGE_LAYOUT_GENERAL,
+                                      VK_IMAGE_LAYOUT_GENERAL});
+
     postProcess(cmd);
   }
 
