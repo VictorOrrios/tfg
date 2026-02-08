@@ -4,6 +4,8 @@ cmake_build/
 _install/
 _downloaded_resources
 _bin/
+_deps/
+_autogen/
 .vscode/
 .cache/
 

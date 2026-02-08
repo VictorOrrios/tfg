@@ -39,6 +39,10 @@
 #include "utils/path_utils.hpp"
 #include "utils/utils.hpp"
 
+#include "_autogen/compute.slang.h"
+#include "_autogen/sky_simple.slang.h"
+#include "_autogen/tonemapper.slang.h"
+
 #include <backends/imgui_impl_vulkan.h>
 #include <nvapp/application.hpp>
 #include <nvapp/elem_profiler.hpp>
@@ -74,6 +78,12 @@
 
 class AppElement : public nvapp::IAppElement
 {
+  enum
+  {
+    eImgRendered,
+    eImgTonemapped
+  };
+
 public:
   struct Info
   {
@@ -99,7 +109,7 @@ public:
         .physicalDevice   = app->getPhysicalDevice(),
         .device           = app->getDevice(),
         .instance         = app->getInstance(),
-        .vulkanApiVersion = VK_API_VERSION_1_4,
+        .vulkanApiVersion = VK_API_VERSION_1_4, 
     };
 
     // Initialize core components
@@ -114,6 +124,13 @@ public:
     createPipelineLayout();       // Create the pipeline layout
     compileAndCreateShaders();    // Compile the shaders and create the shader modules
     createComputePipeline();      // Create the pipeline using the layout and the shaders
+
+    // Initialize the Sky with the pre-compiled shader
+    // TODO: Figure out why it core dumps
+    //m_skySimple.init(&m_alloc, std::span<const uint32_t>(sky_simple_slang));
+
+    // Initialize the tonemapper also with proe-compiled shader
+    m_tonemapper.init(&m_alloc, std::span<const uint32_t>(tonemapper_slang));
 
     // TODO: Figure out how to use the profiler tool
     // Init profiler with a single queue
@@ -139,6 +156,8 @@ public:
 
     m_gBuffers.deinit();
     m_stagingUploader.deinit();
+    //m_skySimple.deinit();
+    m_tonemapper.deinit();
     m_samplerPool.deinit();
     m_alloc.deinit();
     m_profilerGpuTimer.deinit();
@@ -160,12 +179,15 @@ public:
     if(ImGui::CollapsingHeader("Camera"))
         nvgui::CameraWidget(m_cameraManip);
 
+    if(ImGui::CollapsingHeader("Tonemapper"))
+        nvgui::tonemapperWidget(m_tonemapperData);
+
     ImGui::End();
 
     // Rendered image displayed fully in 'Viewport' window
     ImGui::Begin("Viewport");
     // TODO: Insert gbuffer
-    ImGui::Image((ImTextureID)m_gBuffers.getDescriptorSet(), ImGui::GetContentRegionAvail());
+    ImGui::Image((ImTextureID)m_gBuffers.getDescriptorSet(eImgTonemapped), ImGui::GetContentRegionAvail());
     ImGui::End();
   }
 
@@ -175,6 +197,7 @@ public:
   void onUIMenu() override
   {
     bool vsync = m_app->isVsync();
+    bool reload = false;
 
     if(ImGui::BeginMenu("File"))
     {
@@ -186,6 +209,17 @@ public:
     {
       ImGui::MenuItem("V-Sync", "Ctrl+Shift+V", &vsync);
       ImGui::EndMenu();
+    }
+    if(ImGui::BeginMenu("Tools"))
+    {
+      reload |= ImGui::MenuItem("Reload Shaders", "F5");
+      ImGui::EndMenu();
+    }
+    reload |= ImGui::IsKeyPressed(ImGuiKey_F5);
+    if(reload){
+      vkQueueWaitIdle(m_app->getQueue(0).queue);
+      compileAndCreateShaders();  // Recompile shaders on F5 key press
+      createComputePipeline();
     }
 
     if(ImGui::IsKeyPressed(ImGuiKey_Q) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
@@ -217,7 +251,7 @@ public:
     // CRITICAL: Needs to update the descriptor set if it resizes the gbuffers
     nvvk::WriteSetContainer writeContainer;
     VkWriteDescriptorSet m_writeSet = m_descPack.makeWrite(shaderio::BindingPoints::gBuffers);
-    writeContainer.append(m_writeSet, m_gBuffers.getDescriptorImageInfo());
+    writeContainer.append(m_writeSet, m_gBuffers.getDescriptorImageInfo(eImgRendered));
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
                         writeContainer.data(), 0, nullptr);
@@ -230,7 +264,7 @@ public:
   // - Called every frame
   void onRender(VkCommandBuffer cmd) override{
     NVVK_DBG_SCOPE(cmd);
-
+    
     // Update data TODO: Encapsulate
     shaderio::PushConstant pc{};
     pc.time = static_cast<float>(ImGui::GetTime());
@@ -246,8 +280,18 @@ public:
     // Dispatch
     VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE);
     vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
+  
+    postProcess(cmd);
   }
 
+  // Apply post-processing
+  void postProcess(VkCommandBuffer cmd){
+    NVVK_DBG_SCOPE(cmd);
+    // No img layout transition needed, I think
+    // Default post-processing: tonemapping
+    m_tonemapper.runCompute(cmd, m_gBuffers.getSize(), m_tonemapperData, m_gBuffers.getDescriptorImageInfo(eImgRendered),
+                            m_gBuffers.getDescriptorImageInfo(eImgTonemapped));
+  }
 
   void setupSlangCompiler(){
     m_slangCompiler.addSearchPaths(nvsamples::getShaderDirs());
@@ -367,9 +411,16 @@ public:
     // Destroy the previous shader module, if it exist
     vkDestroyShaderModule(m_app->getDevice(), m_shaderModule, nullptr);
 
+    // Use pre-compiled shaders by default
+    VkShaderModuleCreateInfo shaderCode = nvsamples::getShaderModuleCreateInfo(compute_slang);
+
     // Get .slang file and compile to spirv
     std::filesystem::path shaderSource = nvutils::findFile("compute.slang", nvsamples::getShaderDirs());
-    if(!m_slangCompiler.compileFile(shaderSource)){
+    if(m_slangCompiler.compileFile(shaderSource)){
+      // Using the Slang compiler to compile the shaders
+      shaderCode.codeSize = m_slangCompiler.getSpirvSize();
+      shaderCode.pCode    = m_slangCompiler.getSpirv();
+    }else{
       LOGE("Error compiling shader: %s\n%s\n", shaderSource.string().c_str(),
            m_slangCompiler.getLastDiagnosticMessage().c_str());
     }
@@ -377,7 +428,6 @@ public:
     // Create shader module using the pcode
     const uint32_t* spirvPtr = reinterpret_cast<const uint32_t*>(m_slangCompiler.getSpirv());
     size_t spirvWordCount = m_slangCompiler.getSpirvSize() / sizeof(uint32_t);
-    LOGI("Compiled SPIRV word count:%zu\n",spirvWordCount);
     NVVK_CHECK(nvvk::createShaderModule(m_shaderModule, m_app->getDevice(), 
     std::span<const uint32_t>(spirvPtr, spirvWordCount)));
     NVVK_DBG_NAME(m_shaderModule);
@@ -405,6 +455,14 @@ public:
     NVVK_DBG_NAME(m_computePipeline);
   }
 
+  void reloadShaders(){
+    compileAndCreateShaders();
+    vkDeviceWaitIdle(m_app->getDevice());
+    vkDestroyPipeline(m_app->getDevice(),m_computePipeline,nullptr);
+    createComputePipeline();
+  }
+
+
   void updateSceneBuffer(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
 
@@ -424,10 +482,9 @@ public:
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
 
-
   void onLastHeadlessFrame() override
   {
-    m_app->saveImageToFile(m_gBuffers.getColorImage(), m_gBuffers.getSize(),
+    m_app->saveImageToFile(m_gBuffers.getColorImage(eImgTonemapped), m_gBuffers.getSize(),
                            nvutils::getExecutablePath().replace_extension(".jpg").string());
   }
 
@@ -458,6 +515,9 @@ private:
 
   // Pre-built components
   std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()}; // Camera manipulator
+  nvshaders::SkySimple     m_skySimple{};       // Sky rendering
+  nvshaders::Tonemapper    m_tonemapper{};      // Tonemapper for post-processing effects
+  shaderio::TonemapperData m_tonemapperData{};  // Tonemapper data used to pass parameters to the tonemapper shader
 
   // Startup managers for profiler and paramter registry
   Info m_info;
@@ -490,7 +550,9 @@ int main(int argc, char** argv)
 
   nvvk::ContextInitInfo vkSetup{
       .instanceExtensions = {VK_EXT_DEBUG_UTILS_EXTENSION_NAME},
-      .deviceExtensions   = {{VK_KHR_SWAPCHAIN_EXTENSION_NAME}},
+      .deviceExtensions   = {
+        {VK_KHR_SWAPCHAIN_EXTENSION_NAME},
+        {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME}},
       .enableValidationLayers = true
   };
 
