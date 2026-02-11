@@ -24,6 +24,7 @@
 // TODO: Change the comment paragraph
 
 
+#include "glm/geometric.hpp"
 #include "glm/matrix.hpp"
 #include <cstdint>
 #define VMA_IMPLEMENTATION
@@ -119,6 +120,10 @@ public:
     m_samplerPool.init(app->getDevice());
     m_stagingUploader.init(&m_alloc, true);
 
+    // TODO set back to on when proper lighting solution is made
+    // Set tonemapping off by default
+    m_tonemapperData.isActive = 0;
+
     setupSlangCompiler();         // Setup slang compiler with correct build config flags
     createScene();                // Create the scene and fill it up with sdfs
     setupGBuffers();              // Set up the GBuffers to render to
@@ -182,6 +187,22 @@ public:
 
     if(ImGui::CollapsingHeader("Tonemapper"))
         nvgui::tonemapperWidget(m_tonemapperData);
+
+    if(ImGui::CollapsingHeader("Lighting data")){
+      ImGui::Text("Directional Light");
+      ImGui::SliderFloat3("Direction", &m_pushConst.lp.lightDir.x, -1.0f, 1.0f);
+      ImGui::ColorEdit3("Light Color", &m_pushConst.lp.lightColor.x);
+
+      ImGui::Separator();
+      ImGui::Text("Ambient Hemispheric");
+      ImGui::ColorEdit3("Ambient Top", &m_pushConst.lp.ambientTop.x);
+      ImGui::ColorEdit3("Ambient Bottom", &m_pushConst.lp.ambientBottom.x);
+
+      ImGui::Separator();
+      ImGui::Text("Fog");
+      ImGui::SliderFloat("Fog Density", &m_pushConst.lp.fogDensity, 0.0f, 0.2f);
+      ImGui::ColorEdit3("Fog Color", &m_pushConst.lp.fogColor.x);
+    }
 
     ImGui::End();
 
@@ -289,6 +310,7 @@ public:
     
     // Update data TODO: Encapsulate
     m_pushConst.time = static_cast<float>(ImGui::GetTime());
+    m_pushConst.lp.lightDir = glm::normalize(m_pushConst.lp.lightDir);
     updateSceneBuffer(cmd);
 
     tracingPass(cmd);

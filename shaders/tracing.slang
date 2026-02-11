@@ -204,7 +204,11 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   float3 p = r.orig+r.dir*depth;
   float3 normal = calcNormal(p);
 
+  float3 groundColor = float3(0.294, 0.49, 0.024);
+  float3 snowColor = float3(0.8F);
+  float3 albedo = p.y > -0.95F? snowColor : groundColor;
+
   normalImage[int2(fragCoord)] = float4(normal, 0.0F);
-  albedoImage[int2(fragCoord)] = float4(1.0F);
+  albedoImage[int2(fragCoord)] = float4(albedo,1.0F);
   depthImage[int2(fragCoord)] = depth;
 }

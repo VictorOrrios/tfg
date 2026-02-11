@@ -26,7 +26,16 @@
 [[vk::binding(BindingPoints::normalBuffer)]] RWTexture2D<float4> normalImage;
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
+[[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 
+float3 getV(float2 uv){
+  float2 ndc = uv * 2.0 - 1.0;
+  float4 rayClip = float4(ndc.x, ndc.y, -1.0, 1.0);
+
+  float4 view = mul(rayClip,sceneInfo.projMatrix);
+  float3 world = mul(float4(normalize(view.xyz),0.0),sceneInfo.viewMatrix).xyz;
+  return normalize(world);
+}
 
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE, WORKGROUP_SIZE, 1)]
@@ -37,18 +46,37 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   outImage.GetDimensions(iResolution.x, iResolution.y);
   float2 uv = fragCoord/iResolution;
   
-  float3 normal = normalImage[int2(fragCoord)].xyz;
+  float3 N = normalImage[int2(fragCoord)].xyz;
   float3 albedo = albedoImage[int2(fragCoord)].xyz;
   float depth = depthImage[int2(fragCoord)];
-
-  float3 sunDir = normalize(float3(1.0,1.0,0.5));
-  float3 sunColor = float3(0.839, 0.921, 1);
-  float3 shadowColor = float3(0, 0.172, 0.341);
-
   float3 finalColor;
 
   if(depth >= 0.0){
-    finalColor = lerp(shadowColor,sunColor,dot(normal,sunDir));
+    float3 V = getV(uv);
+    float3 L = -pushConst.lp.lightDir;
+    float3 H = normalize(L+V);
+
+    float NdotL = saturate(dot(N, L));
+    float3 diffuse = albedo * pushConst.lp.lightColor * NdotL;
+
+    // Hemispheric ambient
+    float hemi = N.y * 0.5 + 0.5;
+    float3 ambient = lerp(pushConst.lp.ambientBottom, pushConst.lp.ambientTop, hemi) * albedo;
+
+    // Bling-Phong specular
+    float spec = pow(saturate(dot(N, H)), 64);
+    float3 specular = pushConst.lp.lightColor * spec * 0.3;
+
+    // Rim lighting
+    float rim = pow(1 - saturate(dot(N, V)), 3);
+    float3 rimLight = pushConst.lp.lightColor * rim * 0.25;
+
+    // Depth based fog
+    float fog = 1 - exp(-depth * pushConst.lp.fogDensity);
+
+    // Color calculation
+    float3 color = diffuse + ambient + specular + rimLight;
+    finalColor = lerp(color, pushConst.lp.fogColor, fog);
   }else{
     finalColor = float3(0.0);
   }
