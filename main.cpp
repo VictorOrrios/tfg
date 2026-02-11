@@ -25,6 +25,7 @@
 
 
 #include "glm/matrix.hpp"
+#include <cstdint>
 #define VMA_IMPLEMENTATION
 // TODO: Organize and label imports
 
@@ -39,7 +40,8 @@
 #include "utils/path_utils.hpp"
 #include "utils/utils.hpp"
 
-#include "_autogen/compute.slang.h"
+#include "_autogen/tracing.slang.h"
+#include "_autogen/lighting.slang.h"
 #include "_autogen/sky_simple.slang.h"
 #include "_autogen/tonemapper.slang.h"
 
@@ -65,9 +67,7 @@
 #include "nvvk/descriptors.hpp"           // Descriptor set management
 #include <nvapp/elem_camera.hpp>           // Camera manipulator
 #include <nvutils/camera_manipulator.hpp>
-#include <nvgui/sky.hpp>                   // Sky widget
 #include <nvgui/tonemapper.hpp>            // Tonemapper widget
-#include <nvshaders_host/sky.hpp>          // Sky shader
 #include <nvshaders_host/tonemapper.hpp>   // Tonemapper shader
 #include <nvgui/camera.hpp>                // Camera widget
 #include <nvvk/formats.hpp>
@@ -80,8 +80,10 @@ class AppElement : public nvapp::IAppElement
 {
   enum
   {
+    eImgNormal,
+    eImgAlbedo,
     eImgRendered,
-    eImgTonemapped
+    eImgTonemapped,
   };
 
 public:
@@ -95,7 +97,7 @@ public:
   AppElement(const Info& info)
       : m_info(info)
   {
-    // let's add a command-line option to toggle animation
+    // Add run parameter example
     //m_info.parameterRegistry->add({"animate"}, &m_animate);
   }
 
@@ -118,18 +120,14 @@ public:
     m_stagingUploader.init(&m_alloc, true);
 
     setupSlangCompiler();         // Setup slang compiler with correct build config flags
-    setupGBuffers();              // Set up the GBuffers to render to
     createScene();                // Create the scene and fill it up with sdfs
+    setupGBuffers();              // Set up the GBuffers to render to
     createDescriptorSetLayout();  // Create the descriptor set layout for the pipeline
-    createPipelineLayout();       // Create the pipeline layout
+    createPipelineLayouts();      // Create the pipeline layouts
     compileAndCreateShaders();    // Compile the shaders and create the shader modules
-    createComputePipeline();      // Create the pipeline using the layout and the shaders
+    createPipelines();      // Create the pipelines using the layouts and the shaders
 
-    // Initialize the Sky with the pre-compiled shader
-    // TODO: Figure out why it core dumps
-    //m_skySimple.init(&m_alloc, std::span<const uint32_t>(sky_simple_slang));
-
-    // Initialize the tonemapper also with proe-compiled shader
+    // Initialize the tonemapper with proe-compiled shader
     m_tonemapper.init(&m_alloc, std::span<const uint32_t>(tonemapper_slang));
 
     // TODO: Figure out how to use the profiler tool
@@ -148,9 +146,12 @@ public:
     VkDevice device = m_app->getDevice();
 
     m_descPack.deinit();
-    vkDestroyPipeline(device,m_computePipeline,nullptr);
-    vkDestroyPipelineLayout(device,m_pipelineLayout,nullptr);
-    vkDestroyShaderModule(device,m_shaderModule,nullptr);
+    vkDestroyPipeline(device,m_tracingPipeline,nullptr);
+    vkDestroyPipeline(device,m_lightingPipeline,nullptr);
+    vkDestroyPipelineLayout(device,m_tracingLayout,nullptr);
+    vkDestroyPipelineLayout(device,m_lightingLayout,nullptr);
+    vkDestroyShaderModule(device,m_tracingModule,nullptr);
+    vkDestroyShaderModule(device,m_lightingModule,nullptr);
 
     m_alloc.destroyBuffer(m_sceneInfoB);
 
@@ -218,8 +219,7 @@ public:
     reload |= ImGui::IsKeyPressed(ImGuiKey_F5);
     if(reload){
       vkQueueWaitIdle(m_app->getQueue(0).queue);
-      compileAndCreateShaders();  // Recompile shaders on F5 key press
-      createComputePipeline();
+      reloadShaders();
     }
 
     if(ImGui::IsKeyPressed(ImGuiKey_Q) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
@@ -250,8 +250,30 @@ public:
 
     // CRITICAL: Needs to update the descriptor set if it resizes the gbuffers
     nvvk::WriteSetContainer writeContainer;
-    VkWriteDescriptorSet m_writeSet = m_descPack.makeWrite(shaderio::BindingPoints::gBuffers);
-    writeContainer.append(m_writeSet, m_gBuffers.getDescriptorImageInfo(eImgRendered));
+
+    writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::renderTarget), 
+      m_gBuffers.getDescriptorImageInfo(eImgRendered));
+
+    writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::normalBuffer), 
+      m_gBuffers.getDescriptorImageInfo(eImgNormal));
+
+    writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::albedoBuffer), 
+      m_gBuffers.getDescriptorImageInfo(eImgAlbedo));
+
+    // Needs to create a descriptor image info because the GBuffer object doesn't expose a function
+    VkDescriptorImageInfo depthImageInfo{
+        .sampler = VK_NULL_HANDLE,  // TODO: See if it needs to have the same linear sampler when it was initialized
+        .imageView = m_gBuffers.getDepthImageView(),
+        .imageLayout = VK_IMAGE_LAYOUT_GENERAL
+    };
+    writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::depthBuffer), 
+      depthImageInfo);
+    
+    
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
                         writeContainer.data(), 0, nullptr);
@@ -266,32 +288,59 @@ public:
     NVVK_DBG_SCOPE(cmd);
     
     // Update data TODO: Encapsulate
+    m_pushConst.time = static_cast<float>(ImGui::GetTime());
+    updateSceneBuffer(cmd);
+
+    tracingPass(cmd);
+    lightingPass(cmd);
+    postProcess(cmd);
+  }
+
+  void tracingPass(VkCommandBuffer cmd){
+    NVVK_DBG_SCOPE(cmd);
+
+    // Bind pipeline
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_tracingPipeline);  
+    // Bind descriptor sets
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_tracingLayout,
+                            0, 1, m_descPack.getSetPtr(), 0, nullptr);  
+    // Push constants
+    vkCmdPushConstants(cmd, m_tracingLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
+    // Dispatch
+    VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE);
+    vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
+  }
+
+  void lightingPass(VkCommandBuffer cmd){
+    NVVK_DBG_SCOPE(cmd);
+
+    // Update data TODO: Encapsulate
     shaderio::PushConstant pc{};
     pc.time = static_cast<float>(ImGui::GetTime());
     updateSceneBuffer(cmd);
 
     // Bind pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipeline);  
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_lightingPipeline);  
     // Bind descriptor sets
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipelineLayout,
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_lightingLayout,
                             0, 1, m_descPack.getSetPtr(), 0, nullptr);  
     // Push constants
-    vkCmdPushConstants(cmd, m_pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &pc);
+    vkCmdPushConstants(cmd, m_tracingLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     // Dispatch
     VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE);
     vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
-  
-    nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgRendered), VK_IMAGE_LAYOUT_GENERAL,
-                                      VK_IMAGE_LAYOUT_GENERAL});
-
-    postProcess(cmd);
   }
 
   // Apply post-processing
   void postProcess(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
-    // No img layout transition needed, I think
-    // Default post-processing: tonemapping
+
+    // Wait for render target to be done
+    nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgRendered), VK_IMAGE_LAYOUT_GENERAL,
+                                      VK_IMAGE_LAYOUT_GENERAL});
+
+    // No img layout transition needed
+
     m_tonemapper.runCompute(cmd, m_gBuffers.getSize(), m_tonemapperData, m_gBuffers.getDescriptorImageInfo(eImgRendered),
                             m_gBuffers.getDescriptorImageInfo(eImgTonemapped));
   }
@@ -334,7 +383,11 @@ public:
     // Create the G-Buffers
     nvvk::GBufferInitInfo gBufferInit{
         .allocator      = &m_alloc,
-        .colorFormats   = {VK_FORMAT_R32G32B32A32_SFLOAT,VK_FORMAT_R8G8B8A8_UNORM},  // Render target, tonemapped
+        .colorFormats   = {
+          VK_FORMAT_A2B10G10R10_UNORM_PACK32, // Normal buffer, alpha = Material flag
+          VK_FORMAT_R8G8B8A8_UNORM,           // Albedo buffer
+          VK_FORMAT_R32G32B32A32_SFLOAT,      // Render target
+          VK_FORMAT_R8G8B8A8_UNORM},          // Tonemapped
         .depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
         .imageSampler   = linearSampler,
         .descriptorPool = m_app->getTextureDescriptorPool(),
@@ -372,8 +425,11 @@ public:
   void createDescriptorSetLayout(){
     nvvk::DescriptorBindings bindings;
     // Add bindings here, if needed
-    bindings.addBinding(shaderio::BindingPoints::gBuffers, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::sceneInfo, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::renderTarget, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::normalBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::albedoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::depthBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
 
     // Creating the descriptor set and set layout from the bindings
     // TODO: You can put flags here, maybe this is important
@@ -390,7 +446,12 @@ public:
                         writeContainer.data(), 0, nullptr);
   }
 
-  void createPipelineLayout(){
+  void createPipelineLayouts(){
+    createPipelineLayout(&m_tracingLayout);
+    createPipelineLayout(&m_lightingLayout);
+  }
+
+  void createPipelineLayout(VkPipelineLayout* pipelineLayout){
     // Push constant is used to pass data to the shader at each frame
     const VkPushConstantRange pushConstantsRange{
       .stageFlags = VK_SHADER_STAGE_ALL, 
@@ -406,19 +467,17 @@ public:
         .pushConstantRangeCount = 1,
         .pPushConstantRanges    = &pushConstantsRange,
     };
-    NVVK_CHECK(vkCreatePipelineLayout(m_app->getDevice(), &pipelineLayoutInfo, nullptr, &m_pipelineLayout));
-    NVVK_DBG_NAME(m_pipelineLayout);
+    NVVK_CHECK(vkCreatePipelineLayout(m_app->getDevice(), &pipelineLayoutInfo, nullptr, pipelineLayout));
+    NVVK_DBG_NAME(m_tracingLayout);
   }
 
-  void compileAndCreateShaders(){
-    // Destroy the previous shader module, if it exist
-    vkDestroyShaderModule(m_app->getDevice(), m_shaderModule, nullptr);
+  void createShaderModule(VkShaderModule* shaderModule, const std::filesystem::path& filename, const std::span<const uint32_t> spirv){
 
     // Use pre-compiled shaders by default
-    VkShaderModuleCreateInfo shaderCode = nvsamples::getShaderModuleCreateInfo(compute_slang);
+    VkShaderModuleCreateInfo shaderCode = nvsamples::getShaderModuleCreateInfo(spirv);
 
     // Get .slang file and compile to spirv
-    std::filesystem::path shaderSource = nvutils::findFile("compute.slang", nvsamples::getShaderDirs());
+    std::filesystem::path shaderSource = nvutils::findFile(filename, nvsamples::getShaderDirs());
     if(m_slangCompiler.compileFile(shaderSource)){
       // Using the Slang compiler to compile the shaders
       shaderCode.codeSize = m_slangCompiler.getSpirvSize();
@@ -431,22 +490,37 @@ public:
     // Create shader module using the pcode
     const uint32_t* spirvPtr = reinterpret_cast<const uint32_t*>(m_slangCompiler.getSpirv());
     size_t spirvWordCount = m_slangCompiler.getSpirvSize() / sizeof(uint32_t);
-    NVVK_CHECK(nvvk::createShaderModule(m_shaderModule, m_app->getDevice(), 
+    NVVK_CHECK(nvvk::createShaderModule(*shaderModule, m_app->getDevice(), 
     std::span<const uint32_t>(spirvPtr, spirvWordCount)));
-    NVVK_DBG_NAME(m_shaderModule);
+    NVVK_DBG_NAME(*shaderModule);
   }
 
-  void createComputePipeline(){
+  void compileAndCreateShaders(){
+    // Destroy the previous shader module, if it exist
+    vkDestroyShaderModule(m_app->getDevice(), m_tracingModule, nullptr);
+    vkDestroyShaderModule(m_app->getDevice(), m_lightingModule, nullptr);
+
+    createShaderModule(&m_tracingModule,"tracing.slang",tracing_slang);
+    createShaderModule(&m_lightingModule,"lighting.slang",lighting_slang);
+
+  }
+
+  void createPipelines(){
+    createComputePipeline(&m_tracingPipeline,&m_tracingLayout,&m_tracingModule);
+    createComputePipeline(&m_lightingPipeline,&m_lightingLayout,&m_lightingModule);
+  }
+
+  void createComputePipeline(VkPipeline* pipeline, VkPipelineLayout* pipelineLayout, VkShaderModule* shaderModule){
     VkPipelineShaderStageCreateInfo stage{};
     stage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stage.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
-    stage.module = m_shaderModule;
+    stage.module = *shaderModule;
     stage.pName  = "computeMain";
 
     VkComputePipelineCreateInfo cpci{};
     cpci.sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     cpci.stage  = stage;
-    cpci.layout = m_pipelineLayout;
+    cpci.layout = *pipelineLayout;
 
     NVVK_CHECK(vkCreateComputePipelines(
         m_app->getDevice(),
@@ -454,15 +528,16 @@ public:
         1,
         &cpci,
         nullptr,
-        &m_computePipeline));
-    NVVK_DBG_NAME(m_computePipeline);
+        pipeline));
+    NVVK_DBG_NAME(*pipeline);
   }
 
+  // Recompiles and waits for idle time to swap it into the pipeline
   void reloadShaders(){
     compileAndCreateShaders();
     vkDeviceWaitIdle(m_app->getDevice());
-    vkDestroyPipeline(m_app->getDevice(),m_computePipeline,nullptr);
-    createComputePipeline();
+    vkDestroyPipeline(m_app->getDevice(),m_tracingPipeline,nullptr);
+    createPipelines();
   }
 
 
@@ -485,12 +560,6 @@ public:
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
 
-  void onLastHeadlessFrame() override
-  {
-    m_app->saveImageToFile(m_gBuffers.getColorImage(eImgTonemapped), m_gBuffers.getSize(),
-                           nvutils::getExecutablePath().replace_extension(".jpg").string());
-  }
-
   // Accessor for camera manipulator
   std::shared_ptr<nvutils::CameraManipulator> getCameraManipulator() const { return m_cameraManip; }
 
@@ -502,23 +571,27 @@ private:
   nvvk::SamplerPool      m_samplerPool{};     // Texture sampler pool, used to acquire texture samplers for images
   nvvk::GBuffer          m_gBuffers{};        // The G-Buffer: color + depth
   nvslang::SlangCompiler m_slangCompiler{};   // The Slang compiler used to compile the shaders
-
-  // Pipeline
-  VkPipeline            m_computePipeline;    // Compute pipeline
-  VkShaderModule        m_shaderModule{};     // Compute shader module
-  VkPipelineLayout      m_pipelineLayout{};   // Compute pipeline layout
   nvvk::DescriptorPack  m_descPack;           // The descriptor bindings used to create the descriptor set layout and descriptor sets
+
+  // Tracing Pipeline
+  VkPipeline            m_tracingPipeline{};  // Compute pipeline
+  VkPipelineLayout      m_tracingLayout{};    // Compute pipeline layout
+  VkShaderModule        m_tracingModule{};    // Compute shader module
+
+  // Lighting Pipeline (Deferred)
+  VkPipeline            m_lightingPipeline{}; // Compute pipeline
+  VkPipelineLayout      m_lightingLayout{};   // Compute pipeline layout
+  VkShaderModule        m_lightingModule{};   // Compute shader module for lighting
 
   // Push constants to send 
   shaderio::PushConstant m_pushConst = {.time = 0.0f};
 
   // Scene information. TODO: encapsulate this into a class
   shaderio::SceneInfo   m_sceneInfo{};        // Struct containing the scene information
-  nvvk::Buffer          m_sceneInfoB;    // Buffer binded to the UBO of scene info
+  nvvk::Buffer          m_sceneInfoB{};    // Buffer binded to the UBO of scene info
 
   // Pre-built components
   std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()}; // Camera manipulator
-  nvshaders::SkySimple     m_skySimple{};       // Sky rendering
   nvshaders::Tonemapper    m_tonemapper{};      // Tonemapper for post-processing effects
   shaderio::TonemapperData m_tonemapperData{};  // Tonemapper data used to pass parameters to the tonemapper shader
 

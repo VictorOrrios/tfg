@@ -22,7 +22,9 @@
 
 [[vk::push_constant]]  ConstantBuffer<PushConstant> pushConst;
 
-[[vk::binding(BindingPoints::gBuffers)]] RWTexture2D<float4> outImage;
+[[vk::binding(BindingPoints::normalBuffer)]] RWTexture2D<float4> normalImage;
+[[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
+[[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 
 struct Ray {
@@ -195,12 +197,14 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 {
   float2 fragCoord = threadIdx.xy;
   uint2 iResolution;
-  outImage.GetDimensions(iResolution.x, iResolution.y);
+  normalImage.GetDimensions(iResolution.x, iResolution.y);
   float2 uv = fragCoord/iResolution;
   Ray r = get_ray(uv);
-  float3 finalColor = cast(r);
-  //finalColor = r.dir;
-  //finalColor = float3(uv,0.0);
+  float depth = rayMarch(r);
+  float3 p = r.orig+r.dir*depth;
+  float3 normal = calcNormal(p);
 
-  outImage[int2(fragCoord)] = float4(finalColor, 1.0F);
+  normalImage[int2(fragCoord)] = float4(normal, 0.0F);
+  albedoImage[int2(fragCoord)] = float4(1.0F);
+  depthImage[int2(fragCoord)] = depth;
 }

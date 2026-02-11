@@ -35,8 +35,11 @@ NAMESPACE_SHADERIO_BEGIN()
 // Shared between Host and Device
 enum BindingPoints
 {
-  gBuffers = 0,
-  sceneInfo = 1,
+  sceneInfo = 0,
+  renderTarget = 1,
+  normalBuffer = 2,
+  albedoBuffer = 3,
+  depthBuffer  = 4,
 };
 
 struct PushConstant{
