@@ -26,11 +26,50 @@
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
+[[vk::binding(BindingPoints::globalGrid)]] Sampler3D globalGrid;
 
 struct Ray {
   float3 orig;
   float3 dir;
 };
+
+// Taken from vk_mini_samples texture_3d
+struct Bbox{
+  float3 bMin;
+  float3 bMax;
+};
+// Determines whether a ray intersects with a bounding box (bbox) representing a cube.
+// If an intersection occurs, it calculates the two points of intersection and returns
+// them as output.
+// The function returns a boolean value indicating whether an intersection took place.
+bool intersectCube(in Ray ray, in Bbox bbox, out float3 p1, out float3 p2)
+{
+  p1 = float3(0.0, 0.0, 0.0);
+  p2 = float3(0.0, 0.0, 0.0);
+
+  float3 invDir = 1.0 / ray.dir;
+
+  float3 tMin = (bbox.bMin - ray.orig) * invDir;
+  float3 tMax = (bbox.bMax - ray.orig) * invDir;
+
+  float3 t1 = min(tMin, tMax);
+  float3 t2 = max(tMin, tMax);
+
+  float tNear = max(max(t1.x, t1.y), t1.z);
+  float tFar  = min(min(t2.x, t2.y), t2.z);
+
+
+  if(tNear > tFar || tFar < 0.0)
+  {
+    return false;
+  }
+
+  p1 = ray.orig + ray.dir * max(tNear, 0.0);
+  p2 = ray.orig + ray.dir * tFar;
+
+  return true;
+}
+
 
 //---------------------------------------
 // Operations from Iñigo Quilez
@@ -133,8 +172,7 @@ float3 calcNormal(float3 p){
   );
 }
 
-float rayMarch(Ray ray)
-{
+float sphereTrace(Ray ray){
     const float MAX_DIST = 100.0;
     const float MIN_DIST = 0.0001;
     
@@ -158,22 +196,6 @@ float rayMarch(Ray ray)
     return -1.0;
 }
 
-float3 cast(Ray r){
-  float d = rayMarch(r);
-  if(d >= 0.0){
-    float3 p = r.orig+r.dir*d;
-    float3 n = calcNormal(p);
-    float3 sunDir = float3(1.0,1.0,0.5);
-    float3 sunColor = float3(0.839, 0.921, 1);
-    float3 shadowColor = float3(0, 0.172, 0.341);
-
-    //return dot(n,sunDir)*sunColor;
-    return lerp(shadowColor,sunColor,dot(n,sunDir));
-  }else{
-    return r.dir;
-  }
-}
-
 
 Ray get_ray(float2 uv){
   // Calculate offsets
@@ -195,18 +217,44 @@ Ray get_ray(float2 uv){
 [numthreads(WORKGROUP_SIZE, WORKGROUP_SIZE, 1)]
 void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 {
+  float depth; float3 albedo, normal;
+
   float2 fragCoord = threadIdx.xy;
   uint2 iResolution;
   normalImage.GetDimensions(iResolution.x, iResolution.y);
   float2 uv = fragCoord/iResolution;
+  
   Ray r = get_ray(uv);
-  float depth = rayMarch(r);
+
+
+
+/* 
+  // Sphere tracing with sdf calculations
+  depth = sphereTrace(r);
   float3 p = r.orig+r.dir*depth;
-  float3 normal = calcNormal(p);
+  normal = calcNormal(p);
 
   float3 groundColor = float3(0.294, 0.49, 0.024);
   float3 snowColor = float3(0.8F);
-  float3 albedo = p.y > -0.95F? snowColor : groundColor;
+  albedo = p.y > -0.95F? snowColor : groundColor;
+ */
+
+  float3 p1, p2;
+  float3 hitPoint;
+  // Scene bounding box
+  Bbox   bbox = { float3(-1, -1, -1), float3(1, 1, 1) };
+  bool hit = intersectCube(r, bbox, p1, p2);
+  if(hit){
+    
+  }
+
+  if(hit){
+    albedo = float3(1.0f);
+    normal = normalize(float3(0.2,0.2,1.0));
+    depth = length(p1-sceneInfo.cameraPosition);
+  }else{
+    depth = -1;
+  }
 
   normalImage[int2(fragCoord)] = float4(normal, 0.0F);
   albedoImage[int2(fragCoord)] = float4(albedo,1.0F);

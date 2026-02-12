@@ -24,6 +24,7 @@
 // TODO: Change the comment paragraph
 
 
+#include "glm/fwd.hpp"
 #include "glm/geometric.hpp"
 #include "glm/matrix.hpp"
 #include <cstdint>
@@ -127,6 +128,7 @@ public:
     setupSlangCompiler();         // Setup slang compiler with correct build config flags
     createScene();                // Create the scene and fill it up with sdfs
     setupGBuffers();              // Set up the GBuffers to render to
+    create3DTextures();           // Creates the different 3d textures used to store voxel grid data
     createDescriptorSetLayout();  // Create the descriptor set layout for the pipeline
     createPipelineLayouts();      // Create the pipeline layouts
     compileAndCreateShaders();    // Compile the shaders and create the shader modules
@@ -159,6 +161,7 @@ public:
     vkDestroyShaderModule(device,m_lightingModule,nullptr);
 
     m_alloc.destroyBuffer(m_sceneInfoB);
+    m_alloc.destroyImage(m_globalGrid);
 
     m_gBuffers.deinit();
     m_stagingUploader.deinit();
@@ -208,7 +211,6 @@ public:
 
     // Rendered image displayed fully in 'Viewport' window
     ImGui::Begin("Viewport");
-    // TODO: Insert gbuffer
     ImGui::Image((ImTextureID)m_gBuffers.getDescriptorSet(eImgTonemapped), ImGui::GetContentRegionAvail());
     ImGui::End();
   }
@@ -286,7 +288,7 @@ public:
 
     // Needs to create a descriptor image info because the GBuffer object doesn't expose a function
     VkDescriptorImageInfo depthImageInfo{
-        .sampler = VK_NULL_HANDLE,  // TODO: See if it needs to have the same linear sampler when it was initialized
+        .sampler = VK_NULL_HANDLE,
         .imageView = m_gBuffers.getDepthImageView(),
         .imageLayout = VK_IMAGE_LAYOUT_GENERAL
     };
@@ -397,6 +399,8 @@ public:
   }
 
   void setupGBuffers(){
+    SCOPED_TIMER(__FUNCTION__);
+
     // Acquiring the texture sampler which will be used for displaying the GBuffer
     VkSampler linearSampler{};
     NVVK_CHECK(m_samplerPool.acquireSampler(linearSampler));
@@ -417,13 +421,106 @@ public:
     m_gBuffers.init(gBufferInit);
   }
 
+  void create3DTextures(){
+    SCOPED_TIMER(__FUNCTION__);
+
+    // Destroy if already created
+    m_alloc.destroyImage(m_globalGrid);
+
+    // ===============
+    // Global grid paramters
+    VkExtent3D extent = {100,100,100};  // XYZ size
+    VkFormat format = VK_FORMAT_R32_SFLOAT;                   // Texel format
+    glm::float32 clearValue = 10000.0f;
+
+    std::array<uint32_t, 1> queueFamilies = {
+        m_app->getQueue(0).familyIndex, // Compute queue
+    };
+
+    VkImageCreateInfo ci = DEFAULT_VkImageCreateInfo;
+    ci.imageType = VK_IMAGE_TYPE_3D;
+    ci.format = format; // TODO: Optimize to only use 8bit unorm
+    ci.extent = extent;
+    ci.mipLevels = 1; // TODO: Learn how to use MIP levels
+    ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT; // Read/write texture
+    // ci.queueFamilyIndexCount = 2;
+    // ci.pQueueFamilyIndices = queueFamilies; // TODO: Check if necesary
+
+    VkImageViewCreateInfo vi = DEFAULT_VkImageViewCreateInfo;
+    vi.image = m_globalGrid.image;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_3D;
+    vi.format = format;
+
+    NVVK_CHECK(m_alloc.createImage(m_globalGrid, ci, vi));
+    NVVK_DBG_NAME(m_globalGrid.image);
+    NVVK_DBG_NAME(m_globalGrid.descriptor.imageView);
+
+    // Setup sampler to be ortholinear storage with no interpolation or repetition
+    VkSamplerCreateInfo si = DEFAULT_VkSamplerCreateInfo;
+    si.magFilter    = VK_FILTER_NEAREST;
+    si.minFilter    = VK_FILTER_NEAREST;
+    si.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    si.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    si.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+
+    NVVK_CHECK(m_samplerPool.acquireSampler(m_globalGrid.descriptor.sampler, si));
+
+    m_globalGrid.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkCommandBuffer cmd = m_app->createTempCmdBuffer();
+    nvvk::cmdImageMemoryBarrier(cmd, {m_globalGrid.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL});
+    VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkClearColorValue       clearColor = {{clearValue,clearValue,clearValue,clearValue}};
+    vkCmdClearColorImage(cmd, m_globalGrid.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
+
+    updateTextureData(cmd);
+    m_app->submitAndWaitTempCmdBuffer(cmd);
+    m_stagingUploader.releaseStaging();
+
+    // Debugging information
+    NVVK_DBG_NAME(m_globalGrid.image);
+    NVVK_DBG_NAME(m_globalGrid.descriptor.sampler);
+    NVVK_DBG_NAME(m_globalGrid.descriptor.imageView);
+  }
+
+  // TODO: Temporary, it fills out a grid with a sphere sdf for testing
+  float sdSphere(glm::vec3 p, float s){
+    return length(p) - s;
+  }
+  std::vector<float> generateSphereGrid(int size, int radius){
+    glm::vec3 center = glm::vec3(size/2,size/2,size/2);
+    std::vector<float> data(size*size*size);
+    for (int x = 0; x < size; x++) {
+      for (int y = 0; y < size; y++) {
+        for (int z = 0; z < size; z++) {
+          float d = sdSphere(glm::vec3(x+0.5f,y+0.5f,z+0.5f) - center, radius);
+          data[x*size*size+y*size+z] = d;
+        }
+      }
+    }
+    return data;
+  }
+
+  void updateTextureData(VkCommandBuffer cmd){
+    NVVK_DBG_SCOPE(cmd);
+
+    // TODO: This only works on start up because there is no concurrency problems
+
+    assert(m_globalGrid.image);
+    std::vector<float> imageData = generateSphereGrid(100, 20);
+    assert(m_stagingUploader.isAppendedEmpty());
+    nvvk::SemaphoreState cmdSemaphoreState{};
+    m_stagingUploader.appendImage(m_globalGrid, std::span(imageData), m_globalGrid.descriptor.imageLayout, cmdSemaphoreState);
+    m_stagingUploader.cmdUploadAppended(cmd);
+  }
+
   void createScene(){
     SCOPED_TIMER(__FUNCTION__);
     nvvk::ResourceAllocator* allocator = m_stagingUploader.getResourceAllocator();
     
     VkCommandBuffer cmd = m_app->createTempCmdBuffer();
 
-      // TODO: Try size = sizeof(shaderio::SceneInfo)
       NVVK_CHECK(allocator->createBuffer(m_sceneInfoB,
                                      std::span<const shaderio::SceneInfo>(&m_sceneInfo, 1).size_bytes(),
                                      VK_BUFFER_USAGE_2_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT));
@@ -452,6 +549,7 @@ public:
     bindings.addBinding(shaderio::BindingPoints::normalBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::albedoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::depthBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::globalGrid, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
 
     // Creating the descriptor set and set layout from the bindings
     // TODO: You can put flags here, maybe this is important
@@ -461,8 +559,8 @@ public:
     NVVK_DBG_NAME(m_descPack.getSet(0));
 
     nvvk::WriteSetContainer writeContainer;
-    VkWriteDescriptorSet m_writeSet = m_descPack.makeWrite(shaderio::BindingPoints::sceneInfo);
-    writeContainer.append(m_writeSet, m_sceneInfoB.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::sceneInfo), m_sceneInfoB.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::globalGrid), m_globalGrid.descriptor);
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
                         writeContainer.data(), 0, nullptr);
@@ -610,7 +708,10 @@ private:
 
   // Scene information. TODO: encapsulate this into a class
   shaderio::SceneInfo   m_sceneInfo{};        // Struct containing the scene information
-  nvvk::Buffer          m_sceneInfoB{};    // Buffer binded to the UBO of scene info
+  nvvk::Buffer          m_sceneInfoB{};       // Buffer binded to the UBO of scene info
+
+  // 3D textures
+  nvvk::Image m_globalGrid;
 
   // Pre-built components
   std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()}; // Camera manipulator

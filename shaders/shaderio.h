@@ -40,15 +40,16 @@ enum BindingPoints
   normalBuffer = 2,
   albedoBuffer = 3,
   depthBuffer  = 4,
+  globalGrid = 5,
 };
 
 struct LightinParams{
-  float3 lightDir       = normalize(float3(-1.0,-1.0,-1.0));
+  float3 lightDir       = normalize(float3(-0.4f,-1.0f,-0.2f));
   float3 lightColor     = float3(1.0f, 0.95f, 0.8f);
   float3 ambientTop     = float3(0.3f, 0.35f, 0.5f);
   float3 ambientBottom  = float3(0.1f, 0.1f, 0.1f);
   float3 fogColor       = float3(0.5f, 0.6f, 0.7f);
-  float  fogDensity     = 0.05F;
+  float  fogDensity     = 0.03F;
 };
 
 struct PushConstant{

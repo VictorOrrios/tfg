@@ -78,9 +78,9 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     float3 color = diffuse + ambient + specular + rimLight;
     finalColor = lerp(color, pushConst.lp.fogColor, fog);
   }else{
-    finalColor = float3(0.0);
+    float fog = 1 - exp(-100.0F * pushConst.lp.fogDensity);
+    finalColor = float3(pushConst.lp.fogColor * fog);
   }
-
 
   outImage[int2(fragCoord)] = float4(finalColor, 1.0F);
 }
