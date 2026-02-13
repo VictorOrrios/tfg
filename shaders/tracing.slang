@@ -196,59 +196,89 @@ float sphereTrace(Ray ray){
   return -1.0;
 }
 
+// PRE: r.dir must be normalized
 float3 rayMarchAmaWoo(Ray r, Bbox bbox){
   const int NUM_VOXELS_PER_AXIS = 100;
   const float MIN_SDF_DIST = 0.0001;
+  const int MAX_ITERATIONS = 1000;
 
   // Initial boundig box hit test
   float3 orig, far, dir = r.dir;
   bool hit = intersectCube(r, bbox, orig, far);
   if(!hit) return -1;
 
-  const float3 gridSize = float3(bbox.bMax - bbox.bMin);      // World space grid size
-  const float3 step = sign(dir)*gridSize/NUM_VOXELS_PER_AXIS; // How much space to travel per step
-  const float3 delta = gridSize/NUM_VOXELS_PER_AXIS/dir;      // How much to travel in each direction till we meet the next voxel of that axis
+
+  const float3 gridSize = bbox.bMax - bbox.bMin;          // World space grid size
+  const int3 step = sign(dir);                            // How many indices to jump per axis traversal
+  const float3 delta = gridSize/NUM_VOXELS_PER_AXIS/abs(dir);  // How much to travel in each direction till we meet the next voxel of that axis
+  const float voxelSize = gridSize.x/NUM_VOXELS_PER_AXIS;
   
   float3 coor = orig;
   int3 index = min(int3(NUM_VOXELS_PER_AXIS-1),max(int3(0),int3(
     trunc((coor-bbox.bMin)*NUM_VOXELS_PER_AXIS)
   )));
+  float3 dOffset = ((coor-bbox.bMin)*NUM_VOXELS_PER_AXIS)%1;
+  if(step.x<0){
+    dOffset.x = ((bbox.bMax.x-coor.x)*NUM_VOXELS_PER_AXIS)%1;
+  }
 
-  return float3(index)/float3(NUM_VOXELS_PER_AXIS);
+  if(step.y<0){
+    dOffset.y = ((bbox.bMax.y-coor.y)*NUM_VOXELS_PER_AXIS)%1;
+  }
+
+  if(step.z<0){
+    dOffset.z = ((bbox.bMax.z-coor.z)*NUM_VOXELS_PER_AXIS)%1;
+  }
+
+  float3 maxD = delta * dOffset;
+
+  // Debug visualizers
+  // if(length(far-orig)<0.01) return float3(1.0);         // Silhouette highlighter
+  // return float3(index)/float3(NUM_VOXELS_PER_AXIS);  // Index UVS 
+  
+  //return delta;
+  //return dOffset;
+  //return maxD;
   /* 
-  do{
+  if(any(maxD < -voxelSize/100.0)){
+    return float3(0.0,1.0,0.0);
+  }else{
+    return float3(1.0,0.0,0.0);
+  }
+    */
+  const bool debugFirstStep = false;
+
+  for(int steps = 1; steps < MAX_ITERATIONS; steps++){
     // Check current voxel for hit
     if(globalGrid[index] < MIN_SDF_DIST){
+      return float3(1.0);
       return length(coor-r.orig);
     }
 
-    float3 tMax = (bbox.bMin + float3(index) - orig)/dir;
+    if (maxD.x < maxD.y && maxD.x < maxD.z) {
+      // X-axis traversal.
+      index.x += step.x;
+      maxD.x += delta.x;
+      if(debugFirstStep) return float3(1.0,0.0,0.0);
+    } else if (maxD.y < maxD.z) {
+      // Y-axis traversal.
+      index.y += step.y;
+      maxD.y += delta.y;
+      if(debugFirstStep) return float3(0.0,1.0,0.0);
+    } else {
+      // Z-axis traversal.
+      index.z += step.z;
+      maxD.z += delta.z;
+      if(debugFirstStep) return float3(0.0,0.0,1.0);
+    }
 
+    // Outside grid
+    if (any(index < 0) || any(index >= NUM_VOXELS_PER_AXIS)) return float3(0.0);
 
-    if(tMaxX < tMaxY) { 
-      if(tMaxX < tMaxZ) { 
-          X = X + stepX; 
-          if (X >= bbox.bMax.x) return -1; // outside grid 
-          tMaxX= tMaxX + tDeltaX; 
-      } else { 
-          Z= Z + stepZ; 
-          if (Z >= bbox.bMax.z) return -1;
-          tMaxZ= tMaxZ + tDeltaZ;
-      } 
-    } else { 
-      if(tMaxY < tMaxZ) { 
-          Y= Y + stepY; 
-          if (Y >= bbox.bMax.y) return -1;
-          tMaxY= tMaxY + tDeltaY; 
-      } else { 
-          Z= Z + stepZ; 
-          if (Z >= bbox.bMax.z) return -1;
-          tMaxZ= tMaxZ + tDeltaZ; 
-      } 
-    } 
+  };
 
-  }while(true);
-  */
+  return float3(1,0.16,0.78); // Over iterated pink error
+  
 }
 
 
@@ -310,8 +340,11 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     normal = normalize(float3(0.2,0.2,1.0));
     depth = length(p1-sceneInfo.cameraPosition);
   }else{
+    albedo = float3(r.dir);
     depth = -1;
   }
+
+
 /* 
   float read = globalGrid[int3((int)(uv.x*100.0),(int)(uv.y*100.0),50)].r;
   if(read > 0.001){

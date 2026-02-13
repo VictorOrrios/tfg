@@ -657,6 +657,7 @@ public:
     compileAndCreateShaders();
     vkDeviceWaitIdle(m_app->getDevice());
     vkDestroyPipeline(m_app->getDevice(),m_tracingPipeline,nullptr);
+    vkDestroyPipeline(m_app->getDevice(),m_lightingPipeline,nullptr);
     createPipelines();
   }
 
