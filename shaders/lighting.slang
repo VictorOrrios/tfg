@@ -82,5 +82,5 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     finalColor = float3(pushConst.lp.fogColor * fog);
   }
 
-  outImage[int2(fragCoord)] = float4(finalColor, 1.0F);
+  outImage[int2(fragCoord)] = float4(albedo, 1.0F);
 }

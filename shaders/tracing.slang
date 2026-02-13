@@ -26,7 +26,7 @@
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
-[[vk::binding(BindingPoints::globalGrid)]] Sampler3D globalGrid;
+[[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
 
 struct Ray {
   float3 orig;
@@ -173,27 +173,82 @@ float3 calcNormal(float3 p){
 }
 
 float sphereTrace(Ray ray){
-    const float MAX_DIST = 100.0;
-    const float MIN_DIST = 0.0001;
-    
-    float depth = 0.0;
-    
-    for(int i = 0; i < 500; i++){
-        float3 p = ray.orig + ray.dir * depth;
-        float dist = map(p);
-        
-        if(abs(dist) < MIN_DIST){
-            return depth;  // Hit
-        }
-        
-        if(depth > MAX_DIST){
-            return -1.0;  // No hit
-        }
-        
-        depth += dist;
+  const float MAX_DIST = 100.0;
+  const float MIN_DIST = 0.0001;
+  
+  float depth = 0.0;
+  
+  for(int i = 0; i < 500; i++){
+      float3 p = ray.orig + ray.dir * depth;
+      float dist = map(p);
+      
+      if(abs(dist) < MIN_DIST){
+          return depth;  // Hit
+      }
+      
+      if(depth > MAX_DIST){
+          return -1.0;  // No hit
+      }
+      
+      depth += dist;
+  }
+  
+  return -1.0;
+}
+
+float3 rayMarchAmaWoo(Ray r, Bbox bbox){
+  const int NUM_VOXELS_PER_AXIS = 100;
+  const float MIN_SDF_DIST = 0.0001;
+
+  // Initial boundig box hit test
+  float3 orig, far, dir = r.dir;
+  bool hit = intersectCube(r, bbox, orig, far);
+  if(!hit) return -1;
+
+  const float3 gridSize = float3(bbox.bMax - bbox.bMin);      // World space grid size
+  const float3 step = sign(dir)*gridSize/NUM_VOXELS_PER_AXIS; // How much space to travel per step
+  const float3 delta = gridSize/NUM_VOXELS_PER_AXIS/dir;      // How much to travel in each direction till we meet the next voxel of that axis
+  
+  float3 coor = orig;
+  int3 index = min(int3(NUM_VOXELS_PER_AXIS-1),max(int3(0),int3(
+    trunc((coor-bbox.bMin)*NUM_VOXELS_PER_AXIS)
+  )));
+
+  return float3(index)/float3(NUM_VOXELS_PER_AXIS);
+  /* 
+  do{
+    // Check current voxel for hit
+    if(globalGrid[index] < MIN_SDF_DIST){
+      return length(coor-r.orig);
     }
-    
-    return -1.0;
+
+    float3 tMax = (bbox.bMin + float3(index) - orig)/dir;
+
+
+    if(tMaxX < tMaxY) { 
+      if(tMaxX < tMaxZ) { 
+          X = X + stepX; 
+          if (X >= bbox.bMax.x) return -1; // outside grid 
+          tMaxX= tMaxX + tDeltaX; 
+      } else { 
+          Z= Z + stepZ; 
+          if (Z >= bbox.bMax.z) return -1;
+          tMaxZ= tMaxZ + tDeltaZ;
+      } 
+    } else { 
+      if(tMaxY < tMaxZ) { 
+          Y= Y + stepY; 
+          if (Y >= bbox.bMax.y) return -1;
+          tMaxY= tMaxY + tDeltaY; 
+      } else { 
+          Z= Z + stepZ; 
+          if (Z >= bbox.bMax.z) return -1;
+          tMaxZ= tMaxZ + tDeltaZ; 
+      } 
+    } 
+
+  }while(true);
+  */
 }
 
 
@@ -242,20 +297,29 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   float3 p1, p2;
   float3 hitPoint;
   // Scene bounding box
-  Bbox   bbox = { float3(-1, -1, -1), float3(1, 1, 1) };
+  Bbox   bbox = { float3(-0.5, -0.5, -0.5), float3(0.5, 0.5, 0.5) };
   bool hit = intersectCube(r, bbox, p1, p2);
   if(hit){
-    
+    //r.orig = p1;
+    albedo = rayMarchAmaWoo(r,bbox);
+    //hit = depth > 0.0;
   }
 
   if(hit){
-    albedo = float3(1.0f);
+    //albedo = float3(1.0f);
     normal = normalize(float3(0.2,0.2,1.0));
     depth = length(p1-sceneInfo.cameraPosition);
   }else{
     depth = -1;
   }
-
+/* 
+  float read = globalGrid[int3((int)(uv.x*100.0),(int)(uv.y*100.0),50)].r;
+  if(read > 0.001){
+    albedo = float3(1.0f,0,0);
+    depth = 1.0;
+    normal = normalize(float3(0.2,0.2,1.0));
+  }
+ */
   normalImage[int2(fragCoord)] = float4(normal, 0.0F);
   albedoImage[int2(fragCoord)] = float4(albedo,1.0F);
   depthImage[int2(fragCoord)] = depth;

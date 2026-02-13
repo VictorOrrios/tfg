@@ -511,7 +511,7 @@ public:
     std::vector<float> imageData = generateSphereGrid(100, 20);
     assert(m_stagingUploader.isAppendedEmpty());
     nvvk::SemaphoreState cmdSemaphoreState{};
-    m_stagingUploader.appendImage(m_globalGrid, std::span(imageData), m_globalGrid.descriptor.imageLayout, cmdSemaphoreState);
+    NVVK_CHECK(m_stagingUploader.appendImage(m_globalGrid, std::span(imageData), m_globalGrid.descriptor.imageLayout, cmdSemaphoreState));
     m_stagingUploader.cmdUploadAppended(cmd);
   }
 
