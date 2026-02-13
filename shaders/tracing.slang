@@ -230,7 +230,7 @@ float3 rayMarchAmaWoo(Ray r, Bbox bbox){
     dOffset.z = ((bbox.bMax.z-coor.z)*NUM_VOXELS_PER_AXIS)%1;
   }
 
-  float3 maxD = delta * dOffset;
+  float3 maxD = delta * (1.0-dOffset);
 
   // Debug visualizers
   // if(length(far-orig)<0.01) return float3(1.0);         // Silhouette highlighter
