@@ -198,7 +198,7 @@ float sphereTrace(Ray ray){
 }
 
 // PRE: r.dir must be normalized
-float3 rayMarchAmaWoo(Ray r, Bbox bbox, out float3 p, out float depth, out int3 index){
+float rayMarchAmaWoo(Ray r, Bbox bbox, out int3 index){
   const int NUM_VOXELS_PER_AXIS = 100;
   const float MIN_SDF_DIST = 0.0001;
   const int MAX_ITERATIONS = 1000;
@@ -223,45 +223,37 @@ float3 rayMarchAmaWoo(Ray r, Bbox bbox, out float3 p, out float depth, out int3 
   float3 maxD = delta * dOffset;
 
   // Debug visualizers
-   if(length(far-orig)<0.01) return float3(1.0);      // Silhouette highlighter
+  // if(length(far-orig)<0.01) return float3(1.0);      // Silhouette highlighter
   // return float3(index)/float3(NUM_VOXELS_PER_AXIS);  // Index UVS 
-  
-  //return maxD;
 
-  const bool debugFirstTraversal = false;
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
     // Check current voxel for hit
     if(globalGrid[index] < MIN_SDF_DIST){
       // TODO: Figure out a way to interpolate with neighbouring voxels
       // TODO: This depth is wrong
-      depth = length(orig - r.orig) + min(maxD.x,min(maxD.y,maxD.z));
-      p = r.orig + r.dir*depth;
-      return float3(1.0);
+      return length(orig - r.orig) + min(maxD.x,min(maxD.y,maxD.z));
     }
 
     if (maxD.x < maxD.y && maxD.x < maxD.z) {
       // X-axis traversal.
       index.x += step.x;
       maxD.x += delta.x;
-      if(debugFirstTraversal) return float3(1.0,0.0,0.0);
     } else if (maxD.y < maxD.z) {
       // Y-axis traversal.
       index.y += step.y;
       maxD.y += delta.y;
-      if(debugFirstTraversal) return float3(0.0,1.0,0.0);
     } else {
       // Z-axis traversal.
       index.z += step.z;
       maxD.z += delta.z;
-      if(debugFirstTraversal) return float3(0.0,0.0,1.0);
     }
 
     // Outside grid
-    if (any(index < 0) || any(index >= NUM_VOXELS_PER_AXIS)) return float3(0.0);
+    if (any(index < 0) || any(index >= NUM_VOXELS_PER_AXIS)) return -1;
   };
 
-  return float3(1,0.16,0.78); // Over iterated  
+  return -1; // Over iterated  
 }
 
 
@@ -315,11 +307,12 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   bbox.bMax = bbox.bMax*bboxSize+bboxPos;
   float3 p;
   int3 index;
-  albedo = rayMarchAmaWoo(r,bbox,p,depth,index);
+  depth = rayMarchAmaWoo(r,bbox,index);
 
-  bool hit = intersectCube(r, bbox, p1, p2);
+  bool hit = depth > 0.0;
 
   if(hit){
+    albedo = float3(1.0);
     normal = normalize(float3(0.2,0.2,1.0));
   }else{
     albedo = float3(r.dir);
