@@ -38,6 +38,7 @@ struct Bbox{
   float3 bMin;
   float3 bMax;
 };
+const static Bbox unitBBox =  {float3(-0.5, -0.5, -0.5),float3(0.5, 0.5, 0.5)};
 // Determines whether a ray intersects with a bounding box (bbox) representing a cube.
 // If an intersection occurs, it calculates the two points of intersection and returns
 // them as output.
@@ -197,7 +198,7 @@ float sphereTrace(Ray ray){
 }
 
 // PRE: r.dir must be normalized
-float3 rayMarchAmaWoo(Ray r, Bbox bbox){
+float3 rayMarchAmaWoo(Ray r, Bbox bbox, out float3 p, out float depth, out int3 index){
   const int NUM_VOXELS_PER_AXIS = 100;
   const float MIN_SDF_DIST = 0.0001;
   const int MAX_ITERATIONS = 1000;
@@ -207,78 +208,60 @@ float3 rayMarchAmaWoo(Ray r, Bbox bbox){
   bool hit = intersectCube(r, bbox, orig, far);
   if(!hit) return -1;
 
-
-  const float3 gridSize = bbox.bMax - bbox.bMin;          // World space grid size
-  const int3 step = sign(dir);                            // How many indices to jump per axis traversal
-  const float3 delta = gridSize/NUM_VOXELS_PER_AXIS/abs(dir);  // How much to travel in each direction till we meet the next voxel of that axis
-  const float voxelSize = gridSize.x/NUM_VOXELS_PER_AXIS;
+  const float3 gridSize = bbox.bMax - bbox.bMin;              // World space grid size
+  const int3 step = sign(dir);                                // How many indices to jump per axis traversal
+  const float3 delta = gridSize/abs(dir)/NUM_VOXELS_PER_AXIS; // How much to travel in each direction till we meet the next voxel of that axis
   
-  float3 coor = orig;
-  int3 index = min(int3(NUM_VOXELS_PER_AXIS-1),max(int3(0),int3(
-    trunc((coor-bbox.bMin)*NUM_VOXELS_PER_AXIS)
+  float3 hitCoorPos = (orig-bbox.bMin)*NUM_VOXELS_PER_AXIS/gridSize;
+  float3 hitCoorNeg = max(bbox.bMax-orig,float3(0))*NUM_VOXELS_PER_AXIS/gridSize;
+  float3 hitCoor = lerp(hitCoorNeg,hitCoorPos,step*0.5+0.5);
+
+  index = min(int3(NUM_VOXELS_PER_AXIS-1),max(int3(0),int3(
+    trunc(hitCoorPos)
   )));
-  float3 dOffset = ((coor-bbox.bMin)*NUM_VOXELS_PER_AXIS)%1;
-  if(step.x<0){
-    dOffset.x = ((bbox.bMax.x-coor.x)*NUM_VOXELS_PER_AXIS)%1;
-  }
-
-  if(step.y<0){
-    dOffset.y = ((bbox.bMax.y-coor.y)*NUM_VOXELS_PER_AXIS)%1;
-  }
-
-  if(step.z<0){
-    dOffset.z = ((bbox.bMax.z-coor.z)*NUM_VOXELS_PER_AXIS)%1;
-  }
-
-  float3 maxD = delta * (1.0-dOffset);
+  float3 dOffset = 1.0-fract(hitCoor);
+  float3 maxD = delta * dOffset;
 
   // Debug visualizers
-  // if(length(far-orig)<0.01) return float3(1.0);         // Silhouette highlighter
+   if(length(far-orig)<0.01) return float3(1.0);      // Silhouette highlighter
   // return float3(index)/float3(NUM_VOXELS_PER_AXIS);  // Index UVS 
   
-  //return delta;
-  //return dOffset;
   //return maxD;
-  /* 
-  if(any(maxD < -voxelSize/100.0)){
-    return float3(0.0,1.0,0.0);
-  }else{
-    return float3(1.0,0.0,0.0);
-  }
-    */
-  const bool debugFirstStep = false;
+
+  const bool debugFirstTraversal = false;
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
     // Check current voxel for hit
     if(globalGrid[index] < MIN_SDF_DIST){
+      // TODO: Figure out a way to interpolate with neighbouring voxels
+      // TODO: This depth is wrong
+      depth = length(orig - r.orig) + min(maxD.x,min(maxD.y,maxD.z));
+      p = r.orig + r.dir*depth;
       return float3(1.0);
-      return length(coor-r.orig);
     }
 
     if (maxD.x < maxD.y && maxD.x < maxD.z) {
       // X-axis traversal.
       index.x += step.x;
       maxD.x += delta.x;
-      if(debugFirstStep) return float3(1.0,0.0,0.0);
+      if(debugFirstTraversal) return float3(1.0,0.0,0.0);
     } else if (maxD.y < maxD.z) {
       // Y-axis traversal.
       index.y += step.y;
       maxD.y += delta.y;
-      if(debugFirstStep) return float3(0.0,1.0,0.0);
+      if(debugFirstTraversal) return float3(0.0,1.0,0.0);
     } else {
       // Z-axis traversal.
       index.z += step.z;
       maxD.z += delta.z;
-      if(debugFirstStep) return float3(0.0,0.0,1.0);
+      if(debugFirstTraversal) return float3(0.0,0.0,1.0);
     }
 
     // Outside grid
     if (any(index < 0) || any(index >= NUM_VOXELS_PER_AXIS)) return float3(0.0);
-
   };
 
-  return float3(1,0.16,0.78); // Over iterated pink error
-  
+  return float3(1,0.16,0.78); // Over iterated  
 }
 
 
@@ -311,8 +294,6 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   
   Ray r = get_ray(uv);
 
-
-
 /* 
   // Sphere tracing with sdf calculations
   depth = sphereTrace(r);
@@ -327,21 +308,21 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   float3 p1, p2;
   float3 hitPoint;
   // Scene bounding box
-  Bbox   bbox = { float3(-0.5, -0.5, -0.5), float3(0.5, 0.5, 0.5) };
+  float bboxSize = 1.0;
+  float3 bboxPos = float3(0.0,0.0,0.0);
+  Bbox bbox = unitBBox;
+  bbox.bMin = bbox.bMin*bboxSize+bboxPos;
+  bbox.bMax = bbox.bMax*bboxSize+bboxPos;
+  float3 p;
+  int3 index;
+  albedo = rayMarchAmaWoo(r,bbox,p,depth,index);
+
   bool hit = intersectCube(r, bbox, p1, p2);
-  if(hit){
-    //r.orig = p1;
-    albedo = rayMarchAmaWoo(r,bbox);
-    //hit = depth > 0.0;
-  }
 
   if(hit){
-    //albedo = float3(1.0f);
     normal = normalize(float3(0.2,0.2,1.0));
-    depth = length(p1-sceneInfo.cameraPosition);
   }else{
     albedo = float3(r.dir);
-    depth = -1;
   }
 
 
