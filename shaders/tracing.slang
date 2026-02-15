@@ -39,37 +39,7 @@ struct Bbox{
   float3 bMax;
 };
 const static Bbox unitBBox =  {float3(-0.5, -0.5, -0.5),float3(0.5, 0.5, 0.5)};
-// Determines whether a ray intersects with a bounding box (bbox) representing a cube.
-// If an intersection occurs, it calculates the two points of intersection and returns
-// them as output.
-// The function returns a boolean value indicating whether an intersection took place.
-bool intersectCube(in Ray ray, in Bbox bbox, out float3 p1, out float3 p2)
-{
-  p1 = float3(0.0, 0.0, 0.0);
-  p2 = float3(0.0, 0.0, 0.0);
 
-  float3 invDir = 1.0 / ray.dir;
-
-  float3 tMin = (bbox.bMin - ray.orig) * invDir;
-  float3 tMax = (bbox.bMax - ray.orig) * invDir;
-
-  float3 t1 = min(tMin, tMax);
-  float3 t2 = max(tMin, tMax);
-
-  float tNear = max(max(t1.x, t1.y), t1.z);
-  float tFar  = min(min(t2.x, t2.y), t2.z);
-
-
-  if(tNear > tFar || tFar < 0.0)
-  {
-    return false;
-  }
-
-  p1 = ray.orig + ray.dir * max(tNear, 0.0);
-  p2 = ray.orig + ray.dir * tFar;
-
-  return true;
-}
 
 
 //---------------------------------------
@@ -173,35 +143,163 @@ float3 calcNormal(float3 p){
   );
 }
 
-float sphereTrace(Ray ray){
+float sphereTraceGlobal(Ray ray){
   const float MAX_DIST = 100.0;
   const float MIN_DIST = 0.0001;
   
   float depth = 0.0;
   
   for(int i = 0; i < 500; i++){
-      float3 p = ray.orig + ray.dir * depth;
-      float dist = map(p);
-      
-      if(abs(dist) < MIN_DIST){
-          return depth;  // Hit
-      }
-      
-      if(depth > MAX_DIST){
-          return -1.0;  // No hit
-      }
-      
-      depth += dist;
+    float3 p = ray.orig + ray.dir * depth;
+    float dist = map(p);
+    
+    if(abs(dist) < MIN_DIST){
+        return depth;  // Hit
+    }
+    
+    if(depth > MAX_DIST){
+        return -1.0;  // No hit
+    }
+    
+    depth += dist;
   }
   
   return -1.0;
+}
+
+// Taken from vk_mini_samples texture_3d
+// Determines whether a ray intersects with a bounding box (bbox) representing a cube.
+// If an intersection occurs, it calculates the two points of intersection and returns
+// them as output. If the ray origin is within the box p1 will be the same as the ray origin.
+// The function returns a boolean value indicating whether an intersection took place.
+bool intersectCube(in Ray ray, in Bbox bbox, out float3 p1, out float3 p2){
+  p1 = float3(0.0, 0.0, 0.0);
+  p2 = float3(0.0, 0.0, 0.0);
+
+  float3 invDir = 1.0 / ray.dir;
+
+  float3 tMin = (bbox.bMin - ray.orig) * invDir;
+  float3 tMax = (bbox.bMax - ray.orig) * invDir;
+
+  float3 t1 = min(tMin, tMax);
+  float3 t2 = max(tMin, tMax);
+
+  float tNear = max(max(t1.x, t1.y), t1.z);
+  float tFar  = min(min(t2.x, t2.y), t2.z);
+
+  if(tNear > tFar || tFar < 0.0){
+    return false;
+  }
+
+  p1 = ray.orig + ray.dir * max(tNear, 0.0);
+  p2 = ray.orig + ray.dir * tFar;
+
+  return true;
+}
+
+// Samples a 2x2x2 voxel (voxel2) and outputs values into two float4 vectors:
+// sBottom: r=s000 g=100 b=001 a=101
+// sTop:    r=s010 g=110 b=011 a=111
+// Left hand coordinate system xyz
+// TODO: This looks slow, might be interesting to make more efficient
+void sampleVoxel2(int3 index, out float4 sBottom, out float4 sTop){
+  sBottom = float4(
+    globalGrid[index + int3(0,0,0)],
+    globalGrid[index + int3(1,0,0)],
+    globalGrid[index + int3(0,0,1)],
+    globalGrid[index + int3(1,0,1)]
+  );
+
+  sTop = float4(
+    globalGrid[index + int3(0,1,0)],
+    globalGrid[index + int3(1,1,0)],
+    globalGrid[index + int3(0,1,1)],
+    globalGrid[index + int3(1,1,1)]
+  );
+}
+
+void getkConstants(float4 sBottom, float4 sTop, out float4 k0123, out float4 k4567){
+  float aux1 = sBottom.b - sBottom.r;
+  float aux2 = sTop.b - sTop.r;
+  
+  // Bottom bilinear coeff
+  k0123 = float4(
+    sBottom.r,                // k0
+    aux1,                     // k1
+    sBottom.g-sBottom.r,      // k2
+    sBottom.a-sBottom.g-aux1  // k3
+  );
+
+  // Top bilinear coeff
+  k4567 = float4(
+    k0123.x - sTop.r,                   // k4
+    k0123.y - aux2,                     // k5
+    k0123.z - (sTop.g - sTop.r),        // k6
+    k0123.w - (sTop.a - sTop.g - aux2)  // k7
+  );
+}
+
+void getkConstants(int3 index, out float4 k0123, out float4 k4567){
+  float4 sBottom, sTop;
+  sampleVoxel2(index, sBottom,sTop);
+  getkConstants(sBottom,sTop,k0123,k4567);
+}
+
+// Returns the coefficients for: f(t) = c_0 + c_1·t + c_2·t² + c_3·t³
+// return: x=c_0 y=c_1 z=c_2 w=c_3
+// TODO: Check if it works, if not throw it and start again
+float4 getCubeCoeff(Ray r, float4 k0123, float4 k4567){
+  float3 o = r.orig; float3 d = r.dir;
+
+  float3 m012 = float3(
+    o.z*o.x,
+    d.z*d.x,
+    fma(o.z,d.x, o.x*d.z)
+  );
+  float3 m345 = float3(
+    fma(k4567.y,o.y, - k0123.y),
+    fma(k4567.z,o.y, - k0123.z),
+    fma(k4567.w,o.y, - k0123.w),
+  );
+
+  // c_0 = (k4·oy - k0) + oz·m3 + ox·m4 + m0·m5
+  // c_1 = dz·m3 + dx·xm4 + m2·m5 + dy(k4 + k5·oz + k6·ox + k7·m0)
+  // c_2 = m1·m5 + dy(k5·dz + k6·dx + k7·m2)
+  // c_3 = k7·m1·dy
+  return float4(
+    fma(o.z, m345.x, 
+      fma(o.x, m345.y, 
+        fma(m012.x, m345.z, 
+          fma(k4567.x, o.y, -k0123.x)))),
+    
+    fma(d.z, m345.x, 
+      fma(d.x, m345.y, 
+        fma(m012.z, m345.z, 
+          d.y * fma(k4567.y, o.z, 
+                  fma(k4567.z, o.x, 
+                    fma(k4567.w, m012.x, k4567.x)))))),
+    
+    fma(m012.x, m345.z, 
+      d.y * fma(k4567.y, d.z, 
+              fma(k4567.z, d.x, k4567.w * m012.z))),
+    
+    k4567.w*m012.y*d.y
+  );
+}
+
+
+
+// Trilinearlly interpolates the sdf values of a voxel2 at point p
+// Pre: p must be in canonical voxel space [0,1]³
+float triLerpVoxel2(float3 p, float4 sBottom, float4 sTop){
+
 }
 
 // PRE: r.dir must be normalized
 float rayMarchAmaWoo(Ray r, Bbox bbox, out int3 index){
   const int NUM_VOXELS_PER_AXIS = 100;
   const float MIN_SDF_DIST = 0.0001;
-  const int MAX_ITERATIONS = 1000;
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*3;
 
   // Initial boundig box hit test
   float3 orig, far, dir = r.dir;
@@ -225,7 +323,6 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out int3 index){
   // Debug visualizers
   // if(length(far-orig)<0.01) return float3(1.0);      // Silhouette highlighter
   // return float3(index)/float3(NUM_VOXELS_PER_AXIS);  // Index UVS 
-
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
     // Check current voxel for hit
@@ -288,7 +385,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 
 /* 
   // Sphere tracing with sdf calculations
-  depth = sphereTrace(r);
+  depth = sphereTraceGlobal(r);
   float3 p = r.orig+r.dir*depth;
   normal = calcNormal(p);
 
