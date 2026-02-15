@@ -286,6 +286,7 @@ float triLerpK(float3 p, float4 k0123, float4 k4567){
 }
 
 float triLerp(float3 p, float4 sBottom, float4 sTop){
+  //p = saturate(p); // Ensures it is in [0,1]³
   return lerp(
     lerp(
       lerp(sBottom.r,sBottom.a,p.z),
@@ -337,7 +338,7 @@ float4 getCubeCoeff(Ray r, float4 k0123, float4 k4567){
                   fma(k4567.z, o.x, 
                     fma(k4567.w, m012.x, k4567.x)))))),
     
-    fma(m012.x, m345.z, 
+    fma(m012.y, m345.z, 
       d.y * fma(k4567.y, d.z, 
               fma(k4567.z, d.x, k4567.w * m012.z))),
     
@@ -352,6 +353,7 @@ float evalCubic(float t, float4 c){
   return fma(t, fma(t, fma(t, c.w, c.z), c.y), c.x);
 }
 
+// TODO: Fix X axis artifacts
 float sphereTraceGrid(Ray r, Bbox bbox, out float3 debug){
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*3;
   // Initial boundig box hit test
@@ -363,17 +365,16 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 debug){
     return 1;
   }
 
-  const float3 gridSize = bbox.bMax - bbox.bMin;          // World space grid size
-  const float3 voxelSize = NUM_VOXELS_PER_AXIS/gridSize;  // Size of a voxel
-
+  const float3 gridSize = bbox.bMax - bbox.bMin;            // World space grid size
+  const float3 voxelSize = gridSize/NUM_VOXELS_PER_AXIS;    // Size of a voxel
+  const float3 voxelDensity = NUM_VOXELS_PER_AXIS/gridSize; // How many voxels per unit of world space
   
   float3 hitCoor, voxelCoor;
   int3 currentIndex, lastIndex;
   float4 coeff, sBottom, sTop;
 
-
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
-    hitCoor = (p-bbox.bMin)*voxelSize;
+    hitCoor = (p-bbox.bMin)*voxelDensity;
     currentIndex = min(int3(NUM_VOXELS_PER_AXIS-1),max(int3(0),int3(
       trunc(hitCoor)
     )));
@@ -381,37 +382,24 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 debug){
     sampleVoxel2(currentIndex,sBottom,sTop);
 
     // Interpolate current sdf value using bilinear coefficients (k)
-    float t = triLerp(voxelCoor,sBottom,sBottom);
-    //debug = float3(t-sqrt(3)); return 1;
-    //debug = voxelCoor; return 1;
-    if(any(sBottom > sqrt(3)) || any(sTop > sqrt(3))){
-      debug = float3(1,0,0);
-      return 1;
-    }
-
-    if(any(voxelCoor>1)||any(voxelCoor<0)){
-      debug = float3(1,1,0);
-      return 1;
-    }
+    float t = triLerp(voxelCoor,sBottom,sTop);
 
     // Cutoff condition
-    if(t < 1/float(NUM_VOXELS_PER_AXIS)){
-      debug = float3(1);
+    if(t < 1/float(NUM_VOXELS_PER_AXIS*2)){
+      debug = float3(currentIndex)/float3(NUM_VOXELS_PER_AXIS)*pow(-1,currentIndex%2);
       return length(p - r.orig);
     }
     
-    p += r.dir*t;
+    p += r.dir*t*0.2;
   
     if(!insideBbox(p,bbox)){
-      //return 1;
       return -1; // Outside grid
     }
   }
-  debug = float3(0,1,0);
-  return 1;
   return -1; // Over iterated 
 }
 
+// Sphere traces a single voxel with manually placed corner values
 float sphereTraceGridDebug(Ray r, Bbox bbox, out float3 debug){
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*3;
   // Initial boundig box hit test
@@ -425,7 +413,7 @@ float sphereTraceGridDebug(Ray r, Bbox bbox, out float3 debug){
 
   const float3 gridSize = bbox.bMax - bbox.bMin;          // World space grid size
 
-  const float radius = 1;
+  const float radius = 0.5;
   const float4 s0123 = float4(
     -radius,
     1-radius,
@@ -440,6 +428,19 @@ float sphereTraceGridDebug(Ray r, Bbox bbox, out float3 debug){
   );
  
   const float4 sphere = float4(sqrt(1.5)-radius);
+
+  const float4 sa = float4(
+    -radius,
+    1-radius,
+    -radius,
+    1-radius
+  );
+  const float4 sb = float4(
+    1-radius,
+    sqrt(2)-radius,
+    1-radius,
+    sqrt(2)-radius
+  );
   
   float3 hitCoor;
   int3 currentIndex, lastIndex;
@@ -450,17 +451,22 @@ float sphereTraceGridDebug(Ray r, Bbox bbox, out float3 debug){
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
 
     // Interpolate current sdf value using bilinear coefficients (k)
-    float t = triLerp((p-bbox.bMin)/gridSize,s0123,s4567);
+    float3 voxelCoor = (p-bbox.bMin)/gridSize;
+    float t = triLerp(voxelCoor,sa,sb);
     //debug = float3((p-bbox.bMin)/gridSize); return 1;
     //debug = float3(t); return 1;
-    
+    if(any(voxelCoor < -0.001) || any(voxelCoor > 1.001)){
+      debug = float3(1,1,0);
+      return 1;
+    }
+
     // Cutoff condition
-    if(t < 0.001){
+    if(t < 0.00001){
       debug = float3(1);
       return length(p - r.orig);
     }
     
-    p += r.dir*t;
+    p += r.dir*t*0.8;
   
     if(!insideBbox(p,bbox)) return -1; // Outside grid
   }
@@ -486,13 +492,14 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out int3 index){
   bool hit = intersectCube(r, bbox, orig, far);
   if(!hit) return -1;
 
-  const float3 gridSize = bbox.bMax - bbox.bMin;          // World space grid size
-  const int3 step = sign(dir);                            // How many indices to jump per axis traversal
-  const float3 voxelSize = NUM_VOXELS_PER_AXIS/gridSize;  // Size of a voxel
-  const float3 delta = abs(dir)/voxelSize;                // How much to travel in each direction till we meet the next voxel of that axis
+  const float3 gridSize = bbox.bMax - bbox.bMin;            // World space grid size
+  const int3 step = sign(dir);                              // How many indices to jump per axis traversal
+  const float3 voxelDensity = NUM_VOXELS_PER_AXIS/gridSize; // How many voxels per unit of world space
+  const float3 voxelSize = gridSize/NUM_VOXELS_PER_AXIS;    // Size of a voxel
+  const float3 delta = abs(dir)*voxelSize;                  // How much to travel in each direction till we meet the next voxel of that axis
   
-  float3 hitCoorPos = (orig-bbox.bMin)*voxelSize;
-  float3 hitCoorNeg = max(bbox.bMax-orig,float3(0))*voxelSize;
+  float3 hitCoorPos = (orig-bbox.bMin)*voxelDensity;
+  float3 hitCoorNeg = max(bbox.bMax-orig,float3(0))*voxelDensity;
   float3 hitCoor = lerp(hitCoorNeg,hitCoorPos,step*0.5+0.5);
 
   index = min(int3(NUM_VOXELS_PER_AXIS-1),max(int3(0),int3(
