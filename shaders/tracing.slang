@@ -20,6 +20,9 @@
 
 #include "shaderio.h"
 
+const static float MIN_SDF_DIST = 0.0001;
+const static int NUM_VOXELS_PER_AXIS = 99;
+
 [[vk::push_constant]]  ConstantBuffer<PushConstant> pushConst;
 
 [[vk::binding(BindingPoints::normalBuffer)]] RWTexture2D<float4> normalImage;
@@ -33,13 +36,16 @@ struct Ray {
   float3 dir;
 };
 
-// Taken from vk_mini_samples texture_3d
 struct Bbox{
   float3 bMin;
   float3 bMax;
 };
+
 const static Bbox unitBBox =  {float3(-0.5, -0.5, -0.5),float3(0.5, 0.5, 0.5)};
 
+bool insideBbox(float3 p, Bbox bbox){
+  return all(p >= bbox.bMin) && all(p <= bbox.bMax);
+}
 
 
 //---------------------------------------
@@ -143,7 +149,7 @@ float3 calcNormal(float3 p){
   );
 }
 
-float sphereTraceGlobal(Ray ray){
+float sphereTraceMap(Ray ray){
   const float MAX_DIST = 100.0;
   const float MIN_DIST = 0.0001;
   
@@ -200,21 +206,21 @@ bool intersectCube(in Ray ray, in Bbox bbox, out float3 p1, out float3 p2){
 // Samples a 2x2x2 voxel (voxel2) and outputs values into two float4 vectors:
 // sBottom: r=s000 g=100 b=001 a=101
 // sTop:    r=s010 g=110 b=011 a=111
-// Left hand coordinate system xyz
+// Left hand coordinate system (x=right, y=up, z=forwards)
 // TODO: This looks slow, might be interesting to make more efficient
 void sampleVoxel2(int3 index, out float4 sBottom, out float4 sTop){
   sBottom = float4(
-    globalGrid[index + int3(0,0,0)],
-    globalGrid[index + int3(1,0,0)],
-    globalGrid[index + int3(0,0,1)],
-    globalGrid[index + int3(1,0,1)]
+    globalGrid[index + int3(0,0,0)],  // s000
+    globalGrid[index + int3(1,0,0)],  // s100
+    globalGrid[index + int3(0,0,1)],  // s001
+    globalGrid[index + int3(1,0,1)]   // s101
   );
 
   sTop = float4(
-    globalGrid[index + int3(0,1,0)],
-    globalGrid[index + int3(1,1,0)],
-    globalGrid[index + int3(0,1,1)],
-    globalGrid[index + int3(1,1,1)]
+    globalGrid[index + int3(0,1,0)],  // s010
+    globalGrid[index + int3(1,1,0)],  // s110
+    globalGrid[index + int3(0,1,1)],  // s011
+    globalGrid[index + int3(1,1,1)]   // s111
   );
 }
 
@@ -235,7 +241,28 @@ void getkConstants(float4 sBottom, float4 sTop, out float4 k0123, out float4 k45
     k0123.x - sTop.r,                   // k4
     k0123.y - aux2,                     // k5
     k0123.z - (sTop.g - sTop.r),        // k6
-    k0123.w - (sTop.a - sTop.g - aux2)  // k7
+    k0123.w - (sTop.b - sTop.g - aux2)  // k7
+  );
+}
+
+void getkConstantsNVIDIA(float4 sBottom, float4 sTop, out float4 k0123, out float4 k4567){
+  float aux1 = sBottom.g - sBottom.r;
+  float aux2 = sBottom.a - sBottom.b;
+  
+  // Bottom bilinear coeff
+  k0123 = float4(
+    sBottom.r,                // k0
+    aux1,                     // k1
+    sTop.r-sBottom.r,      // k2
+    sTop.g-sTop.r-aux1  // k3
+  );
+
+  // Top bilinear coeff
+  k4567 = float4(
+    k0123.x - sBottom.a,                   // k4
+    k0123.y - aux2,                     // k5
+    k0123.z - (sTop.a - sBottom.a),        // k6
+    k0123.w - (sTop.a - sTop.a - aux2)  // k7
   );
 }
 
@@ -245,8 +272,39 @@ void getkConstants(int3 index, out float4 k0123, out float4 k4567){
   getkConstants(sBottom,sTop,k0123,k4567);
 }
 
+// Interpolates at p using the bilinear coefficients
+float triLerpK(float3 p, float4 k0123, float4 k4567){
+  // f(x,y,z) = y(k5·z + k6·x + k7·z·x + k4) - (k1·z + k2·x + k3·z·x + k0)
+  return fma(p.y,
+    fma(k4567.y, p.z,
+      fma(k4567.z, p.x,
+        fma(k4567.w, p.z*p.x, k4567.x))),
+    -fma(k0123.y, p.z,
+      fma(k0123.z, p.x,
+        fma(k0123.w, p.z*p.x, k0123.x)))
+    );
+}
+
+float triLerp(float3 p, float4 sBottom, float4 sTop){
+  return lerp(
+    lerp(
+      lerp(sBottom.r,sBottom.a,p.z),
+      lerp(sBottom.g,sBottom.b,p.z),
+      p.x
+    ),
+    lerp(
+      lerp(sTop.r,sTop.a,p.z),
+      lerp(sTop.g,sTop.b,p.z),
+      p.x
+    ),
+    p.y
+  );
+}
+
 // Returns the coefficients for: f(t) = c_0 + c_1·t + c_2·t² + c_3·t³
 // return: x=c_0 y=c_1 z=c_2 w=c_3
+// This was based from the formula in "Ray Tracing of Signed Distance Function Grids" NVIDIA 2022
+// The paper uses a different coordinate system: xyz (Paper) => zxy (This code)
 // TODO: Check if it works, if not throw it and start again
 float4 getCubeCoeff(Ray r, float4 k0123, float4 k4567){
   float3 o = r.orig; float3 d = r.dir;
@@ -262,8 +320,8 @@ float4 getCubeCoeff(Ray r, float4 k0123, float4 k4567){
     fma(k4567.w,o.y, - k0123.w),
   );
 
-  // c_0 = (k4·oy - k0) + oz·m3 + ox·m4 + m0·m5
-  // c_1 = dz·m3 + dx·xm4 + m2·m5 + dy(k4 + k5·oz + k6·ox + k7·m0)
+  // c_0 = oz·m3 + ox·m4 + m0·m5 + (k4·oy - k0)
+  // c_1 = dz·m3 + dx·m4 + m2·m5 + dy(k4 + k5·oz + k6·ox + k7·m0)
   // c_2 = m1·m5 + dy(k5·dz + k6·dx + k7·m2)
   // c_3 = k7·m1·dy
   return float4(
@@ -287,18 +345,135 @@ float4 getCubeCoeff(Ray r, float4 k0123, float4 k4567){
   );
 }
 
+// Evaluates a cubic polinomial
+// return = f(t) = c.x + c.y·t + c.z·t² + c.w·t³
+float evalCubic(float t, float4 c){
+  // Horner form: ((c3 * t + c2) * t + c1) * t + c0
+  return fma(t, fma(t, fma(t, c.w, c.z), c.y), c.x);
+}
+
+float sphereTraceGrid(Ray r, Bbox bbox, out float3 debug){
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*3;
+  // Initial boundig box hit test
+  float3 p, far, dir = r.dir;
+  bool hit = intersectCube(r, bbox, p, far);
+  if(!hit) return -1;
+  if(length(far-p)<0.02){
+    debug = float3(0,1,1);
+    return 1;
+  }
+
+  const float3 gridSize = bbox.bMax - bbox.bMin;          // World space grid size
+  const float3 voxelSize = NUM_VOXELS_PER_AXIS/gridSize;  // Size of a voxel
+
+  
+  float3 hitCoor, voxelCoor;
+  int3 currentIndex, lastIndex;
+  float4 coeff, sBottom, sTop;
 
 
-// Trilinearlly interpolates the sdf values of a voxel2 at point p
-// Pre: p must be in canonical voxel space [0,1]³
-float triLerpVoxel2(float3 p, float4 sBottom, float4 sTop){
+  for(int steps = 1; steps < MAX_ITERATIONS; steps++){
+    hitCoor = (p-bbox.bMin)*voxelSize;
+    currentIndex = min(int3(NUM_VOXELS_PER_AXIS-1),max(int3(0),int3(
+      trunc(hitCoor)
+    )));
+    voxelCoor = frac(hitCoor);
+    sampleVoxel2(currentIndex,sBottom,sTop);
 
+    // Interpolate current sdf value using bilinear coefficients (k)
+    float t = triLerp(voxelCoor,sBottom,sBottom);
+    //debug = float3(t-sqrt(3)); return 1;
+    //debug = voxelCoor; return 1;
+    if(any(sBottom > sqrt(3)) || any(sTop > sqrt(3))){
+      debug = float3(1,0,0);
+      return 1;
+    }
+
+    // Cutoff condition
+    if(t < 1/float(NUM_VOXELS_PER_AXIS)){
+      debug = float3(1);
+      return length(p - r.orig);
+    }
+    
+    p += r.dir*t;
+  
+    if(!insideBbox(p,bbox)){
+      //return 1;
+      return -1; // Outside grid
+    }
+  }
+  debug = float3(0,1,0);
+  return 1;
+  return -1; // Over iterated 
+}
+
+float sphereTraceGridDebug(Ray r, Bbox bbox, out float3 debug){
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*3;
+  // Initial boundig box hit test
+  float3 p, far, dir = r.dir;
+  bool hit = intersectCube(r, bbox, p, far);
+  if(!hit) return -1;
+  if(length(far-p)<0.02){
+    debug = float3(1,0,0);
+    return 1;
+  }
+
+  const float3 gridSize = bbox.bMax - bbox.bMin;          // World space grid size
+
+  const float radius = 1;
+  const float4 s0123 = float4(
+    -radius,
+    1-radius,
+    sqrt(2)-radius,
+    1-radius
+  );
+  const float4 s4567 = float4(
+    1-radius,
+    sqrt(2)-radius,
+    sqrt(3)-radius,
+    sqrt(2)-radius
+  );
+ 
+  const float4 sphere = float4(sqrt(1.5)-radius);
+  
+  float3 hitCoor;
+  int3 currentIndex, lastIndex;
+  float4 coeff, k0123, k4567;
+
+  getkConstants(s0123,s4567,k0123,k4567);
+
+  for(int steps = 1; steps < MAX_ITERATIONS; steps++){
+
+    // Interpolate current sdf value using bilinear coefficients (k)
+    float t = triLerp((p-bbox.bMin)/gridSize,s0123,s4567);
+    //debug = float3((p-bbox.bMin)/gridSize); return 1;
+    //debug = float3(t); return 1;
+    
+    // Cutoff condition
+    if(t < 0.001){
+      debug = float3(1);
+      return length(p - r.orig);
+    }
+    
+    p += r.dir*t;
+  
+    if(!insideBbox(p,bbox)) return -1; // Outside grid
+  }
+
+  return -1; // Over iterated  
+}
+
+// Intersects 
+// Pre: r.orig must be in canonical voxel space [0,1]³
+//      r.dir must be normalized
+//      index must be in range off grid
+bool intersectVoxel2(Ray r, int3 index){
+  // TODO
+  return false;
 }
 
 // PRE: r.dir must be normalized
 float rayMarchAmaWoo(Ray r, Bbox bbox, out int3 index){
-  const int NUM_VOXELS_PER_AXIS = 100;
-  const float MIN_SDF_DIST = 0.0001;
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*3;
 
   // Initial boundig box hit test
@@ -306,19 +481,21 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out int3 index){
   bool hit = intersectCube(r, bbox, orig, far);
   if(!hit) return -1;
 
-  const float3 gridSize = bbox.bMax - bbox.bMin;              // World space grid size
-  const int3 step = sign(dir);                                // How many indices to jump per axis traversal
-  const float3 delta = gridSize/abs(dir)/NUM_VOXELS_PER_AXIS; // How much to travel in each direction till we meet the next voxel of that axis
+  const float3 gridSize = bbox.bMax - bbox.bMin;          // World space grid size
+  const int3 step = sign(dir);                            // How many indices to jump per axis traversal
+  const float3 voxelSize = NUM_VOXELS_PER_AXIS/gridSize;  // Size of a voxel
+  const float3 delta = abs(dir)/voxelSize;                // How much to travel in each direction till we meet the next voxel of that axis
   
-  float3 hitCoorPos = (orig-bbox.bMin)*NUM_VOXELS_PER_AXIS/gridSize;
-  float3 hitCoorNeg = max(bbox.bMax-orig,float3(0))*NUM_VOXELS_PER_AXIS/gridSize;
+  float3 hitCoorPos = (orig-bbox.bMin)*voxelSize;
+  float3 hitCoorNeg = max(bbox.bMax-orig,float3(0))*voxelSize;
   float3 hitCoor = lerp(hitCoorNeg,hitCoorPos,step*0.5+0.5);
 
   index = min(int3(NUM_VOXELS_PER_AXIS-1),max(int3(0),int3(
     trunc(hitCoorPos)
   )));
   float3 dOffset = 1.0-fract(hitCoor);
-  float3 maxD = delta * dOffset;
+  float3 iniDelta = delta * dOffset;
+  float3 maxD = iniDelta;
 
   // Debug visualizers
   // if(length(far-orig)<0.01) return float3(1.0);      // Silhouette highlighter
@@ -384,8 +561,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   Ray r = get_ray(uv);
 
 /* 
-  // Sphere tracing with sdf calculations
-  depth = sphereTraceGlobal(r);
+  // Sphere tracing with sdf calculations NO GRID
+  depth = sphereTraceMap(r);
   float3 p = r.orig+r.dir*depth;
   normal = calcNormal(p);
 
@@ -404,12 +581,13 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   bbox.bMax = bbox.bMax*bboxSize+bboxPos;
   float3 p;
   int3 index;
-  depth = rayMarchAmaWoo(r,bbox,index);
+  //depth = rayMarchAmaWoo(r,bbox,index);
+  depth = sphereTraceGrid(r,bbox,albedo);
 
   bool hit = depth > 0.0;
 
   if(hit){
-    albedo = float3(1.0);
+    //albedo = float3(1.0);
     normal = normalize(float3(0.2,0.2,1.0));
   }else{
     albedo = float3(r.dir);
