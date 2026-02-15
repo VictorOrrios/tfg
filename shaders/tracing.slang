@@ -389,6 +389,11 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 debug){
       return 1;
     }
 
+    if(any(voxelCoor>1)||any(voxelCoor<0)){
+      debug = float3(1,1,0);
+      return 1;
+    }
+
     // Cutoff condition
     if(t < 1/float(NUM_VOXELS_PER_AXIS)){
       debug = float3(1);

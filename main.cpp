@@ -553,9 +553,9 @@ public:
         for (int z = 0; z < size; z++) {
           glm::vec3 point = (glm::vec3(x+0.5f,y+0.5f,z+0.5f)/float(size) - center);
           // Sphere
-          //float d = sdSphere(point/scale, 0.2);
+          float d = sdSphere(point/scale, 0.2);
           // Snowman
-          float d = sdSnowMan(point/scale);
+          //float d = sdSnowMan(point/scale);
           data[x*size*size+y*size+z] = d*scale;
         }
       }
@@ -569,7 +569,7 @@ public:
     // TODO: This only works on start up because there is no concurrency problems
 
     assert(m_globalGrid.image);
-    std::vector<float> imageData = generateSDFGrid(100, 0.15);
+    std::vector<float> imageData = generateSDFGrid(100, 1);
     assert(m_stagingUploader.isAppendedEmpty());
     nvvk::SemaphoreState cmdSemaphoreState{};
     NVVK_CHECK(m_stagingUploader.appendImage(m_globalGrid, std::span(imageData), m_globalGrid.descriptor.imageLayout, cmdSemaphoreState));
