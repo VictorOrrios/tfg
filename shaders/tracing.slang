@@ -204,23 +204,23 @@ bool intersectCube(in Ray ray, in Bbox bbox, out float3 p1, out float3 p2){
 }
 
 // Samples a 2x2x2 voxel (voxel2) and outputs values into two float4 vectors:
-// sBottom: r=s000 g=100 b=001 a=101
-// sTop:    r=s010 g=110 b=011 a=111
+// sBottom: r=s000 g=100 b=101 a=001
+// sTop:    r=s010 g=110 b=111 a=011
 // Left hand coordinate system (x=right, y=up, z=forwards)
 // TODO: This looks slow, might be interesting to make more efficient
 void sampleVoxel2(int3 index, out float4 sBottom, out float4 sTop){
   sBottom = float4(
     globalGrid[index + int3(0,0,0)],  // s000
     globalGrid[index + int3(1,0,0)],  // s100
-    globalGrid[index + int3(0,0,1)],  // s001
-    globalGrid[index + int3(1,0,1)]   // s101
+    globalGrid[index + int3(1,0,1)],  // s101
+    globalGrid[index + int3(0,0,1)]   // s001
   );
 
   sTop = float4(
     globalGrid[index + int3(0,1,0)],  // s010
     globalGrid[index + int3(1,1,0)],  // s110
-    globalGrid[index + int3(0,1,1)],  // s011
-    globalGrid[index + int3(1,1,1)]   // s111
+    globalGrid[index + int3(1,1,1)],  // s111
+    globalGrid[index + int3(0,1,1)]   // s011
   );
 }
 
@@ -385,8 +385,9 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 debug){
     float t = triLerp(voxelCoor,sBottom,sTop);
 
     // Cutoff condition
-    if(t < 1/float(NUM_VOXELS_PER_AXIS*2)){
-      debug = float3(currentIndex)/float3(NUM_VOXELS_PER_AXIS)*pow(-1,currentIndex%2);
+    if(t < voxelSize.x/10){
+      //debug = float3(currentIndex)/float3(NUM_VOXELS_PER_AXIS)*pow(-1,currentIndex%2);
+      debug = float3(1);
       return length(p - r.orig);
     }
     
