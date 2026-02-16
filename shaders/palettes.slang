@@ -6,8 +6,8 @@
 
 // Palette of dark blue -> pale yellow -> dark red
 float3 paletteBlueGarnet(float x){
-  if(x<0) return float3(0,0,1); // Blue
-  if(x>1) return float3(1,0,0); // Red
+  if(x<0) return float3(0,1,1); // Cyan
+  if(x>1) return float3(1,1,0); // Yellow
   x = saturate(x);
   float3 deepBlue = float3(0.00784,0.0156,0.3568);
   float3 paleYellow = float3(0.9568,0.968,0.9372);
@@ -33,8 +33,8 @@ float3 paletteMagma(float t){
 }
 
 float3 paletteViridis(float t){
-  if(t<0) return float3(1,1,0); // Yellow
-  if(t>1) return float3(0,1,0); // Green
+  if(t<0) return float3(1,0,0); // Red
+  if(t>1) return float3(1,0,1); // Pink
 
   const float3 c0 = float3(0.2777273272234177, 0.005407344544966578, 0.3340998053353061);
   const float3 c1 = float3(0.1050930431085774, 1.404613529898575, 1.384590162594685);
@@ -48,7 +48,7 @@ float3 paletteViridis(float t){
 }
 
 float3 palettePlasma(float t){
-  if(t<0) return float3(0,0,1); // Blue
+  if(t<0) return float3(0,1,1); // Cyan
   if(t>1) return float3(1,0,0); // Red
 
   const float3 c0 = float3(0.05873234392399702, 0.02333670892565664, 0.5433401826748754);
@@ -64,7 +64,7 @@ float3 palettePlasma(float t){
 
 float3 paletteTurbo(float t){
   if(t<0) return float3(1,1,1); // White
-  if(t>1) return float3(0,1,0); // Green
+  if(t>1) return float3(1,0,1); // Pink
 
   const float3 c0 = float3(0.1140890109226559, 0.06288340699912215, 0.2248337216805064);
   const float3 c1 = float3(6.716419496985708, 3.182286745507602, 7.571581586103393);

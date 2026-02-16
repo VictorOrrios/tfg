@@ -89,7 +89,13 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 
   if(pushConst.debug.mode != 0 && uv.x > 0.98){
     // Palette visualizer
-    outImage[int2(fragCoord)] = float4(scalarToColor(uv.y),1.0);
+    if(uv.x - uv.y > 0.99){
+      outImage[int2(fragCoord)] = float4(scalarToColor(-1),1.0);
+    }else if(uv.x + uv.y > 1.99){
+      outImage[int2(fragCoord)] = float4(scalarToColor(2),1.0);
+    }else{
+      outImage[int2(fragCoord)] = float4(scalarToColor(uv.y),1.0);
+    }
   }else{
     switch(pushConst.debug.mode){
       default:
