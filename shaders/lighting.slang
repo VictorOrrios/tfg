@@ -87,7 +87,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     finalColor = float3(pushConst.lp.fogColor * fog);
   }
 
-  if(pushConst.debug.mode != 0 && uv.x > 0.98){
+  if((pushConst.debug.mode == 1 || pushConst.debug.mode == 4) && uv.x > 0.98){
     // Palette visualizer
     if(uv.x - uv.y > 0.99){
       outImage[int2(fragCoord)] = float4(scalarToColor(-1),1.0);

@@ -24,12 +24,7 @@
 // TODO: Change the comment paragraph
 
 
-#include "glm/detail/type_vec2.hpp"
-#include "glm/fwd.hpp"
-#include "glm/geometric.hpp"
-#include "glm/matrix.hpp"
-#include "nvvkgltf/tinygltf_utils.hpp"
-#include <cstdint>
+
 #define VMA_IMPLEMENTATION
 // TODO: Organize and label imports
 
@@ -78,6 +73,10 @@
 #include <nvvk/shaders.hpp>
 #include <nvvk/pipeline.hpp>
 #include <nvvk/compute_pipeline.hpp>
+#include <glm/fwd.hpp>
+#include <glm/geometric.hpp>
+#include <glm/matrix.hpp>
+#include <cstdint>
 
 const char* DebugModes[] = {
     "Debug color",
@@ -225,7 +224,6 @@ public:
     }
     
     if(!ImGui::CollapsingHeader("Debug colors")){
-      ImGui::Separator();
       ImGui::Text("Debug colors");
       ImGui::Checkbox("Active", &m_debugActive);
       ImGui::Combo("Mode", &m_debugMode, DebugModes, IM_ARRAYSIZE(DebugModes));

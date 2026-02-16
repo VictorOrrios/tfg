@@ -122,44 +122,23 @@ void sampleVoxel2(int3 index, out float4 sBottom, out float4 sTop){
 }
 
 void getkConstants(float4 sBottom, float4 sTop, out float4 k0123, out float4 k4567){
-  float aux1 = sBottom.b - sBottom.r;
-  float aux2 = sTop.b - sTop.r;
+  float aux1 = sBottom.a - sBottom.r; // s001 - s000
+  float aux2 = sTop.a - sTop.r;       // s011 - s010
   
   // Bottom bilinear coeff
   k0123 = float4(
-    sBottom.r,                // k0
-    aux1,                     // k1
-    sBottom.g-sBottom.r,      // k2
-    sBottom.a-sBottom.g-aux1  // k3
+    sBottom.r,                // k0 = s000
+    aux1,                     // k1 = aux1
+    sBottom.g-sBottom.r,      // k2 = s100 - s000
+    sBottom.b-sBottom.g-aux1  // k3 = s101 - s100 - aux1
   );
 
   // Top bilinear coeff
   k4567 = float4(
-    k0123.x - sTop.r,                   // k4
-    k0123.y - aux2,                     // k5
-    k0123.z - (sTop.g - sTop.r),        // k6
-    k0123.w - (sTop.b - sTop.g - aux2)  // k7
-  );
-}
-
-void getkConstantsNVIDIA(float4 sBottom, float4 sTop, out float4 k0123, out float4 k4567){
-  float aux1 = sBottom.g - sBottom.r;
-  float aux2 = sBottom.a - sBottom.b;
-  
-  // Bottom bilinear coeff
-  k0123 = float4(
-    sBottom.r,                // k0
-    aux1,                     // k1
-    sTop.r-sBottom.r,      // k2
-    sTop.g-sTop.r-aux1  // k3
-  );
-
-  // Top bilinear coeff
-  k4567 = float4(
-    k0123.x - sBottom.a,                   // k4
-    k0123.y - aux2,                     // k5
-    k0123.z - (sTop.a - sBottom.a),        // k6
-    k0123.w - (sTop.a - sTop.a - aux2)  // k7
+    sTop.r - k0123.x,                 // k4 = s010 - k0
+    aux2 - k0123.y,                   // k5 = aux2 - k1
+    sTop.g - sTop.r - k0123.z,        // k6 = s110 - s010 - k2
+    sTop.b - sTop.g - aux2 - k0123.w  // k7 = s111 - s110 - aux2 - k3
   );
 }
 
@@ -171,12 +150,12 @@ void getkConstants(int3 index, out float4 k0123, out float4 k4567){
 
 // Interpolates at p using the bilinear coefficients
 float triLerpK(float3 p, float4 k0123, float4 k4567){
-  // f(x,y,z) = y(k5·z + k6·x + k7·z·x + k4) - (k1·z + k2·x + k3·z·x + k0)
+  // f(x,y,z) = y(k5·z + k6·x + k7·z·x + k4) + (k1·z + k2·x + k3·z·x + k0)
   return fma(p.y,
     fma(k4567.y, p.z,
       fma(k4567.z, p.x,
         fma(k4567.w, p.z*p.x, k4567.x))),
-    -fma(k0123.y, p.z,
+    fma(k0123.y, p.z,
       fma(k0123.z, p.x,
         fma(k0123.w, p.z*p.x, k0123.x)))
     );
@@ -276,7 +255,7 @@ float sphereTraceGrid(Ray r, Bbox bbox){
   
   float3 hitCoor, voxelCoor;
   int3 currentIndex, lastIndex;
-  float4 coeff, sBottom, sTop;
+  float4 coeff, sBottom, sTop, k0123, k4567;
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
     hitCoor = (p-bbox.bMin)*voxelDensity; // P coordinates relative to grid, in [0,1]³
@@ -289,11 +268,14 @@ float sphereTraceGrid(Ray r, Bbox bbox){
     if(steps == 1 || any(currentIndex != lastIndex)){
       // Update current voxel data and index
       sampleVoxel2(currentIndex,sBottom,sTop);
+      getkConstants(sBottom,sTop,k0123,k4567);
       lastIndex = currentIndex;
     }
 
     // Interpolate current sdf value of the voxel2
-    float t = triLerp(voxelCoor,sBottom,sTop);
+    //float t = triLerp(voxelCoor,sBottom,sTop);
+    float t = triLerpK(voxelCoor,k0123,k4567);
+
 
     // Cutoff condition: A distance of 1/10 voxels
     // TODO: Fine tune to better performance/quality
