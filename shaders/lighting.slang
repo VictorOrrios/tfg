@@ -19,6 +19,7 @@
 // TODO: Change banner
 
 #include "shaderio.h"
+#include "palettes.slang"   // Debug color palette
 
 [[vk::push_constant]]  ConstantBuffer<PushConstant> pushConst;
 
@@ -35,6 +36,10 @@ float3 getV(float2 uv){
   float4 view = mul(rayClip,sceneInfo.projMatrix);
   float3 world = mul(float4(normalize(view.xyz),0.0),sceneInfo.viewMatrix).xyz;
   return normalize(world);
+}
+
+float3 scalarToColor(float x){
+  return scalarToColor(x, pushConst.debug.palette);
 }
 
 [shader("compute")]
@@ -82,5 +87,17 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     finalColor = float3(pushConst.lp.fogColor * fog);
   }
 
-  outImage[int2(fragCoord)] = float4(albedo, 1.0F);
+  if(pushConst.debug.mode != 0 && uv.x > 0.98){
+    // Palette visualizer
+    outImage[int2(fragCoord)] = float4(scalarToColor(uv.y),1.0);
+  }else{
+    switch(pushConst.debug.mode){
+      default:
+      case 0: outImage[int2(fragCoord)] = float4(finalColor, 1.0F); break;
+      case 1: case 2: outImage[int2(fragCoord)] = float4(albedo, 1.0F); break;
+      case 3: outImage[int2(fragCoord)] = float4(N, 1.0F); break;
+      case 4: outImage[int2(fragCoord)] = float4(scalarToColor(depth), 1.0F); break;
+    }
+  }
+
 }

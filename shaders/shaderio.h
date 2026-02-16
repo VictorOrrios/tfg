@@ -52,8 +52,15 @@ struct LightinParams{
   float  fogDensity     = 0.03F;
 };
 
+struct DebugParams{
+  int mode;     // 0: Off, 1: Debug color, 2: Albedo, 3: Normal, 4:Depth
+  int palette;
+};
+
+
 struct PushConstant{
   float time;
+  DebugParams debug;
   LightinParams lp;
 };
 

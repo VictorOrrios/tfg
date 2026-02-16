@@ -18,10 +18,17 @@
  */
 // TODO: Change banner
 
-#include "shaderio.h"
+#include "shaderio.h"       // Shared definitions with CPU
+#include "common.slang"     // Shared definitions with shaders
+#include "bbox.slang"       // AABB helpers
+#include "sdf.slang"        // SDF functions, operations and primitives
+#include "palettes.slang"   // Debug color palette
 
-const static float MIN_SDF_DIST = 0.0001;
-const static int NUM_VOXELS_PER_AXIS = 99;
+static float3 debug = float3(0.0);
+
+//----------------------------
+// External memory definition
+//----------------------------
 
 [[vk::push_constant]]  ConstantBuffer<PushConstant> pushConst;
 
@@ -29,95 +36,15 @@ const static int NUM_VOXELS_PER_AXIS = 99;
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
+
+const static int NUM_VOXELS_PER_AXIS = 99; // Numer of voxel2 per axis of globalGrids
 [[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
 
-struct Ray {
-  float3 orig;
-  float3 dir;
-};
-
-struct Bbox{
-  float3 bMin;
-  float3 bMax;
-};
-
-const static Bbox unitBBox =  {float3(-0.5, -0.5, -0.5),float3(0.5, 0.5, 0.5)};
-
-bool insideBbox(float3 p, Bbox bbox){
-  return all(p >= bbox.bMin) && all(p <= bbox.bMax);
+float3 scalarToColor(float x){
+  return scalarToColor(x, pushConst.debug.palette);
 }
 
-
-//---------------------------------------
-// Operations from Iñigo Quilez
-//---------------------------------------
-
-float opUnion(float a, float b){
-    return min(a,b);
-}
-float opSubtraction(float a, float b){
-    return max(-a,b);
-}
-float opIntersection(float a, float b){
-    return max(a,b);
-}
-float opXor(float a, float b){
-    return max(min(a,b),-max(a,b));
-}
-float opSmoothUnion(float a, float b, float k){
-    k *= 4.0;
-    float h = max(k-abs(a-b),0.0);
-    return min(a, b) - h*h*0.25/k;
-}
-float opSmoothSubtraction(float a, float b, float k){
-    return -opSmoothUnion(a,-b,k);
-
-    // k *= 4.0;
-    // float h = max(k-abs(-a-b),0.0);
-    // return max(-a, b) + h*h*0.25/k;
-}
-float opSmoothIntersection(float a, float b, float k){
-    return -opSmoothUnion(-a,-b,k);
-
-    // k *= 4.0;
-    // float h = max(k-abs(a-b),0.0);
-    // return max(a, b) + h*h*0.25/k;
-}
-
-//---------------------------------------
-// 3D SDF Primitives from Iñigo Quilez
-//---------------------------------------
-
-float sdSphere(float3 p, float s){
-  return length(p) - s;
-}
-// Pre: n must be normalized
-float sdPlane(float3 p, float3 n, float h ){
-  return dot(p,n) + h;
-}
-float sdCapsule(float3 p, float3 a, float3 b, float r){
-  float3 pa = p - a, ba = b - a;
-  float h = clamp( dot(pa,ba)/dot(ba,ba), 0.0, 1.0 );
-  return length( pa - ba*h ) - r;
-}
-float sdRoundedCylinder(float3 p, float ra, float rb, float h){
-  float2 d = float2( length(p.xz)-ra+rb, abs(p.y) - h + rb );
-  return min(max(d.x,d.y),0.0) + length(max(d,0.0)) - rb;
-}
-
-float sdSnowMan(float3 p){
-  float r = sdSphere(p,1.0);
-  r = opSmoothUnion(r,sdSphere(p-float3(0,1.5,0),0.6),0.1);
-  r = opSmoothUnion(r,sdSphere(p-float3(0.3,1.6,0.5),0.1),0.01);
-  r = opSmoothUnion(r,sdSphere(p-float3(-0.3,1.6,0.5),0.1),0.01);
-  r = opSmoothUnion(r,sdCapsule(p,float3(0.0),float3(1.6,0.8,0.0),0.15),0.05);
-  r = opSmoothUnion(r,sdCapsule(p,float3(0.0),float3(-1.6,0.8,0.0),0.15),0.05);
-  r = opSmoothUnion(r,sdCapsule(p,float3(0.0,1.4,0.0),float3(0.0,1.3,0.8),0.05),0.01);
-  r = opUnion(r,sdRoundedCylinder(p-float3(0.0,2.1,0.0),0.7,0.05,0.1));
-  r = opUnion(r,sdRoundedCylinder(p-float3(0.0,2.5,0.0),0.4,0.05,0.5));
-  return r;
-}
-
+// Evaluates the whole sdf scene in a point in space
 float map(float3 p){
   float t = sin(pushConst.time)*0.5+0.5;
   float r = 100000.0;
@@ -149,59 +76,29 @@ float3 calcNormal(float3 p){
   );
 }
 
+// Sphere traces the scene evaluating the scene sdf at every step
 float sphereTraceMap(Ray ray){
+  const int MAX_ITERATIONS = 100;
   const float MAX_DIST = 100.0;
   const float MIN_DIST = 0.0001;
   
   float depth = 0.0;
   
-  for(int i = 0; i < 500; i++){
+  for(int i = 0; i < MAX_ITERATIONS; i++){
     float3 p = ray.orig + ray.dir * depth;
     float dist = map(p);
     
-    if(abs(dist) < MIN_DIST){
-        return depth;  // Hit
-    }
+    if(abs(dist) < MIN_DIST) return depth;  // Hit
     
-    if(depth > MAX_DIST){
-        return -1.0;  // No hit
-    }
-    
+    if(depth > MAX_DIST) return -1.0;  // No hit
+
     depth += dist;
   }
   
   return -1.0;
 }
 
-// Taken from vk_mini_samples texture_3d
-// Determines whether a ray intersects with a bounding box (bbox) representing a cube.
-// If an intersection occurs, it calculates the two points of intersection and returns
-// them as output. If the ray origin is within the box p1 will be the same as the ray origin.
-// The function returns a boolean value indicating whether an intersection took place.
-bool intersectCube(in Ray ray, in Bbox bbox, out float3 p1, out float3 p2){
-  p1 = float3(0.0, 0.0, 0.0);
-  p2 = float3(0.0, 0.0, 0.0);
 
-  float3 invDir = 1.0 / ray.dir;
-
-  float3 tMin = (bbox.bMin - ray.orig) * invDir;
-  float3 tMax = (bbox.bMax - ray.orig) * invDir;
-
-  float3 t1 = min(tMin, tMax);
-  float3 t2 = max(tMin, tMax);
-
-  float tNear = max(max(t1.x, t1.y), t1.z);
-  float tFar  = min(min(t2.x, t2.y), t2.z);
-
-  if(tNear > tFar || tFar < 0.0){
-    return false;
-  }
-
-  p1 = ray.orig + ray.dir * max(tNear, 0.0);
-  p2 = ray.orig + ray.dir * tFar;
-
-  return true;
-}
 
 // Samples a 2x2x2 voxel (voxel2) and outputs values into two float4 vectors:
 // sBottom: r=s000 g=100 b=101 a=001
@@ -354,14 +251,22 @@ float evalCubic(float t, float4 c){
 }
 
 // TODO: Fix X axis artifacts
-float sphereTraceGrid(Ray r, Bbox bbox, out float3 debug){
-  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*3;
+float sphereTraceGrid(Ray r, Bbox bbox){
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS;
+
+  // Debug visualizers
+  const bool drawSilhouette = pushConst.debug.mode == 1 && false;  // Draw the silhouette of the grid
+  const bool drawSteps      = pushConst.debug.mode == 1 && true;   // Draw the numer of steps taken
+  const bool drawHitIndex   = pushConst.debug.mode == 1 && false;  // Draw the grid voxel index at the hit point
+
   // Initial boundig box hit test
   float3 p, far, dir = r.dir;
   bool hit = intersectCube(r, bbox, p, far);
   if(!hit) return -1;
-  if(length(far-p)<0.02){
-    debug = float3(0,1,1);
+
+  // Silhouette highlighter
+  if(drawSilhouette && length(far-p)<0.02){
+    debug = scalarToColor(1.1);
     return 1;
   }
 
@@ -374,105 +279,62 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 debug){
   float4 coeff, sBottom, sTop;
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
-    hitCoor = (p-bbox.bMin)*voxelDensity;
-    currentIndex = min(int3(NUM_VOXELS_PER_AXIS-1),max(int3(0),int3(
-      trunc(hitCoor)
-    )));
-    voxelCoor = frac(hitCoor);
-    sampleVoxel2(currentIndex,sBottom,sTop);
+    hitCoor = (p-bbox.bMin)*voxelDensity; // P coordinates relative to grid, in [0,1]³
 
-    // Interpolate current sdf value using bilinear coefficients (k)
+    // TODO: Check if it needs clamping
+    currentIndex = int3(trunc(hitCoor));  // Grid index of p
+    voxelCoor = frac(hitCoor);            // P Coordinates relative to voxel, in [0,1]³
+
+    // If this voxel hasn't been visited yet
+    if(steps == 1 || any(currentIndex != lastIndex)){
+      // Update current voxel data and index
+      sampleVoxel2(currentIndex,sBottom,sTop);
+      lastIndex = currentIndex;
+    }
+
+    // Interpolate current sdf value of the voxel2
     float t = triLerp(voxelCoor,sBottom,sTop);
 
-    // Cutoff condition
+    // Cutoff condition: A distance of 1/10 voxels
+    // TODO: Fine tune to better performance/quality
     if(t < voxelSize.x/10){
-      //debug = float3(currentIndex)/float3(NUM_VOXELS_PER_AXIS)*pow(-1,currentIndex%2);
-      debug = float3(1);
+      if(drawSteps){
+        // Debug visualizer of step count
+        debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
+      }else if(drawHitIndex){
+        // Debug visualizer of hit grid index
+        debug = float3(currentIndex)/float3(NUM_VOXELS_PER_AXIS);
+      }
+
+      // Returns depth of hit
       return length(p - r.orig);
     }
     
-    p += r.dir*t*0.2;
+    // Update p to move the estimated length to surface
+    p += r.dir*t;
   
+    // Check if ray has left the bbox
     if(!insideBbox(p,bbox)){
-      return -1; // Outside grid
+      // Outside grid
+      if(drawSteps){
+        debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
+        return 1;
+      }else{
+        // No hit
+        return -1;
+      }
     }
   }
-  return -1; // Over iterated 
-}
 
-// Sphere traces a single voxel with manually placed corner values
-float sphereTraceGridDebug(Ray r, Bbox bbox, out float3 debug){
-  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*3;
-  // Initial boundig box hit test
-  float3 p, far, dir = r.dir;
-  bool hit = intersectCube(r, bbox, p, far);
-  if(!hit) return -1;
-  if(length(far-p)<0.02){
-    debug = float3(1,0,0);
+  // Over iterated 
+  if(drawSteps){
+    // Debug visualizer of step count
+    debug = scalarToColor(1.1);
     return 1;
+  }else{
+    // No hit
+    return -1;
   }
-
-  const float3 gridSize = bbox.bMax - bbox.bMin;          // World space grid size
-
-  const float radius = 0.5;
-  const float4 s0123 = float4(
-    -radius,
-    1-radius,
-    sqrt(2)-radius,
-    1-radius
-  );
-  const float4 s4567 = float4(
-    1-radius,
-    sqrt(2)-radius,
-    sqrt(3)-radius,
-    sqrt(2)-radius
-  );
- 
-  const float4 sphere = float4(sqrt(1.5)-radius);
-
-  const float4 sa = float4(
-    -radius,
-    1-radius,
-    -radius,
-    1-radius
-  );
-  const float4 sb = float4(
-    1-radius,
-    sqrt(2)-radius,
-    1-radius,
-    sqrt(2)-radius
-  );
-  
-  float3 hitCoor;
-  int3 currentIndex, lastIndex;
-  float4 coeff, k0123, k4567;
-
-  getkConstants(s0123,s4567,k0123,k4567);
-
-  for(int steps = 1; steps < MAX_ITERATIONS; steps++){
-
-    // Interpolate current sdf value using bilinear coefficients (k)
-    float3 voxelCoor = (p-bbox.bMin)/gridSize;
-    float t = triLerp(voxelCoor,sa,sb);
-    //debug = float3((p-bbox.bMin)/gridSize); return 1;
-    //debug = float3(t); return 1;
-    if(any(voxelCoor < -0.001) || any(voxelCoor > 1.001)){
-      debug = float3(1,1,0);
-      return 1;
-    }
-
-    // Cutoff condition
-    if(t < 0.00001){
-      debug = float3(1);
-      return length(p - r.orig);
-    }
-    
-    p += r.dir*t*0.8;
-  
-    if(!insideBbox(p,bbox)) return -1; // Outside grid
-  }
-
-  return -1; // Over iterated  
 }
 
 // Intersects 
@@ -486,12 +348,24 @@ bool intersectVoxel2(Ray r, int3 index){
 
 // PRE: r.dir must be normalized
 float rayMarchAmaWoo(Ray r, Bbox bbox, out int3 index){
-  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*3;
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*2;
+
+  // Debug visualizers
+  const bool drawSilhouette = pushConst.debug.mode == 1 && false;  // Draw the silhouette of the grid 
+  const bool drawSteps      = pushConst.debug.mode == 1 && true;   // Draw the numer of steps taken
+  const bool drawHitIndex   = pushConst.debug.mode == 1 && false;  // Draw the grid voxel index at the hit point
 
   // Initial boundig box hit test
   float3 orig, far, dir = r.dir;
+  index = int3(0);
   bool hit = intersectCube(r, bbox, orig, far);
   if(!hit) return -1;
+
+  // Silhouette highlighter
+  if(drawSilhouette && length(far-orig)<0.02){
+    debug = scalarToColor(1.1);
+    return 1;
+  }
 
   const float3 gridSize = bbox.bMax - bbox.bMin;            // World space grid size
   const int3 step = sign(dir);                              // How many indices to jump per axis traversal
@@ -516,7 +390,7 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out int3 index){
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
     // Check current voxel for hit
-    if(globalGrid[index] < MIN_SDF_DIST){
+    if(globalGrid[index] < voxelSize.x/10){
       // TODO: Figure out a way to interpolate with neighbouring voxels
       // TODO: This depth is wrong
       return length(orig - r.orig) + min(maxD.x,min(maxD.y,maxD.z));
@@ -537,7 +411,9 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out int3 index){
     }
 
     // Outside grid
-    if (any(index < 0) || any(index >= NUM_VOXELS_PER_AXIS)) return -1;
+    if (any(index < 0) || any(index >= NUM_VOXELS_PER_AXIS)){
+      return -1;
+    }
   };
 
   return -1; // Over iterated  
@@ -562,8 +438,7 @@ Ray get_ray(float2 uv){
 
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE, WORKGROUP_SIZE, 1)]
-void computeMain(uint3 threadIdx : SV_DispatchThreadID)
-{
+void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   float depth; float3 albedo, normal;
 
   float2 fragCoord = threadIdx.xy;
@@ -572,17 +447,6 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   float2 uv = fragCoord/iResolution;
   
   Ray r = get_ray(uv);
-
-/* 
-  // Sphere tracing with sdf calculations NO GRID
-  depth = sphereTraceMap(r);
-  float3 p = r.orig+r.dir*depth;
-  normal = calcNormal(p);
-
-  float3 groundColor = float3(0.294, 0.49, 0.024);
-  float3 snowColor = float3(0.8F);
-  albedo = p.y > -0.95F? snowColor : groundColor;
- */
 
   float3 p1, p2;
   float3 hitPoint;
@@ -595,26 +459,21 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   float3 p;
   int3 index;
   //depth = rayMarchAmaWoo(r,bbox,index);
-  depth = sphereTraceGrid(r,bbox,albedo);
-
-  bool hit = depth > 0.0;
+  depth = sphereTraceGrid(r,bbox);
+  albedo = debug;
+  bool hit = depth >= 0.0;
 
   if(hit){
-    //albedo = float3(1.0);
+    albedo = float3(1.0);
     normal = normalize(float3(0.2,0.2,1.0));
   }else{
-    albedo = float3(r.dir);
+    debug = r.dir;
   }
 
-
-/* 
-  float read = globalGrid[int3((int)(uv.x*100.0),(int)(uv.y*100.0),50)].r;
-  if(read > 0.001){
-    albedo = float3(1.0f,0,0);
-    depth = 1.0;
-    normal = normalize(float3(0.2,0.2,1.0));
+  if(pushConst.debug.mode == 1){
+    albedo = debug;
   }
- */
+
   normalImage[int2(fragCoord)] = float4(normal, 0.0F);
   albedoImage[int2(fragCoord)] = float4(albedo,1.0F);
   depthImage[int2(fragCoord)] = depth;

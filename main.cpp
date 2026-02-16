@@ -79,6 +79,21 @@
 #include <nvvk/pipeline.hpp>
 #include <nvvk/compute_pipeline.hpp>
 
+const char* DebugModes[] = {
+    "Debug color",
+    "Albedo",
+    "Normal",
+    "Depth",
+};
+
+const char* DebugPalettes[] = {
+    "Magma",
+    "Warm ice",
+    "Viridis",
+    "Plasma",
+    "Turbo",
+    "Inferno",
+};
 
 class AppElement : public nvapp::IAppElement
 {
@@ -179,7 +194,7 @@ public:
   // Rendering all UI elements, this includes the image of the GBuffer, the camera controls, and the sky parameters.
   // - Called every frame
   void onUIRender() override
-  {
+  { 
     ImGui::Begin("Settings");
     ImGui::TextDisabled("%d FPS / %.3fms", static_cast<int>(ImGui::GetIO().Framerate), 1000.F / ImGui::GetIO().Framerate);
 
@@ -207,6 +222,19 @@ public:
       ImGui::Text("Fog");
       ImGui::SliderFloat("Fog Density", &m_pushConst.lp.fogDensity, 0.0f, 0.2f);
       ImGui::ColorEdit3("Fog Color", &m_pushConst.lp.fogColor.x);
+    }
+    
+    if(!ImGui::CollapsingHeader("Debug colors")){
+      ImGui::Separator();
+      ImGui::Text("Debug colors");
+      ImGui::Checkbox("Active", &m_debugActive);
+      ImGui::Combo("Mode", &m_debugMode, DebugModes, IM_ARRAYSIZE(DebugModes));
+      ImGui::Combo("Palette", &m_pushConst.debug.palette, DebugPalettes, IM_ARRAYSIZE(DebugPalettes));
+      if(m_debugActive){
+        m_pushConst.debug.mode = m_debugMode + 1;
+      }else{
+        m_pushConst.debug.mode = 0;
+      }
     }
 
     ImGui::End();
@@ -779,6 +807,10 @@ private:
   std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()}; // Camera manipulator
   nvshaders::Tonemapper    m_tonemapper{};      // Tonemapper for post-processing effects
   shaderio::TonemapperData m_tonemapperData{};  // Tonemapper data used to pass parameters to the tonemapper shader
+
+  // UI params
+  bool m_debugActive = false;
+  int m_debugMode = 0;
 
   // Startup managers for profiler and paramter registry
   Info m_info;
