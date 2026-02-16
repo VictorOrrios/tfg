@@ -54,7 +54,7 @@ float map(float3 p){
 }
 
 // True numerical
-float3 calcNormalSlow(float3 p){
+float3 calcNormalMapSlow(float3 p){
   const float eps = 0.0001;
   const float2 h = float2(eps,0.0);
   return normalize(float3(
@@ -65,7 +65,7 @@ float3 calcNormalSlow(float3 p){
 }
 
 // Tetrahedron aproximation
-float3 calcNormal(float3 p){
+float3 calcNormalMap(float3 p){
   const float h = 0.0001;
   const float2 k = float2(1,-1);
   return normalize(
@@ -178,6 +178,49 @@ float triLerp(float3 p, float4 sBottom, float4 sTop){
   );
 }
 
+// Calculates analytically the normal of a voxel2 at point p
+// Pre: p must be within voxel range in [0,1]³
+float3 calcNormalAnalytic(float3 p, float4 sBottom, float4 sTop){
+  //p = saturate(p);
+  float dx = lerp(
+    lerp(
+      sBottom.g - sBottom.r,  // s100 - s000
+      sTop.g - sTop.r,        // s110 - s010
+      p.y),
+    lerp(
+      sBottom.b - sBottom.a,  // s101 - s001
+      sTop.b - sTop.a,        // s111 - s011
+      p.y),
+    p.z
+  );
+
+  float dy = lerp(
+    lerp(
+      sTop.r - sBottom.r,     // s010 - s000
+      sTop.g - sBottom.g,     // s110 - s100
+      p.x),
+    lerp(
+      sTop.a - sBottom.a,     // s011 - s001
+      sTop.b - sBottom.b,     // s111 - s101
+      p.x),
+    p.z
+  );
+
+  float dz = lerp(
+    lerp(
+      sBottom.a - sBottom.r,  // s001 - s000
+      sBottom.b - sBottom.g,  // s101 - s100
+      p.x),
+    lerp(
+      sTop.a - sTop.r,        // s011 - s010
+      sTop.b - sTop.g,        // s111 - s110
+      p.x),
+    p.y
+  );
+
+  return normalize(float3(dx,dy,dz));
+}
+
 // Returns the coefficients for: f(t) = c_0 + c_1·t + c_2·t² + c_3·t³
 // return: x=c_0 y=c_1 z=c_2 w=c_3
 // This was based from the formula in "Ray Tracing of Signed Distance Function Grids" NVIDIA 2022
@@ -230,13 +273,15 @@ float evalCubic(float t, float4 c){
 }
 
 // TODO: Fix X axis artifacts
-float sphereTraceGrid(Ray r, Bbox bbox){
+float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS;
 
   // Debug visualizers
   const bool drawSilhouette = pushConst.debug.mode == 1 && false;  // Draw the silhouette of the grid
   const bool drawSteps      = pushConst.debug.mode == 1 && true;   // Draw the numer of steps taken
   const bool drawHitIndex   = pushConst.debug.mode == 1 && false;  // Draw the grid voxel index at the hit point
+
+  normal = float3(0);
 
   // Initial boundig box hit test
   float3 p, far, dir = r.dir;
@@ -255,7 +300,7 @@ float sphereTraceGrid(Ray r, Bbox bbox){
   
   float3 hitCoor, voxelCoor;
   int3 currentIndex, lastIndex;
-  float4 coeff, sBottom, sTop, k0123, k4567;
+  float4 coeff, sBottom, sTop;
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
     hitCoor = (p-bbox.bMin)*voxelDensity; // P coordinates relative to grid, in [0,1]³
@@ -268,13 +313,13 @@ float sphereTraceGrid(Ray r, Bbox bbox){
     if(steps == 1 || any(currentIndex != lastIndex)){
       // Update current voxel data and index
       sampleVoxel2(currentIndex,sBottom,sTop);
-      getkConstants(sBottom,sTop,k0123,k4567);
+      //getkConstants(sBottom,sTop,k0123,k4567);
       lastIndex = currentIndex;
     }
 
     // Interpolate current sdf value of the voxel2
     //float t = triLerp(voxelCoor,sBottom,sTop);
-    float t = triLerpK(voxelCoor,k0123,k4567);
+    float t = triLerp(voxelCoor,sBottom, sTop);
 
 
     // Cutoff condition: A distance of 1/10 voxels
@@ -287,7 +332,7 @@ float sphereTraceGrid(Ray r, Bbox bbox){
         // Debug visualizer of hit grid index
         debug = float3(currentIndex)/float3(NUM_VOXELS_PER_AXIS);
       }
-
+      normal = calcNormalAnalytic(voxelCoor,sBottom,sTop);
       // Returns depth of hit
       return length(p - r.orig);
     }
@@ -441,13 +486,12 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   float3 p;
   int3 index;
   //depth = rayMarchAmaWoo(r,bbox,index);
-  depth = sphereTraceGrid(r,bbox);
+  depth = sphereTraceGrid(r,bbox,normal);
   albedo = debug;
   bool hit = depth >= 0.0;
 
   if(hit){
     albedo = float3(1.0);
-    normal = normalize(float3(0.2,0.2,1.0));
   }else{
     debug = r.dir;
   }
