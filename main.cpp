@@ -38,6 +38,7 @@
 #include "shaders/shaderio.h"           // Shared between host and device
 #include "utils/path_utils.hpp"
 #include "utils/utils.hpp"
+#include "utils/scene.hpp"
 
 #include "_autogen/tracing.slang.h"
 #include "_autogen/lighting.slang.h"
@@ -235,6 +236,10 @@ public:
       }
     }
 
+    ImGui::End();
+
+    ImGui::Begin("Scene");
+    m_scene.draw();
     ImGui::End();
 
     // Rendered image displayed fully in 'Viewport' window
@@ -772,7 +777,7 @@ public:
   std::shared_ptr<nvutils::CameraManipulator> getCameraManipulator() const { return m_cameraManip; }
 
 private:
-
+  // Vulkan variables
   nvapp::Application*     m_app{};            // The application framework
   nvvk::ResourceAllocator m_alloc{};          // Resource allocator for Vulkan resources, used for buffers and images
   nvvk::StagingUploader  m_stagingUploader{}; // Utility to upload data to the GPU, used for staging buffers and images
@@ -809,6 +814,9 @@ private:
   // UI params
   bool m_debugActive = false;
   int m_debugMode = 0;
+
+  // Scene
+  Scene m_scene;
 
   // Startup managers for profiler and paramter registry
   Info m_info;
@@ -875,14 +883,16 @@ int main(int argc, char** argv)
   appInfo.physicalDevice = vkContext.getPhysicalDevice();
   appInfo.queues         = vkContext.getQueueInfos();
   appInfo.dockSetup      = [](ImGuiID viewportID) {
-    // right side panel container
-    ImGuiID settingID = ImGui::DockBuilderSplitNode(viewportID, ImGuiDir_Right, 0.25F, nullptr, &viewportID);
-    ImGui::DockBuilderDockWindow("Settings", settingID);
+    ImGuiID centerNode = viewportID;
 
-    // bottom panel container
-    ImGuiID loggerID = ImGui::DockBuilderSplitNode(viewportID, ImGuiDir_Down, 0.35F, nullptr, &viewportID);
+    ImGuiID settingID = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Right, 0.2f, nullptr, &centerNode);
+    ImGuiID sceneID   = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Left,  0.2f, nullptr, &centerNode);
+    ImGuiID loggerID  = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Down,  0.3f, nullptr, &centerNode);
+    ImGuiID profilerID = ImGui::DockBuilderSplitNode(loggerID, ImGuiDir_Right, 0.4f, nullptr, &loggerID);
+
+    ImGui::DockBuilderDockWindow("Settings", settingID);
+    ImGui::DockBuilderDockWindow("Scene", sceneID);
     ImGui::DockBuilderDockWindow("Log", loggerID);
-    ImGuiID profilerID = ImGui::DockBuilderSplitNode(loggerID, ImGuiDir_Right, 0.4F, nullptr, &loggerID);
     ImGui::DockBuilderDockWindow("Profiler", profilerID);
   };
 

@@ -35,12 +35,13 @@ compile_slang(
 #
 
 # Utils
-file(GLOB CONFIGURE_DEPENDS UTILS_SOURCES
+file(GLOB UTILS_SOURCES CONFIGURE_DEPENDS 
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.c
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.h
 )
+
 
 
 #####################################################################################
@@ -82,4 +83,3 @@ copy_to_runtime_and_install(${PROJECT_NAME}
   PROGRAMS ${Slang_SLANGD_EXECUTABLE}
   AUTO
 )
-
