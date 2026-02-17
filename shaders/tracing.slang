@@ -19,12 +19,10 @@
 // TODO: Change banner
 
 #include "shaderio.h"       // Shared definitions with CPU
-#include "common.slang"     // Shared definitions with shaders
-#include "bbox.slang"       // AABB helpers
-#include "sdf.slang"        // SDF functions, operations and primitives
-#include "palettes.slang"   // Debug color palette
-
-static float3 debug = float3(0.0);
+#include "utils/common.slang"     // Shared definitions with shaders
+#include "utils/bbox.slang"       // AABB helpers
+#include "utils/sdf.slang"        // SDF functions, operations and primitives
+#include "utils/palettes.slang"   // Debug color palette
 
 //----------------------------
 // External memory definition
@@ -39,6 +37,14 @@ static float3 debug = float3(0.0);
 
 const static int NUM_VOXELS_PER_AXIS = 99; // Numer of voxel2 per axis of globalGrids
 [[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
+
+#ifdef NDEBUG
+const static bool debugColor = false;
+#else
+const static bool debugColor = pushConst.debug.mode == 1;
+#endif
+
+static float3 debug = float3(0.0);
 
 float3 scalarToColor(float x){
   return scalarToColor(x, pushConst.debug.palette);
@@ -277,9 +283,9 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS;
 
   // Debug visualizers
-  const bool drawSilhouette = pushConst.debug.mode == 1 && true;  // Draw the silhouette of the grid
-  const bool drawSteps      = pushConst.debug.mode == 1 && true;   // Draw the numer of steps taken
-  const bool drawHitIndex   = pushConst.debug.mode == 1 && false;  // Draw the grid voxel index at the hit point
+  const bool drawSilhouette = debugColor && true;  // Draw the silhouette of the grid
+  const bool drawSteps      = debugColor && true;   // Draw the numer of steps taken
+  const bool drawHitIndex   = debugColor && false;  // Draw the grid voxel index at the hit point
 
   normal = float3(0);
 
@@ -377,10 +383,10 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal){
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*3;
 
   // Debug visualizers
-  const bool drawSilhouette = pushConst.debug.mode == 1 && true;  // Draw the silhouette of the grid 
-  const bool drawSteps      = pushConst.debug.mode == 1 && true; // Draw the numer of steps taken
-  const bool drawHitIndex   = pushConst.debug.mode == 1 && false; // Draw the grid voxel index at the hit point
-  const bool drawFirstStep  = pushConst.debug.mode == 1 && false;  // Draw the axis of the step taken by the first iteration
+  const bool drawSilhouette = debugColor && true;   // Draw the silhouette of the grid 
+  const bool drawSteps      = debugColor && true;   // Draw the numer of steps taken
+  const bool drawHitIndex   = debugColor && false;  // Draw the grid voxel index at the hit point
+  const bool drawFirstStep  = debugColor && false;  // Draw the axis of the step taken by the first iteration
 
   normal = float3(0);
 
@@ -512,20 +518,19 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   Bbox bbox = unitBBox;
   bbox.bMin = bbox.bMin*bboxSize+bboxPos;
   bbox.bMax = bbox.bMax*bboxSize+bboxPos;
-  float3 p;
-  int3 index;
-  depth = rayMarchAmaWoo(r,bbox,normal);
-  //depth = sphereTraceGrid(r,bbox,normal);
-  albedo = debug;
-  bool hit = depth >= 0.0;
+  
+  //depth = rayMarchAmaWoo(r,bbox,normal);
+  depth = sphereTraceGrid(r,bbox,normal);
 
+  bool hit = depth >= 0.0;
   if(hit){
     albedo = float3(1.0);
   }else{
+    albedo = float3(0);
     debug = r.dir;
   }
 
-  if(pushConst.debug.mode == 1){
+  if(debugColor){
     albedo = debug;
   }
 

@@ -19,7 +19,7 @@
 // TODO: Change banner
 
 #include "shaderio.h"
-#include "palettes.slang"   // Debug color palette
+#include "utils/palettes.slang"   // Debug color palette
 
 [[vk::push_constant]]  ConstantBuffer<PushConstant> pushConst;
 
@@ -28,6 +28,12 @@
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
+
+#ifdef NDEBUG
+const static bool debugActive = false;
+#else
+const static bool debugActive = true;
+#endif
 
 float3 getV(float2 uv){
   float2 ndc = uv * 2.0 - 1.0;
@@ -87,23 +93,27 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     finalColor = float3(pushConst.lp.fogColor * fog);
   }
 
-  if((pushConst.debug.mode == 1 || pushConst.debug.mode == 4) && uv.x > 0.98){
-    // Palette visualizer
-    if(uv.x - uv.y > 0.99){
-      outImage[int2(fragCoord)] = float4(scalarToColor(-1),1.0);
-    }else if(uv.x + uv.y > 1.99){
-      outImage[int2(fragCoord)] = float4(scalarToColor(2),1.0);
+  if(debugActive){
+    if((pushConst.debug.mode == 1 || pushConst.debug.mode == 4) && uv.x > 0.98){
+      // Palette visualizer
+      if(uv.x - uv.y > 0.99){
+        outImage[int2(fragCoord)] = float4(scalarToColor(-1),1.0);
+      }else if(uv.x + uv.y > 1.99){
+        outImage[int2(fragCoord)] = float4(scalarToColor(2),1.0);
+      }else{
+        outImage[int2(fragCoord)] = float4(scalarToColor(uv.y),1.0);
+      }
     }else{
-      outImage[int2(fragCoord)] = float4(scalarToColor(uv.y),1.0);
+      switch(pushConst.debug.mode){
+        default:
+        case 0: outImage[int2(fragCoord)] = float4(finalColor, 1.0F); break;
+        case 1: case 2: outImage[int2(fragCoord)] = float4(albedo, 1.0F); break;
+        case 3: outImage[int2(fragCoord)] = float4(N, 1.0F); break;
+        case 4: outImage[int2(fragCoord)] = float4(scalarToColor(depth), 1.0F); break;
+      }
     }
   }else{
-    switch(pushConst.debug.mode){
-      default:
-      case 0: outImage[int2(fragCoord)] = float4(finalColor, 1.0F); break;
-      case 1: case 2: outImage[int2(fragCoord)] = float4(albedo, 1.0F); break;
-      case 3: outImage[int2(fragCoord)] = float4(N, 1.0F); break;
-      case 4: outImage[int2(fragCoord)] = float4(scalarToColor(depth), 1.0F); break;
-    }
+    outImage[int2(fragCoord)] = float4(finalColor, 1.0F);
   }
 
 }
