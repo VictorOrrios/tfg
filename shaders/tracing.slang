@@ -277,7 +277,7 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS;
 
   // Debug visualizers
-  const bool drawSilhouette = pushConst.debug.mode == 1 && false;  // Draw the silhouette of the grid
+  const bool drawSilhouette = pushConst.debug.mode == 1 && true;  // Draw the silhouette of the grid
   const bool drawSteps      = pushConst.debug.mode == 1 && true;   // Draw the numer of steps taken
   const bool drawHitIndex   = pushConst.debug.mode == 1 && false;  // Draw the grid voxel index at the hit point
 
@@ -290,7 +290,7 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
 
   // Silhouette highlighter
   if(drawSilhouette && length(far-p)<0.02){
-    debug = scalarToColor(1.1);
+    debug = scalarToColor(-1);
     return 1;
   }
 
@@ -325,13 +325,12 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
     // Cutoff condition: A distance of 1/10 voxels
     // TODO: Fine tune to better performance/quality
     if(t < voxelSize.x/10){
-      if(drawSteps){
-        // Debug visualizer of step count
-        debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
-      }else if(drawHitIndex){
-        // Debug visualizer of hit grid index
-        debug = float3(currentIndex)/float3(NUM_VOXELS_PER_AXIS);
-      }
+
+      // Debug visualizer of step count
+      if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
+      // Debug visualizer of hit grid index
+      if(drawHitIndex) debug = float3(currentIndex)/float3(NUM_VOXELS_PER_AXIS);
+      
       normal = calcNormalAnalytic(voxelCoor,sBottom,sTop);
       // Returns depth of hit
       return length(p - r.orig);
@@ -374,76 +373,106 @@ bool intersectVoxel2(Ray r, int3 index){
 }
 
 // PRE: r.dir must be normalized
-float rayMarchAmaWoo(Ray r, Bbox bbox, out int3 index){
-  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*2;
+float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal){
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*3;
 
   // Debug visualizers
-  const bool drawSilhouette = pushConst.debug.mode == 1 && false;  // Draw the silhouette of the grid 
-  const bool drawSteps      = pushConst.debug.mode == 1 && true;   // Draw the numer of steps taken
-  const bool drawHitIndex   = pushConst.debug.mode == 1 && false;  // Draw the grid voxel index at the hit point
+  const bool drawSilhouette = pushConst.debug.mode == 1 && true;  // Draw the silhouette of the grid 
+  const bool drawSteps      = pushConst.debug.mode == 1 && true; // Draw the numer of steps taken
+  const bool drawHitIndex   = pushConst.debug.mode == 1 && false; // Draw the grid voxel index at the hit point
+  const bool drawFirstStep  = pushConst.debug.mode == 1 && false;  // Draw the axis of the step taken by the first iteration
+
+  normal = float3(0);
 
   // Initial boundig box hit test
   float3 orig, far, dir = r.dir;
-  index = int3(0);
   bool hit = intersectCube(r, bbox, orig, far);
   if(!hit) return -1;
 
   // Silhouette highlighter
   if(drawSilhouette && length(far-orig)<0.02){
-    debug = scalarToColor(1.1);
+    debug = scalarToColor(-1);
     return 1;
   }
 
-  const float3 gridSize = bbox.bMax - bbox.bMin;            // World space grid size
-  const int3 step = sign(dir);                              // How many indices to jump per axis traversal
-  const float3 voxelDensity = NUM_VOXELS_PER_AXIS/gridSize; // How many voxels per unit of world space
-  const float3 voxelSize = gridSize/NUM_VOXELS_PER_AXIS;    // Size of a voxel
-  const float3 delta = abs(dir)*voxelSize;                  // How much to travel in each direction till we meet the next voxel of that axis
+  const float3 gridSize = bbox.bMax - bbox.bMin;                // World space grid size
+  const int3 step = sign(dir);                                  // How many indices to jump per axis traversal
+  const float3 voxelDensity = (NUM_VOXELS_PER_AXIS+1)/gridSize; // How many voxels per unit of world space
+  const float3 voxelSize = gridSize/(NUM_VOXELS_PER_AXIS+1);    // Size of a voxel
+  const float3 delta = voxelSize/abs(dir);                      // How much to travel in each direction till we meet the next voxel of that axis
   
   float3 hitCoorPos = (orig-bbox.bMin)*voxelDensity;
   float3 hitCoorNeg = max(bbox.bMax-orig,float3(0))*voxelDensity;
   float3 hitCoor = lerp(hitCoorNeg,hitCoorPos,step*0.5+0.5);
 
-  index = min(int3(NUM_VOXELS_PER_AXIS-1),max(int3(0),int3(
+  int3 origIndex = min(int3(NUM_VOXELS_PER_AXIS),max(int3(0),int3(
     trunc(hitCoorPos)
   )));
+  int3 index = origIndex;
   float3 dOffset = 1.0-fract(hitCoor);
   float3 iniDelta = delta * dOffset;
   float3 maxD = iniDelta;
-
-  // Debug visualizers
-  // if(length(far-orig)<0.01) return float3(1.0);      // Silhouette highlighter
-  // return float3(index)/float3(NUM_VOXELS_PER_AXIS);  // Index UVS 
+  float3 lastTraversal;
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
     // Check current voxel for hit
     if(globalGrid[index] < voxelSize.x/10){
-      // TODO: Figure out a way to interpolate with neighbouring voxels
-      // TODO: This depth is wrong
-      return length(orig - r.orig) + min(maxD.x,min(maxD.y,maxD.z));
-    }
 
+      // Debug visualizer of step count
+      if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
+      
+      // Calculate normal based on last step
+      normal = -step*lastTraversal;
+
+      // Distance = size of step * numer of steps
+      float3 deltas = voxelSize*abs(index-origIndex);
+      return length(deltas*step + orig - r.orig);
+    }
+    
     if (maxD.x < maxD.y && maxD.x < maxD.z) {
       // X-axis traversal.
-      index.x += step.x;
       maxD.x += delta.x;
+      index.x += step.x;
+      lastTraversal = float3(1,0,0);
     } else if (maxD.y < maxD.z) {
       // Y-axis traversal.
-      index.y += step.y;
       maxD.y += delta.y;
+      index.y += step.y;
+      lastTraversal = float3(0,1,0);
     } else {
       // Z-axis traversal.
-      index.z += step.z;
       maxD.z += delta.z;
+      index.z += step.z;
+      lastTraversal = float3(0,0,1);
     }
 
-    // Outside grid
-    if (any(index < 0) || any(index >= NUM_VOXELS_PER_AXIS)){
-      return -1;
+    // Debug visualizer of first step
+    if(drawFirstStep){
+      debug = lastTraversal;
+      return 1;
+    }
+
+    if (any(index < 0) || any(index >= NUM_VOXELS_PER_AXIS+1)){
+      // Outside grid
+      if(drawSteps){
+        debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
+        return 1;
+      }else{
+        // No hit
+        return -1;
+      }
     }
   };
 
-  return -1; // Over iterated  
+  // Over iterated 
+  if(drawSteps){
+    // Debug visualizer of step count
+    debug = scalarToColor(1.1);
+    return 1;
+  }else{
+    // No hit
+    return -1;
+  }
 }
 
 
@@ -485,8 +514,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   bbox.bMax = bbox.bMax*bboxSize+bboxPos;
   float3 p;
   int3 index;
-  //depth = rayMarchAmaWoo(r,bbox,index);
-  depth = sphereTraceGrid(r,bbox,normal);
+  depth = rayMarchAmaWoo(r,bbox,normal);
+  //depth = sphereTraceGrid(r,bbox,normal);
   albedo = debug;
   bool hit = depth >= 0.0;
 
