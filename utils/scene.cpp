@@ -251,7 +251,7 @@ float Scene::map(glm::vec3 point, std::vector<FlatNode> flat) {
   int sp = 0;
 
   using sdfFunc = float (*)(const glm::vec3 &);
-  static sdfFunc sdfTable[3] = {sdSphere, sdBox, sdSnowMan};
+  static sdfFunc sdfTable[3] = {sdBox,sdSphere,  sdSnowMan};
 
   stack[sp++] = {0, point, 1, iniD, iniD};
   stack[sp++] = {flat[0].firstChild, point, 0, iniD, 0};
@@ -354,9 +354,10 @@ std::vector<float> Scene::generateDenseGrid(int num_voxels_per_axis) {
     }
   } else {
 #pragma omp parallel for schedule(static)
-    for (int z = 0; z < axis_size; z++) {
-      for (int y = 0; y < axis_size; y++) {
-        for (int x = 0; x < axis_size; x++) {
+    for (int i = 0; i < total_voxels; i++) {
+    int z = i / axis_size_sq;
+    int y = (i % axis_size_sq) / axis_size;
+    int x = i % axis_size;
           glm::vec3 point =
               (glm::vec3(x + 0.5f, y + 0.5f, z + 0.5f) / float(axis_size) -
                center);
@@ -364,8 +365,6 @@ std::vector<float> Scene::generateDenseGrid(int num_voxels_per_axis) {
           float d = map(point, flat);
 
           data[z * axis_size_sq + y * axis_size + x] = d;
-        }
-      }
     }
   }
 
