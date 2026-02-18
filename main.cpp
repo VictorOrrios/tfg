@@ -233,11 +233,16 @@ public:
       }else{
         m_pushConst.debug.mode = 0;
       }
+      // TODO: temporary
+      if(ImGui::Button("Refresh grid")){
+        m_scene.m_needsRefresh = true;
+      }
     }
 
     ImGui::End();
 
-      m_scene.draw();
+    // Draw scene tree and object tab
+    m_scene.draw();
 
     // Rendered image displayed fully in 'Viewport' window
     ImGui::Begin("Viewport");
@@ -344,6 +349,11 @@ public:
     m_pushConst.time = static_cast<float>(ImGui::GetTime());
     m_pushConst.lp.lightDir = glm::normalize(m_pushConst.lp.lightDir);
     updateSceneBuffer(cmd);
+
+    if(m_scene.m_needsRefresh){
+      updateTextureData(cmd);
+      m_scene.m_needsRefresh = false;
+    }
 
     tracingPass(cmd);
     lightingPass(cmd);
@@ -514,90 +524,13 @@ public:
     NVVK_DBG_NAME(m_globalGrid.descriptor.imageView);
   }
 
-  // TODO: Temporary, it fills out a grid with a sdf for testing
-  inline float opUnion(float a, float b) { return glm::min(a, b); }
-  inline float opSubtraction(float a, float b) { return glm::max(-a, b); }
-  inline float opIntersection(float a, float b) { return glm::max(a, b); }
-  inline float opXor(float a, float b) {
-    return glm::max(glm::min(a, b), -glm::max(a, b));
-  }
-  inline float opSmoothUnion(float a, float b, float k) {
-    k *= 4.0f;
-    float h = glm::max(k - glm::abs(a - b), 0.0f);
-    return glm::min(a, b) - h * h * 0.25f / k;
-  }
-  inline float opSmoothSubtraction(float a, float b, float k) {
-    return -opSmoothUnion(a, -b, k);
-  }
-  inline float opSmoothIntersection(float a, float b, float k) {
-    return -opSmoothUnion(-a, -b, k);
-  }
-  inline float sdSphere(const glm::vec3 &p, float s) {
-    return glm::length(p) - s;
-  }
-  inline float sdPlane(const glm::vec3 &p, const glm::vec3 &n, float h) {
-    return glm::dot(p, n) + h;
-  }
-  inline float sdCapsule(const glm::vec3 &p, const glm::vec3 &a,
-                         const glm::vec3 &b, float r) {
-    glm::vec3 pa = p - a;
-    glm::vec3 ba = b - a;
-    float h = glm::clamp(glm::dot(pa, ba) / glm::dot(ba, ba), 0.0f, 1.0f);
-    return glm::length(pa - ba * h) - r;
-  }
-  inline float sdRoundedCylinder(const glm::vec3 &p, float ra, float rb,
-                                 float h) {
-    glm::vec2 d(glm::length(glm::vec2(p.x, p.z)) - ra + rb,
-                glm::abs(p.y) - h + rb);
-    return glm::min(glm::max(d.x, d.y), 0.0f) +
-           glm::length(glm::max(d, glm::vec2(0.0f))) - rb;
-  }
-  float sdSnowMan(const glm::vec3 &p) {
-    float r = sdSphere(p, 1.0f);
-    r = opSmoothUnion(r, sdSphere(p - glm::vec3(0, 1.5f, 0), 0.6f), 0.1f);
-
-    r = opSmoothUnion(r, sdSphere(p - glm::vec3(0.3f, 1.6f, 0.5f), 0.1f),
-                      0.01f);
-    r = opSmoothUnion(r, sdSphere(p - glm::vec3(-0.3f, 1.6f, 0.5f), 0.1f),
-                      0.01f);
-    r = opSmoothUnion(r, sdCapsule(p, glm::vec3(0.0f), glm::vec3(1.6f, 0.8f, 0.0f), 0.15f),
-        0.05f);
-    r = opSmoothUnion(r, sdCapsule(p, glm::vec3(0.0f), glm::vec3(-1.6f, 0.8f, 0.0f), 0.15f),
-        0.05f);
-    r = opSmoothUnion(r,sdCapsule(p, glm::vec3(0.0f, 1.4f, 0.0f),
-                                glm::vec3(0.0f, 1.3f, 0.8f), 0.05f),
-                      0.01f);
-    r = opUnion(r, sdRoundedCylinder(p - glm::vec3(0.0f, 2.1f, 0.0f), 0.7f,
-                                     0.05f, 0.1f));
-    r = opUnion(r, sdRoundedCylinder(p - glm::vec3(0.0f, 2.5f, 0.0f), 0.4f,
-                                     0.05f, 0.5f));
-    return r;
-  }
-  std::vector<float> generateSDFGrid(int size, float scale){
-    glm::vec3 center = glm::vec3(0.5,0.5,0.5);
-    std::vector<float> data(size*size*size);
-    for (int x = 0; x < size; x++) {
-      for (int y = 0; y < size; y++) {
-        for (int z = 0; z < size; z++) {
-          glm::vec3 point = (glm::vec3(x+0.5f,y+0.5f,z+0.5f)/float(size) - center);
-          // Sphere
-          //float d = sdSphere(point/scale, 0.2);
-          // Snowman
-          float d = sdSnowMan(point/scale);
-          data[x*size*size+y*size+z] = d*scale;
-        }
-      }
-    }
-    return data;
-  }
-
   void updateTextureData(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
 
     // TODO: This only works on start up because there is no concurrency problems
 
     assert(m_globalGrid.image);
-    std::vector<float> imageData = generateSDFGrid(100, 0.15);
+    std::vector<float> imageData = m_scene.generateDenseGrid(100);
     assert(m_stagingUploader.isAppendedEmpty());
     nvvk::SemaphoreState cmdSemaphoreState{};
     NVVK_CHECK(m_stagingUploader.appendImage(m_globalGrid, std::span(imageData), m_globalGrid.descriptor.imageLayout, cmdSemaphoreState));
