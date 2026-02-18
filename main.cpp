@@ -225,7 +225,6 @@ public:
     }
     
     if(!ImGui::CollapsingHeader("Debug colors")){
-      ImGui::Text("Debug colors");
       ImGui::Checkbox("Active", &m_debugActive);
       ImGui::Combo("Mode", &m_debugMode, DebugModes, IM_ARRAYSIZE(DebugModes));
       ImGui::Combo("Palette", &m_pushConst.debug.palette, DebugPalettes, IM_ARRAYSIZE(DebugPalettes));
@@ -238,9 +237,7 @@ public:
 
     ImGui::End();
 
-    ImGui::Begin("Scene");
-    m_scene.draw();
-    ImGui::End();
+      m_scene.draw();
 
     // Rendered image displayed fully in 'Viewport' window
     ImGui::Begin("Viewport");
@@ -885,13 +882,15 @@ int main(int argc, char** argv)
   appInfo.dockSetup      = [](ImGuiID viewportID) {
     ImGuiID centerNode = viewportID;
 
-    ImGuiID settingID = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Right, 0.2f, nullptr, &centerNode);
+    ImGuiID settingID = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Right, 0.12f, nullptr, &centerNode);
     ImGuiID sceneID   = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Left,  0.2f, nullptr, &centerNode);
+    ImGuiID objectID   = ImGui::DockBuilderSplitNode(sceneID, ImGuiDir_Down,  0.33f, nullptr, &sceneID);
     ImGuiID loggerID  = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Down,  0.3f, nullptr, &centerNode);
-    ImGuiID profilerID = ImGui::DockBuilderSplitNode(loggerID, ImGuiDir_Right, 0.4f, nullptr, &loggerID);
+    ImGuiID profilerID = ImGui::DockBuilderSplitNode(loggerID, ImGuiDir_Right, 0.5f, nullptr, &loggerID);
 
     ImGui::DockBuilderDockWindow("Settings", settingID);
     ImGui::DockBuilderDockWindow("Scene", sceneID);
+    ImGui::DockBuilderDockWindow("Object", objectID);
     ImGui::DockBuilderDockWindow("Log", loggerID);
     ImGui::DockBuilderDockWindow("Profiler", profilerID);
   };

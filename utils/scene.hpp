@@ -1,30 +1,59 @@
 #pragma once
 
+#include "glm/ext/vector_float3.hpp"
+#include "glm/ext/vector_int3_sized.hpp"
+#include <imgui.h>
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
-#include <imgui.h>
 
-
-class Scene{
+class Scene {
 public:
-    struct Node
-    {
-        std::string text;
-        std::vector<std::unique_ptr<Node>> children;
-    };
+  enum class NodeType { Box, Sphere, Snowman, _COUNT };
+  enum class SceneOperation { Union, Substraction, Intersection, _COUNT };
+  enum class AxisOperation { NoneOP, Symmetry, Repetition, _COUNT };
 
-    Scene();
+  struct OpPramas {
+    float smoothness;
+    bool symX;
+    bool symY;
+    bool symZ;
+    glm::vec3 symOffset;
+    glm::vec3 spacing;
+    glm::i32vec3 limit;
+  };
 
-    void draw();
+  struct Node {
+    uint32_t id;
+    std::vector<std::unique_ptr<Node>> children;
+    std::string label;
+    glm::vec3 position;
+    glm::vec3 rotation;
+    glm::vec3 scale;
+    glm::vec3 albedo;
+    bool physicsActive;
+    int sop;
+    int aop;
+    OpPramas opP;
+  };
+
+  Scene();
+
+  void draw();
 
 private:
-    void drawNode(Node* node);
+  std::string nodeTypeToString(NodeType type);
+  uint32_t getNextId();
 
-    Node m_root;
+  void drawNode(Node *node);
+  void drawButtonGroup();
 
-    ImGuiTreeNodeFlags m_flags =
-    ImGuiTreeNodeFlags_OpenOnArrow |
-    ImGuiTreeNodeFlags_OpenOnDoubleClick |
-    ImGuiTreeNodeFlags_DefaultOpen;
+  void deleteSelected();
+  bool deleteNodeRecursive(Node *parent, Node *target);
+
+  std::unique_ptr<Node> addChild(NodeType t);
+
+  std::unique_ptr<Node> m_root;
+  Node *m_selected = nullptr;
+  uint32_t m_nextID = 1;
 };
