@@ -22,6 +22,7 @@ float sdSphere(const glm::vec3 &p);
 float sdBox(const glm::vec3 &p, const glm::vec3 b);
 float sdBox(const glm::vec3 &p);
 
+float sdEmpty(const glm::vec3 &p);
 
 float sdPlane(const glm::vec3 &p, const glm::vec3 &n, float h);
 

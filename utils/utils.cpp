@@ -16,7 +16,7 @@
  * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
-
+#define STB_IMAGE_IMPLEMENTATION
 #include <nvvk/staging.hpp>
 #include <nvvk/default_structs.hpp>
 #include <nvvk/check_error.hpp>

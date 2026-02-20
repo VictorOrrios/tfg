@@ -10,7 +10,7 @@
 
 class Scene {
 public:
-  enum class NodeType { Box, Sphere, Snowman };
+  enum class NodeType { Empty, Box, Sphere, Snowman };
   enum class SceneOperation { Union, Substraction, Intersection };
   enum class AxisOperation { NoneOP, Symmetry, Repetition };
 
@@ -65,11 +65,11 @@ private:
   void deleteSelected();
   bool deleteNodeRecursive(Node *parent, Node *target);
 
-  std::unique_ptr<Node> addChild(NodeType t);
+  Node* addChild(NodeType t);
 
   void generateMatrix(Node *n);
   float map(glm::vec3 p, std::vector<FlatNode> flat);
-  int flattenNode(Node *n, std::vector<FlatNode> &out);
+  std::vector<Scene::FlatNode> flattenNode(Node *root);
 
   std::unique_ptr<Node> m_root;
   Node *m_selected = nullptr;

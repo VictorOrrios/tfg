@@ -42,6 +42,10 @@ float sdBox(const glm::vec3 &p) {
          glm::min(glm::max(q.x, glm::max(q.y, q.z)), 0.0f);
 }
 
+float sdEmpty(const glm::vec3 &p) {
+  return 1000000.0f;
+}
+
 float sdPlane(const glm::vec3 &p, const glm::vec3 &n, float h) {
   return glm::dot(p, n) + h;
 }

@@ -2,12 +2,13 @@
 #include "glm/common.hpp"
 #include "glm/ext/vector_float3.hpp"
 #include "imgui.h"
+#include "nvutils/logger.hpp"
 #include "sdf.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/matrix.hpp>
 #include <omp.h>
-#include <stack>
+#include <queue>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,7 @@
 //------------------
 
 static std::string NodeTypeNames[] = {
+    "Empty",
     "Box",
     "Sphere",
     "Snowman",
@@ -105,7 +107,7 @@ void Scene::drawButtonGroup() {
   }
 
   if (ImGui::BeginPopup("AddNodePopup")) {
-    for (int i = 0; i < NodeTypeNames->length(); ++i) {
+    for (int i = 0; i < NodeTypeNames->length()-1; ++i) {
       if (ImGui::MenuItem(nodeTypeToString((NodeType)i).c_str()))
         addChild((NodeType)i);
     }
@@ -168,11 +170,12 @@ bool Scene::deleteNodeRecursive(Node *parent, Node *target) {
   return false;
 }
 
-std::unique_ptr<Scene::Node> Scene::addChild(NodeType t) {
+Scene::Node* Scene::addChild(NodeType t) {
   if (m_selected == nullptr)
     m_selected = m_root.get();
 
   auto node = std::make_unique<Node>();
+  Node* nodePtr = node.get();
 
   node->id = getNextId();
   node->type = t;
@@ -187,7 +190,7 @@ std::unique_ptr<Scene::Node> Scene::addChild(NodeType t) {
   m_selected = m_selected->children[m_selected->children.size() - 1].get();
 
   m_needsRefresh = true;
-  return node;
+  return nodePtr;
 }
 
 //------------------
@@ -211,31 +214,44 @@ void Scene::generateMatrix(Node *n) {
   n->p.tInv = glm::inverse(transform4x4);
 }
 
-int Scene::flattenNode(Node *n, std::vector<FlatNode> &out) {
-  int myIndex = out.size();
+// Post: Flatten node using breadth first
+std::vector<Scene::FlatNode> Scene::flattenNode(Node *root) {
+  std::vector<Scene::FlatNode> out;
+  if(!root) return out;
+
+  struct Item{
+    Node* node;
+    int fIdx;
+  };
+
+  std::queue<Item> q;
   out.push_back({});
+  q.push({root,0});
 
-  FlatNode &fn = out.back();
-  fn.p = n->p;
-  fn.type = (uint16_t)n->type;
-  fn.firstChild = 0;
-  fn.childCount = n->children.size();
-
-  if (!n->children.empty()) {
+  while (!q.empty()) {
+    Item it = q.front();
+    q.pop();
+    
+    Node* n = it.node;
+    FlatNode& fn = out[it.fIdx];
+    fn.p = n->p;
+    fn.type = (int)n->type;
+    fn.childCount = n->children.size();
     fn.firstChild = out.size();
 
     for (auto &c : n->children) {
-      flattenNode(c.get(), out);
+      q.push({c.get(),(int)out.size()});
+      out.push_back({});
     }
   }
 
-  return myIndex;
+  return out;
 }
 
 float Scene::map(glm::vec3 point, std::vector<FlatNode> flat) {
   // TODO: This needs to have better visibility
   const float iniD = 1000000.0f;
-  constexpr int MAX_STACK = 12;
+  constexpr int MAX_STACK = 32;
 
   struct StackNode {
     uint32_t idx;
@@ -251,7 +267,7 @@ float Scene::map(glm::vec3 point, std::vector<FlatNode> flat) {
   int sp = 0;
 
   using sdfFunc = float (*)(const glm::vec3 &);
-  static sdfFunc sdfTable[3] = {sdBox,sdSphere,  sdSnowMan};
+  static sdfFunc sdfTable[4] = {sdEmpty, sdBox,sdSphere,  sdSnowMan};
 
   stack[sp++] = {0, point, 1, iniD, iniD};
   stack[sp++] = {flat[0].firstChild, point, 0, iniD, 0};
@@ -282,9 +298,8 @@ float Scene::map(glm::vec3 point, std::vector<FlatNode> flat) {
       }
 
       p = glm::vec3(params.tInv * glm::vec4(p, 1.0f));
-      p /= params.scale;
 
-      d = sdfTable[fn.type](p);
+      d = sdfTable[fn.type](p/params.scale);
 
       d *= params.scale;
     } else {
@@ -343,8 +358,7 @@ std::vector<float> Scene::generateDenseGrid(int num_voxels_per_axis) {
   int axis_size = num_voxels_per_axis;
   int axis_size_sq = axis_size * axis_size;
 
-  std::vector<FlatNode> flat;
-  flattenNode(root, flat);
+  std::vector<FlatNode> flat = flattenNode(root);
 
   float emptyRoot = root->children.size() <= 0;
 
@@ -390,5 +404,33 @@ Scene::Scene() {
   m_selected = m_root.get();
 
   // Create the scene
-  addChild(NodeType::Snowman);
+  Node* snowMan = addChild(NodeType::Snowman);
+
+  Node* box = addChild(NodeType::Box);
+  box->p.scale = 0.1;
+  box->p.position.x = -0.2;
+  box->p.position.y = -0.05;
+  box->p.position.z = 0.2;
+  box->p.smoothness=0.02;
+  generateMatrix(box);
+
+  m_selected = snowMan;
+  Node* sphere = addChild(NodeType::Sphere);
+  sphere->p.scale = 0.1;
+  sphere->p.position.x = 0.1;
+  sphere->p.position.y = 0.3;
+  sphere->p.sop = (int)SceneOperation::Substraction;
+  generateMatrix(sphere);
+ 
+  m_selected = m_root.get();
+  Node* sphereGrid = addChild(NodeType::Sphere);
+  sphereGrid->p.scale = 0.05;
+  sphereGrid->p.position.z = -0.4;
+  sphereGrid->p.aop = (int)AxisOperation::Repetition;
+  sphereGrid->p.spacing.x = 0.15;
+  sphereGrid->p.spacing.y = 0.15;
+  sphereGrid->p.limit.x = 10;
+  sphereGrid->p.limit.y = 10;
+  generateMatrix(sphereGrid);
+
 }
