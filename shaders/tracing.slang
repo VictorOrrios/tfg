@@ -34,15 +34,20 @@
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
+[[vk::binding(BindingPoints::sceneObjects)]] StructuredBuffer<SceneObject> sceneObjects;
 
 const static int NUM_VOXELS_PER_AXIS = 99; // Numer of voxel2 per axis of globalGrids
 [[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
 
-#ifdef NDEBUG
-const static bool debugColor = false;
+#ifdef NDEBUGSHADER
+// TODO: Change to false for final release and boost performance
+const static bool debugColor = pushConst.debug.mode == 1;
+const static bool bboxColor = pushConst.debug.mode == 5;
 #else
 const static bool debugColor = pushConst.debug.mode == 1;
+const static bool bboxColor = pushConst.debug.mode == 5;
 #endif
+
 
 static float3 debug = float3(0.0);
 
@@ -513,7 +518,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   float3 p1, p2;
   float3 hitPoint;
   // Scene bounding box
-  float bboxSize = 1.5;
+  float bboxSize = 1.0;
   float3 bboxPos = float3(0.0,0.0,0.0);
   Bbox bbox = unitBBox;
   bbox.bMin = bbox.bMin*bboxSize+bboxPos;
@@ -532,6 +537,19 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
 
   if(debugColor){
     albedo = debug;
+  }else if(bboxColor){
+    for(int i = 1; i<pushConst.numObjects; i++){
+      const float eps = 0.05;
+      float3 near, far, dir = r.dir;
+      Bbox bbox = sceneObjects[i].bbox;
+      bool hit = intersectCube(r, bbox, near, far);
+      if(!hit) continue;
+      float nearD = length(near-r.orig);
+      if((depth < 0 || depth+eps > nearD) && length(near-far) < eps){
+        albedo = scalarToColor(float(i)/float(pushConst.numObjects));
+        depth = nearD;
+      }
+    }
   }
 
   normalImage[int2(fragCoord)] = float4(normal, 0.0F);

@@ -28,7 +28,7 @@ float opSmoothIntersection(float a, float b, float k) {
 }
 
 float sdSphere(const glm::vec3 &p, float s) { return glm::length(p) - s; }
-float sdSphere(const glm::vec3 &p) { return glm::length(p) - 1.0f; }
+float sdSphere(const glm::vec3 &p) { return glm::length(p) - 0.5f; }
 
 float sdBox(const glm::vec3 &p, const glm::vec3 b) {
   glm::vec3 q = abs(p) - b;
@@ -37,7 +37,7 @@ float sdBox(const glm::vec3 &p, const glm::vec3 b) {
 }
 
 float sdBox(const glm::vec3 &p) {
-  glm::vec3 q = abs(p) - glm::vec3(1.0f);
+  glm::vec3 q = abs(p) - glm::vec3(0.5f);
   return length(glm::max(q, glm::vec3(0.0f))) +
          glm::min(glm::max(q.x, glm::max(q.y, q.z)), 0.0f);
 }
@@ -66,7 +66,9 @@ float sdRoundedCylinder(const glm::vec3 &p, float ra, float rb, float h) {
 }
 
 float sdSnowMan(const glm::vec3 &point) {
-  glm::vec3 p = point / 0.15f;
+  const float scale = 0.23f;
+  const glm::vec3 pos = glm::vec3(0.0,-0.25,0.0);
+  glm::vec3 p = (point-pos) / scale;
   float r = sdSphere(p, 1.0f);
   r = opSmoothUnion(r, sdSphere(p - glm::vec3(0, 1.5f, 0), 0.6f), 0.1f);
 
@@ -86,5 +88,5 @@ float sdSnowMan(const glm::vec3 &point) {
       r, sdRoundedCylinder(p - glm::vec3(0.0f, 2.1f, 0.0f), 0.7f, 0.05f, 0.1f));
   r = opUnion(
       r, sdRoundedCylinder(p - glm::vec3(0.0f, 2.5f, 0.0f), 0.4f, 0.05f, 0.5f));
-  return r * 0.15f;
+  return r * scale;
 }

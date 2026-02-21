@@ -1,7 +1,9 @@
+// TODO: Clean imports
 #include "scene.hpp"
 #include "glm/common.hpp"
-#include "glm/ext/vector_float3.hpp"
-#include "imgui.h"
+#include <glm/ext/vector_float3.hpp>
+#include <imgui.h>
+#include "nvutils/bounding_box.hpp"
 #include "nvutils/logger.hpp"
 #include "sdf.hpp"
 #include <glm/gtc/matrix_transform.hpp>
@@ -11,6 +13,7 @@
 #include <queue>
 #include <string>
 #include <vector>
+
 
 //------------------
 // Helper functions
@@ -87,7 +90,7 @@ void Scene::draw() {
     }
 
     if (dirty) {
-      generateMatrix(m_selected);
+      updateNodeData(m_selected);
       m_needsRefresh = true;
     }
 
@@ -196,6 +199,11 @@ Scene::Node* Scene::addChild(NodeType t) {
 //------------------
 // Scene generation
 //------------------
+void Scene::updateNodeData(Node* n){
+  generateMatrix(n);
+  generateBBox(n);
+}
+
 void Scene::generateMatrix(Node *n) {
 
   glm::mat4 transform4x4 = glm::mat4(1.0f);
@@ -212,6 +220,20 @@ void Scene::generateMatrix(Node *n) {
   }
 
   n->p.tInv = glm::inverse(transform4x4);
+}
+
+void Scene::generateBBox(Node *n) {
+  glm::mat4 t = glm::inverse(n->p.tInv);
+  
+  glm::vec3 min(-0.5);
+  glm::vec3 max(0.5);
+  min *= n->p.scale;
+  max *= n->p.scale;
+
+  nvutils::Bbox bbox(min,max);
+  bbox = bbox.transform(t);
+
+  n->bbox = bbox;
 }
 
 // Post: Flatten node using breadth first
@@ -244,6 +266,31 @@ std::vector<Scene::FlatNode> Scene::flattenNode(Node *root) {
       out.push_back({});
     }
   }
+
+  return out;
+}
+
+std::vector<shaderio::SceneObject> Scene::getObjects(){
+  std::vector<shaderio::SceneObject> out;
+
+  std::queue<Node*> q;
+  q.push(m_root.get());
+
+  while (!q.empty()) {
+    Node* n = q.front();
+    q.pop();
+    
+    nvutils::Bbox& nvbbox = n->bbox;
+    shaderio::Bbox shbbox({nvbbox.min(),nvbbox.max()});
+    out.push_back({shbbox});
+
+    for (auto &c : n->children) {
+      q.push(c.get());
+    }
+  }
+
+  //out[1].bbox.bMin = glm::vec3(-0.5);
+  //out[1].bbox.bMax = glm::vec3(0.5);
 
   return out;
 }
@@ -398,39 +445,42 @@ Scene::Scene() {
   m_root->p.scale = 1.0;
   m_root->p.albedo = glm::vec3(1, 1, 1);
   m_root->p.physicsActive = false;
-  generateMatrix(m_root.get());
+  updateNodeData(m_root.get());
 
   // Make the selected node the scene node by default
   m_selected = m_root.get();
 
   // Create the scene
   Node* snowMan = addChild(NodeType::Snowman);
+  snowMan->p.scale = 0.8;
+  updateNodeData(snowMan);
 
   Node* box = addChild(NodeType::Box);
-  box->p.scale = 0.1;
+  box->p.scale = 0.2;
   box->p.position.x = -0.2;
-  box->p.position.y = -0.05;
+  box->p.position.y = -0.15;
   box->p.position.z = 0.2;
+  box->p.rotation.y = 0.4;
   box->p.smoothness=0.02;
-  generateMatrix(box);
+  updateNodeData(box);
 
   m_selected = snowMan;
   Node* sphere = addChild(NodeType::Sphere);
-  sphere->p.scale = 0.1;
+  sphere->p.scale = 0.2;
   sphere->p.position.x = 0.1;
   sphere->p.position.y = 0.3;
   sphere->p.sop = (int)SceneOperation::Substraction;
-  generateMatrix(sphere);
+  updateNodeData(sphere);
  
   m_selected = m_root.get();
   Node* sphereGrid = addChild(NodeType::Sphere);
-  sphereGrid->p.scale = 0.05;
+  sphereGrid->p.scale = 0.1;
   sphereGrid->p.position.z = -0.4;
   sphereGrid->p.aop = (int)AxisOperation::Repetition;
   sphereGrid->p.spacing.x = 0.15;
   sphereGrid->p.spacing.y = 0.15;
   sphereGrid->p.limit.x = 10;
   sphereGrid->p.limit.y = 10;
-  generateMatrix(sphereGrid);
+  updateNodeData(sphereGrid);
 
 }

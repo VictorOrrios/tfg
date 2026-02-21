@@ -29,8 +29,9 @@
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 
-#ifdef NDEBUG
-const static bool debugActive = false;
+#ifdef NDEBUGSHADER
+// TODO: Change to false for final release and boost performance
+const static bool debugActive = true;
 #else
 const static bool debugActive = true;
 #endif
@@ -94,7 +95,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   }
 
   if(debugActive){
-    if((pushConst.debug.mode == 1 || pushConst.debug.mode == 4) && uv.x > 0.98){
+    if((pushConst.debug.mode == 1 || pushConst.debug.mode == 4 || pushConst.debug.mode == 5) && uv.x > 0.98){
       // Palette visualizer
       if(uv.x - uv.y > 0.99){
         outImage[int2(fragCoord)] = float4(scalarToColor(-1),1.0);

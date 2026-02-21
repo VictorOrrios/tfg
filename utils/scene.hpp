@@ -3,6 +3,8 @@
 #include "glm/ext/matrix_float4x4.hpp"
 #include "glm/ext/vector_float3.hpp"
 #include "glm/ext/vector_int3_sized.hpp"
+#include "../shaders/shaderio.h"
+#include "nvutils/bounding_box.hpp"
 #include <imgui.h>
 #include <memory>
 #include <string>
@@ -37,6 +39,7 @@ public:
     std::vector<std::unique_ptr<Node>> children;
     NodeType type;
     NodeParams p;
+    nvutils::Bbox bbox;
   };
 
   struct FlatNode {
@@ -51,6 +54,7 @@ public:
   void draw();
 
   std::vector<float> generateDenseGrid(int num_voxels_per_axis);
+  std::vector<shaderio::SceneObject> getObjects();
 
   bool m_needsRefresh = false;
 
@@ -67,7 +71,9 @@ private:
 
   Node* addChild(NodeType t);
 
+  void updateNodeData(Node *n);
   void generateMatrix(Node *n);
+  void generateBBox(Node *n);
   float map(glm::vec3 p, std::vector<FlatNode> flat);
   std::vector<Scene::FlatNode> flattenNode(Node *root);
 

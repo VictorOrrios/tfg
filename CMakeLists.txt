@@ -22,11 +22,16 @@ list(APPEND SHADER_SLANG_FILES
     ${NVSHADERS_DIR}/nvshaders/tonemapper.slang
 )
 set(SHADER_INCLUDE_FLAGS "-I${NVSHADERS_DIR}")
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+  set(SHADER_DEBUG_FLAGS "-DNDEBUGSHADER")
+endif()
 compile_slang(
     "${SHADER_SLANG_FILES}"
     "${SHADER_OUTPUT_DIR}"
     GENERATED_SHADER_HEADERS
-    EXTRA_FLAGS ${SHADER_INCLUDE_FLAGS}
+    EXTRA_FLAGS 
+    ${SHADER_INCLUDE_FLAGS}
+    ${SHADER_DEBUG_FLAGS}
 )
 
 
@@ -41,7 +46,6 @@ file(GLOB UTILS_SOURCES CONFIGURE_DEPENDS
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.h
 )
-
 
 
 #####################################################################################

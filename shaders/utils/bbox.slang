@@ -5,12 +5,6 @@
 
 #include "common.slang"
 
-// Axis aligned Bounding Box 
-struct Bbox{
-  float3 bMin;
-  float3 bMax;
-};
-
 // BBox woth 1x1x1 units in size with the center at 0,0,0
 const static Bbox unitBBox =  {float3(-0.5, -0.5, -0.5),float3(0.5, 0.5, 0.5)};
 

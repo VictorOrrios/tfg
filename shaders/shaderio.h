@@ -30,7 +30,12 @@
 
 NAMESPACE_SHADERIO_BEGIN()
 
+#include "utils/common.slang"
+
+
 #define WORKGROUP_SIZE 32
+
+// TODO: Clean this file and iclude de std packing used per buffer
 
 // Shared between Host and Device
 enum BindingPoints
@@ -41,6 +46,7 @@ enum BindingPoints
   albedoBuffer = 3,
   depthBuffer  = 4,
   globalGrid = 5,
+  sceneObjects = 6,
 };
 
 struct LightinParams{
@@ -53,27 +59,30 @@ struct LightinParams{
 };
 
 struct DebugParams{
-  int mode;     // 0: Off, 1: Debug color, 2: Albedo, 3: Normal, 4:Depth
+  int mode;     // 0: Off, 1: Debug color, 2: Albedo, 3: Normal, 4:Depth, 5:BBox
   int palette;
 };
-
 
 struct PushConstant{
   float time;
   DebugParams debug;
   LightinParams lp;
+  int numObjects;
 };
 
 struct SceneInfo{
   float4x4  viewProjMatrix;
   float4x4  viewMatrix;
   float4x4  projMatrix;
-  float3    cameraPosition;     // Camera position in world space
+  float3    cameraPosition;
   float     _pad;
 };
 CHECK_STRUCT_ALIGNMENT(SceneInfo)
 
-
+struct SceneObject{
+  Bbox bbox;
+};
+CHECK_STRUCT_ALIGNMENT(SceneObject)
 
 NAMESPACE_SHADERIO_END()
 

@@ -84,6 +84,7 @@ const char* DebugModes[] = {
     "Albedo",
     "Normal",
     "Depth",
+    "Bounding boxes",
 };
 
 const char* DebugPalettes[] = {
@@ -178,6 +179,7 @@ public:
     vkDestroyShaderModule(device,m_lightingModule,nullptr);
 
     m_alloc.destroyBuffer(m_sceneInfoB);
+    m_alloc.destroyBuffer(m_sceneObjectsB);
     m_alloc.destroyImage(m_globalGrid);
 
     m_gBuffers.deinit();
@@ -352,6 +354,7 @@ public:
 
     if(m_scene.m_needsRefresh){
       updateTextureData(cmd);
+      updateSceneObjects(cmd);
       m_scene.m_needsRefresh = false;
     }
 
@@ -424,6 +427,7 @@ public:
     m_slangCompiler.addOption({slang::CompilerOptionName::WarningsAsErrors,
         { slang::CompilerOptionValueKind::Int, 1 }
     });
+    m_slangCompiler.addMacro({"NDEBUGSHADER","1"});
 #else
     LOGI("Slang compiler: DEBUG configuration\n");
     m_slangCompiler.addOption({slang::CompilerOptionName::Optimization,
@@ -527,7 +531,7 @@ public:
   void updateTextureData(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
 
-    // TODO: This only works on start up because there is no concurrency problems
+    // TODO: This only works on start up because there is no concurrency problems. This assumtion might be false
 
     assert(m_globalGrid.image);
     std::vector<float> imageData = m_scene.generateDenseGrid(100);
@@ -535,6 +539,42 @@ public:
     nvvk::SemaphoreState cmdSemaphoreState{};
     NVVK_CHECK(m_stagingUploader.appendImage(m_globalGrid, std::span(imageData), m_globalGrid.descriptor.imageLayout, cmdSemaphoreState));
     m_stagingUploader.cmdUploadAppended(cmd);
+  }
+
+  void updateSceneObjects(VkCommandBuffer cmd){
+    NVVK_DBG_SCOPE(cmd);
+
+    std::vector<shaderio::SceneObject> sceneObjects = m_scene.getObjects();
+    m_pushConst.numObjects = sceneObjects.size();
+    unsigned long size = sceneObjects.size()*sizeof(shaderio::SceneObject);
+    LOGI("BBOX FLAT TREE: %i\n",m_pushConst.numObjects);
+    for(auto obj: sceneObjects){
+      LOGI("BBOX:%f,%f,%f %f,%f,%f\n",
+      obj.bbox.bMin.x,
+      obj.bbox.bMin.y,
+      obj.bbox.bMin.z,
+      obj.bbox.bMax.x,
+      obj.bbox.bMax.y,
+      obj.bbox.bMax.z
+      );
+    }
+    /* 
+    nvvk::ResourceAllocator* allocator = m_stagingUploader.getResourceAllocator();
+    allocator->destroyBuffer(m_sceneObjectsB);
+
+    NVVK_CHECK(allocator->createBuffer(m_sceneObjectsB,size,
+                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT));
+    m_stagingUploader.cmdUploadAppended(cmd);
+     */
+
+    /* 
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneInfoB.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                       VK_PIPELINE_STAGE_2_TRANSFER_BIT});
+     */
+
+    vkCmdUpdateBuffer(cmd, m_sceneObjectsB.buffer, 0, size, sceneObjects.data());
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneObjectsB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
 
   void createScene(){
@@ -549,6 +589,17 @@ public:
       NVVK_DBG_NAME(m_sceneInfoB.buffer);
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneInfoB, 0,
                                           std::span<const shaderio::SceneInfo>(&m_sceneInfo, 1)));
+
+      std::vector<shaderio::SceneObject> sceneObjects;
+      sceneObjects.push_back({});
+
+      // TODO: This is temporary, limit max size to fixed number
+      constexpr uint32_t MAX_OBJECTS = 1024;
+      NVVK_CHECK(allocator->createBuffer(m_sceneObjectsB,
+                                     MAX_OBJECTS*sizeof(shaderio::SceneObject),
+                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT));
+      NVVK_DBG_NAME(m_sceneObjectsB.buffer);
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneObjectsB, 0,std::span(sceneObjects)));                     
 
       m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
 
@@ -572,6 +623,7 @@ public:
     bindings.addBinding(shaderio::BindingPoints::albedoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::depthBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::globalGrid, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::sceneObjects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
     // Creating the descriptor set and set layout from the bindings
     // TODO: You can put flags here, maybe this is important
@@ -583,6 +635,7 @@ public:
     nvvk::WriteSetContainer writeContainer;
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::sceneInfo), m_sceneInfoB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::globalGrid), m_globalGrid.descriptor);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::sceneObjects), m_sceneObjectsB.buffer);
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
                         writeContainer.data(), 0, nullptr);
@@ -695,7 +748,6 @@ public:
     m_sceneInfo.viewProjMatrix = glm::inverse(projMatrix * viewMatrix);
     m_sceneInfo.cameraPosition = m_cameraManip->getEye();  // Get the camera position
 
-    // Making sure the scene information buffer is updated before rendering
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneInfoB.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_PIPELINE_STAGE_2_TRANSFER_BIT});
     vkCmdUpdateBuffer(cmd, m_sceneInfoB.buffer, 0, sizeof(shaderio::SceneInfo), &m_sceneInfo);
@@ -732,6 +784,7 @@ private:
   // Scene information. TODO: encapsulate this into a class
   shaderio::SceneInfo   m_sceneInfo{};        // Struct containing the scene information
   nvvk::Buffer          m_sceneInfoB{};       // Buffer binded to the UBO of scene info
+  nvvk::Buffer          m_sceneObjectsB{};    // Buffer binded to the scene objects array
 
   // 3D textures
   nvvk::Image m_globalGrid;
