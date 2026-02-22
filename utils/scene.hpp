@@ -23,8 +23,7 @@ public:
     glm::mat4 tInv;
     float scale;
     float roundness;
-    int combOPUI;
-    int combOP;
+    int combOp;
     float smoothness;
     int repOp ;
     glm::vec3 spacing;

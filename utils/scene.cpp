@@ -1,6 +1,9 @@
 // TODO: Clean imports
 #include "scene.hpp"
 #include "glm/common.hpp"
+#include "glm/exponential.hpp"
+#include "glm/geometric.hpp"
+#include "glm/vector_relational.hpp"
 #include "nvutils/bounding_box.hpp"
 #include "sdf.hpp"
 #include <glm/ext/vector_float3.hpp>
@@ -81,6 +84,8 @@ void Scene::draw() {
 
     const std::string id = "##" + std::to_string(m_selected->id);
     bool dirty = false;
+    int combOpUI = m_selected->p.combOp >= 3 ? m_selected->p.combOp - 3
+                                             : m_selected->p.combOp;
 
     dirty |= ImGui::InputFloat3(("Position" + id).c_str(),
                                 &m_selected->p.position.x);
@@ -94,20 +99,27 @@ void Scene::draw() {
                            0.0f, m_selected->p.scale * 0.25);
     ImGui::Separator();
 
-    dirty |= ImGui::Combo(("Combination operation" + id).c_str(),
-                          &m_selected->p.combOPUI, CombinationOpNames,
-                          IM_ARRAYSIZE(CombinationOpNames));
+    dirty |= ImGui::Combo(("Combination operation" + id).c_str(), &combOpUI,
+                          CombinationOpNames, IM_ARRAYSIZE(CombinationOpNames));
     dirty |= ImGui::SliderFloat(("Smoothness" + id).c_str(),
                                 &m_selected->p.smoothness, 0.0f,
-                                m_selected->p.scale * 0.1);
+                                m_selected->p.scale * 0.2);
     ImGui::Separator();
 
     dirty |= ImGui::Combo(("Deformation operation" + id).c_str(),
                           &m_selected->p.defOp, DeformationOpNames,
                           IM_ARRAYSIZE(DeformationOpNames));
-    if (m_selected->p.defOp != 0)
-      dirty |= ImGui::InputFloat3(("Deformation" + id).c_str(),
-                                  &m_selected->p.defP.x);
+    if (m_selected->p.defOp == (int)DeformationOp::Twist) {
+      const float maxV = 6.2831f/m_selected->p.scale;
+      dirty |= ImGui::SliderFloat3(("Deformation" + id).c_str(),
+                                   &m_selected->p.defP.x, -maxV, maxV);
+    }else if(m_selected->p.defOp == (int)DeformationOp::Bend){
+      dirty |= ImGui::SliderFloat3(("Deformation" + id).c_str(),
+                                   &m_selected->p.defP.x, 0.0001f, 3.5f);
+    }else if(m_selected->p.defOp == (int)DeformationOp::Elongate){
+      dirty |= ImGui::InputFloat3(("Spacing" + id).c_str(),
+                                  &m_selected->p.spacing.x);
+    }
 
     ImGui::Separator();
 
@@ -124,12 +136,18 @@ void Scene::draw() {
     }
 
     if (dirty) {
-      // If smoothness != 0 then apply the smooth combination operations (3,4,5) if not use the faster version (0,1,2)
-      if(m_selected->p.smoothness > 0.0f){
-        m_selected->p.combOP = m_selected->p.combOPUI + 3;
-      }else{
-        m_selected->p.combOP = m_selected->p.combOPUI;
+      // If smoothness != 0 then apply the smooth combination operations (3,4,5)
+      // if not use the faster version (0,1,2)
+      if (m_selected->p.smoothness > 0.0f) {
+        m_selected->p.combOp = combOpUI + 3;
+      } else {
+        m_selected->p.combOp = combOpUI;
       }
+      /* 
+      if (m_selected->p.defOp == (int)DeformationOp::Twist && m_selected->p.defP == glm::vec3(0)){
+        m_selected->p.defP.x = 0.0
+      }
+ */
       // Update the transformation matrix and bounding box
       updateNodeData(m_selected);
       // Flag to render engine that scene needs grid regeneration
@@ -263,18 +281,60 @@ void Scene::generateMatrix(Node *n) {
 }
 
 void Scene::generateBBox(Node *n) {
-  glm::mat4 t = glm::inverse(n->p.tInv);
+  float spacing = 0.1; // Safety margin
+  spacing += n->p.smoothness*5;
+  spacing += n->p.roundness;
 
-  const float spacing = 0.1;
   glm::vec3 min(-0.5 - spacing);
   glm::vec3 max(0.5 + spacing);
+
   min *= n->p.scale;
   max *= n->p.scale;
 
-  nvutils::Bbox bbox(min, max);
-  bbox = bbox.transform(t);
+  if (n->p.defOp == (int)DeformationOp::Elongate) {
+    min -= n->p.defP;
+    max += n->p.defP;
+  }else if (n->p.defOp == (int)DeformationOp::Twist) {
+    glm::vec3 defAxisIncrease =
+        n->p.scale * 0.4f *
+        glm::min(glm::abs(n->p.scale * n->p.defP), glm::vec3(1.57079632679f));
 
-  n->bbox = bbox;
+    glm::vec3 defOffset(
+      glm::max(defAxisIncrease.y,defAxisIncrease.z),
+      glm::max(defAxisIncrease.x,defAxisIncrease.z),
+      glm::max(defAxisIncrease.y,defAxisIncrease.x)
+    );
+    min -= defOffset;
+    max += defOffset;
+  }else if(n->p.defOp == (int)DeformationOp::Bend){
+    glm::vec3 defAxisIncrease = n->p.scale * 0.4f *glm::abs(n->p.scale * n->p.defP);
+    glm::vec3 defOffset(
+      glm::max(defAxisIncrease.x,defAxisIncrease.z),
+      glm::max(defAxisIncrease.y,defAxisIncrease.x),
+      glm::max(defAxisIncrease.y,defAxisIncrease.z)
+    );
+    min -= defOffset;
+    max += defOffset;
+  }
+
+  glm::vec3 repOffset = glm::vec3(0.0);
+  if (n->p.repOp == (int)RepetitionOp::LimRepetition) {
+    repOffset = n->p.spacing * glm::vec3(n->p.limit);
+  } else if (n->p.repOp == (int)RepetitionOp::IlimRepetition) {
+    repOffset =
+        glm::step(0.0001f, n->p.spacing) * std::numeric_limits<float>::max();
+  }
+  min -= repOffset;
+  max += repOffset;
+
+  nvutils::Bbox bboxt(min, max);
+  glm::mat4 t = glm::inverse(n->p.tInv);
+  bboxt = bboxt.transform(t);
+
+  min = glm::max(bboxt.min(), -0.5f);
+  max = glm::min(bboxt.max(), 0.5f);
+
+  n->bbox = nvutils::Bbox(min, max);
 }
 
 // Post: Flatten node using breadth first
@@ -369,13 +429,13 @@ float Scene::map(glm::vec3 point, std::vector<FlatNode> flat) {
 
     // If it's first time seeing this node calculate the primitive sdf and point
     if (sn.nextChild == 0) {
-      p = defFTable[params.defOp](p,params.defP);
-      
-      p = repFTable[params.repOp](p,params.spacing,params.limit);
-
       p = glm::vec3(params.tInv * glm::vec4(p, 1.0f));
 
-      d = primFTable[fn.type](p / params.scale);
+      p = repFTable[params.repOp](p, params.spacing, params.limit);
+
+      glm::vec3 pPrim = defFTable[params.defOp](p, params.defP);
+
+      d = primFTable[fn.type](pPrim / params.scale) - params.roundness;
 
       d *= params.scale;
     } else {
@@ -385,7 +445,8 @@ float Scene::map(glm::vec3 point, std::vector<FlatNode> flat) {
 
     if (sn.nextChild >= fn.childCount) {
       // No more children to process => Apply the node scene operation
-      popValue = combFTable[params.combOP](sn.current_value, sn.parent_value,params.smoothness);
+      popValue = combFTable[params.combOp](sn.current_value, sn.parent_value,
+                                           params.smoothness);
 
       sp--;
     } else {
@@ -461,9 +522,12 @@ Scene::Scene() {
   box->p.position.x = -0.2;
   box->p.position.y = -0.15;
   box->p.position.z = 0.25;
+  /* 
   box->p.rotation.x = 0.2;
   box->p.rotation.y = 0.4;
   box->p.rotation.z = 0.4;
+ */
+  box->p.combOp = (int)CombinationOp::Union + 3;
   box->p.smoothness = 0.02;
   updateNodeData(box);
 
@@ -472,7 +536,7 @@ Scene::Scene() {
   sphere->p.scale = 0.2;
   sphere->p.position.x = 0.1;
   sphere->p.position.y = 0.3;
-  sphere->p.combOP = (int)CombinationOp::Substraction;
+  sphere->p.combOp = (int)CombinationOp::Substraction;
   updateNodeData(sphere);
 
   m_selected = m_root.get();
@@ -483,4 +547,6 @@ Scene::Scene() {
   sphereGrid->p.spacing.x = 0.15;
   sphereGrid->p.spacing.y = 0.15;
   updateNodeData(sphereGrid);
+
+  m_selected = box;
 }
