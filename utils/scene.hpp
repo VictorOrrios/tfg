@@ -13,25 +13,24 @@
 class Scene {
 public:
   enum class NodeType { Empty, Box, Sphere, Snowman };
-  enum class SceneOperation { Union, Substraction, Intersection };
-  enum class AxisOperation { NoneOP, Symmetry, Repetition };
+  enum class CombinationOp { Union, Substraction, Intersection };
+  enum class RepetitionOp { NoneOP, LimRepetition, IlimRepetition };
+  enum class DeformationOp { NoneOP, Twist, Bend, Elongate };
 
   struct NodeParams {
     glm::vec3 position;
     glm::vec3 rotation;
     glm::mat4 tInv;
     float scale;
-    glm::vec3 albedo;
-    bool physicsActive;
-    int sop;
-    int aop;
+    float roundness;
+    int combOPUI;
+    int combOP;
     float smoothness;
-    bool symX;
-    bool symY;
-    bool symZ;
-    glm::vec3 symOffset;
+    int repOp ;
     glm::vec3 spacing;
     glm::i32vec3 limit;
+    int defOp ;
+    glm::vec3 defP;
   };
 
   struct Node {

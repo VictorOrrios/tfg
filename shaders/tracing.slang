@@ -518,7 +518,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   float3 p1, p2;
   float3 hitPoint;
   // Scene bounding box
-  float bboxSize = 1.0;
+  float bboxSize = 2.0;
   float3 bboxPos = float3(0.0,0.0,0.0);
   Bbox bbox = unitBBox;
   bbox.bMin = bbox.bMin*bboxSize+bboxPos;
@@ -542,6 +542,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
       const float eps = 0.05;
       float3 near, far, dir = r.dir;
       Bbox bbox = sceneObjects[i].bbox;
+      bbox.bMin *= bboxSize;
+      bbox.bMax *= bboxSize;
       bool hit = intersectCube(r, bbox, near, far);
       if(!hit) continue;
       float nearD = length(near-r.orig);

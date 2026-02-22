@@ -1,13 +1,17 @@
 #include "sdf.hpp"
+#include "glm/common.hpp"
 #include <glm/matrix.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 float opUnion(float a, float b) { return glm::min(a, b); }
+float opUnion(float a, float b, float kk) { return opUnion(a,b); }
 
 float opSubtraction(float a, float b) { return glm::max(-a, b); }
+float opSubtraction(float a, float b, float kk) { return opSubtraction(a,b); }
 
 float opIntersection(float a, float b) { return glm::max(a, b); }
+float opIntersection(float a, float b, float kk) { return opIntersection(a,b); }
 
 float opXor(float a, float b) {
   return glm::max(glm::min(a, b), -glm::max(a, b));
@@ -26,6 +30,88 @@ float opSmoothSubtraction(float a, float b, float k) {
 float opSmoothIntersection(float a, float b, float k) {
   return -opSmoothUnion(-a, -b, k);
 }
+
+glm::vec3 opNone(const glm::vec3 &p, const glm::vec3 &kk1, const glm::vec3 &kk2){
+  return p;
+}
+
+glm::vec3 opRepetition(const glm::vec3 &p, const glm::vec3 &spacing){
+  return p - spacing * glm::round(p / spacing);
+}
+glm::vec3 opRepetition(const glm::vec3 &p, const glm::vec3 &spacing, const glm::vec3 &kk){
+  return opRepetition(p,spacing);
+}
+
+glm::vec3 opLimRepetition(const glm::vec3 &p, const glm::vec3 &spacing, const glm::vec3 &limit){
+  return p - spacing * glm::clamp(glm::round(p / spacing),
+                                         glm::vec3(-limit),
+                                         glm::vec3(limit));
+}
+
+glm::vec3 opNone(const glm::vec3 &p, const glm::vec3 &kk){
+  return p;
+}
+
+// Modified to make it anisotropic
+glm::vec3 opTwist(const glm::vec3 &p, const glm::vec3 &defP){
+  glm::vec3 axis = glm::normalize(defP);
+  float k = glm::length(defP);
+
+  float angle = k * glm::dot(p, axis);
+
+  float c = cos(angle);
+  float s = sin(angle);
+
+  glm::mat3 R = glm::mat3(
+    c + axis.x * axis.x * (1 - c),
+    axis.x * axis.y * (1 - c) - axis.z * s,
+    axis.x * axis.z * (1 - c) + axis.y * s,
+
+    axis.y * axis.x * (1 - c) + axis.z * s,
+    c + axis.y * axis.y * (1 - c),
+    axis.y * axis.z * (1 - c) - axis.x * s,
+
+    axis.z * axis.x * (1 - c) - axis.y * s,
+    axis.z * axis.y * (1 - c) + axis.x * s,
+    c + axis.z * axis.z * (1 - c)
+  );
+
+  return R * p;
+}
+
+// Modified to make it anisotropic
+glm::vec3 opBend(const glm::vec3 &p, const glm::vec3 &defP){
+  glm::vec3 axis = glm::normalize(glm::vec3(defP.y,defP.z,defP.x));
+  float k = glm::length(defP);
+
+  float angle = k * glm::dot(p, axis);
+
+  float c = cos(angle);
+  float s = sin(angle);
+
+  // yzx
+  glm::mat3 R = glm::mat3(
+    axis.y * axis.x * (1 - c) + axis.z * s,
+    c + axis.y * axis.y * (1 - c),
+    axis.y * axis.z * (1 - c) - axis.x * s,
+
+    axis.z * axis.x * (1 - c) + axis.y * s,
+    axis.z * axis.y * (1 - c) + axis.x * s,
+    c + axis.z * axis.z * (1 - c),
+
+    c + axis.x * axis.x * (1 - c),
+    axis.x * axis.y * (1 - c) - axis.z * s,
+    axis.x * axis.z * (1 - c) + axis.y * s
+  );
+
+  glm::vec3 r = R * p;
+  return glm::vec3(r.y,r.z,r.x);
+}
+
+glm::vec3 opElongate(const glm::vec3 &p, const glm::vec3 &defP){
+  return p - glm::clamp(p,-defP, defP); 
+}
+
 
 float sdSphere(const glm::vec3 &p, float s) { return glm::length(p) - s; }
 float sdSphere(const glm::vec3 &p) { return glm::length(p) - 0.5f; }

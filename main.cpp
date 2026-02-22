@@ -547,17 +547,6 @@ public:
     std::vector<shaderio::SceneObject> sceneObjects = m_scene.getObjects();
     m_pushConst.numObjects = sceneObjects.size();
     unsigned long size = sceneObjects.size()*sizeof(shaderio::SceneObject);
-    LOGI("BBOX FLAT TREE: %i\n",m_pushConst.numObjects);
-    for(auto obj: sceneObjects){
-      LOGI("BBOX:%f,%f,%f %f,%f,%f\n",
-      obj.bbox.bMin.x,
-      obj.bbox.bMin.y,
-      obj.bbox.bMin.z,
-      obj.bbox.bMax.x,
-      obj.bbox.bMax.y,
-      obj.bbox.bMax.z
-      );
-    }
     /* 
     nvvk::ResourceAllocator* allocator = m_stagingUploader.getResourceAllocator();
     allocator->destroyBuffer(m_sceneObjectsB);

@@ -1,22 +1,20 @@
 // TODO: Clean imports
 #include "scene.hpp"
 #include "glm/common.hpp"
-#include <glm/ext/vector_float3.hpp>
-#include <imgui.h>
 #include "nvutils/bounding_box.hpp"
-#include "nvutils/logger.hpp"
 #include "sdf.hpp"
+#include <glm/ext/vector_float3.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/matrix.hpp>
+#include <imgui.h>
 #include <omp.h>
 #include <queue>
 #include <string>
 #include <vector>
 
-
 //------------------
-// Helper functions
+// Defintions
 //------------------
 
 static std::string NodeTypeNames[] = {
@@ -25,6 +23,37 @@ static std::string NodeTypeNames[] = {
     "Sphere",
     "Snowman",
 };
+using sdf3DPrimitiveF = float (*)(const glm::vec3 &);
+static sdf3DPrimitiveF primFTable[4] = {sdEmpty, sdBox, sdSphere, sdSnowMan};
+
+static constexpr const char *CombinationOpNames[] = {
+    "Union",
+    "Substraction",
+    "Intersection",
+};
+using combinationOpF = float (*)(float, float, float);
+static combinationOpF combFTable[6] = {
+    opUnion,       opSubtraction,       opIntersection,
+    opSmoothUnion, opSmoothSubtraction, opSmoothIntersection};
+
+static constexpr const char *RepetitionOpnames[] = {
+    "None", "Limited repetition", "Unlimited repetition"};
+using repetitionOpF = glm::vec3 (*)(const glm::vec3 &, const glm::vec3 &,
+                                    const glm::vec3 &);
+static repetitionOpF repFTable[3] = {opNone, opLimRepetition, opRepetition};
+
+static constexpr const char *DeformationOpNames[] = {
+    "None",
+    "Twist",
+    "Bend",
+    "Elongate",
+};
+using deformationOpF = glm::vec3 (*)(const glm::vec3 &, const glm::vec3 &);
+static deformationOpF defFTable[4] = {opNone, opTwist, opBend, opElongate};
+
+//------------------
+// Helper functions
+//------------------
 
 std::string Scene::nodeTypeToString(NodeType type) {
   return NodeTypeNames[(int)type];
@@ -33,15 +62,6 @@ std::string Scene::nodeTypeToString(NodeType type) {
 std::string Scene::getLabel(Node *n) {
   return nodeTypeToString(n->type) + "##" + std::to_string(n->id);
 }
-
-static constexpr const char *SceneOperationNames[] = {
-    "Union",
-    "Substraction",
-    "Intersection",
-};
-
-static constexpr const char *AxisOperationNames[] = {"None", "Symmetry",
-                                                     "Repetition"};
 
 uint32_t Scene::getNextId() { return m_nextID++; }
 
@@ -59,38 +79,60 @@ void Scene::draw() {
   if (m_selected != nullptr && m_selected != m_root.get()) {
     ImGui::Begin("Object");
 
+    const std::string id = "##" + std::to_string(m_selected->id);
     bool dirty = false;
 
-    dirty |= ImGui::InputFloat3("Position", &m_selected->p.position.x);
-    dirty |= ImGui::InputFloat3("Rotation", &m_selected->p.rotation.x);
-    dirty |= ImGui::InputFloat("Scale", &m_selected->p.scale);
-    ImGui::ColorEdit3("Albedo", &m_selected->p.albedo.x);
-    ImGui::Checkbox("Physics active", &m_selected->p.physicsActive);
+    dirty |= ImGui::InputFloat3(("Position" + id).c_str(),
+                                &m_selected->p.position.x);
+    dirty |= ImGui::InputFloat3(("Rotation" + id).c_str(),
+                                &m_selected->p.rotation.x);
+    ImGui::Separator();
+    dirty |= ImGui::InputFloat(("Scale" + id).c_str(), &m_selected->p.scale);
 
     dirty |=
-        ImGui::Combo("Scene operation", &m_selected->p.sop, SceneOperationNames,
-                     IM_ARRAYSIZE(SceneOperationNames));
-    dirty |= ImGui::SliderFloat("Smoothness", &m_selected->p.smoothness, 0.0f,
-                                0.25f);
-    dirty |= ImGui::Combo("Axis operation", &m_selected->p.aop,
-                          AxisOperationNames, IM_ARRAYSIZE(AxisOperationNames));
+        ImGui::SliderFloat(("Roundness" + id).c_str(), &m_selected->p.roundness,
+                           0.0f, m_selected->p.scale * 0.25);
+    ImGui::Separator();
 
-    AxisOperation selAOp = (AxisOperation)m_selected->p.aop;
-    if (selAOp == AxisOperation::Symmetry) {
-      dirty |= ImGui::Checkbox("X", &m_selected->p.symX);
-      ImGui::SameLine();
-      dirty |= ImGui::Checkbox("Y", &m_selected->p.symY);
-      ImGui::SameLine();
-      dirty |= ImGui::Checkbox("Z", &m_selected->p.symZ);
-      ImGui::InputFloat3("Offset", &m_selected->p.symOffset.x);
-    } else if (selAOp == AxisOperation::Repetition) {
-      dirty |= ImGui::InputFloat3("Spacing", &m_selected->p.spacing.x);
-      dirty |=
-          ImGui::DragInt3("Limit", &m_selected->p.limit.x, 0.1f, 0, INT_MAX);
+    dirty |= ImGui::Combo(("Combination operation" + id).c_str(),
+                          &m_selected->p.combOPUI, CombinationOpNames,
+                          IM_ARRAYSIZE(CombinationOpNames));
+    dirty |= ImGui::SliderFloat(("Smoothness" + id).c_str(),
+                                &m_selected->p.smoothness, 0.0f,
+                                m_selected->p.scale * 0.1);
+    ImGui::Separator();
+
+    dirty |= ImGui::Combo(("Deformation operation" + id).c_str(),
+                          &m_selected->p.defOp, DeformationOpNames,
+                          IM_ARRAYSIZE(DeformationOpNames));
+    if (m_selected->p.defOp != 0)
+      dirty |= ImGui::InputFloat3(("Deformation" + id).c_str(),
+                                  &m_selected->p.defP.x);
+
+    ImGui::Separator();
+
+    dirty |= ImGui::Combo(("Repetition operation" + id).c_str(),
+                          &m_selected->p.repOp, RepetitionOpnames,
+                          IM_ARRAYSIZE(RepetitionOpnames));
+
+    if ((RepetitionOp)m_selected->p.repOp != RepetitionOp::NoneOP) {
+      dirty |= ImGui::InputFloat3(("Spacing" + id).c_str(),
+                                  &m_selected->p.spacing.x);
+      if ((RepetitionOp)m_selected->p.repOp == RepetitionOp::LimRepetition)
+        dirty |= ImGui::DragInt3(("Limit" + id).c_str(), &m_selected->p.limit.x,
+                                 0.1f, 0, INT_MAX);
     }
 
     if (dirty) {
+      // If smoothness != 0 then apply the smooth combination operations (3,4,5) if not use the faster version (0,1,2)
+      if(m_selected->p.smoothness > 0.0f){
+        m_selected->p.combOP = m_selected->p.combOPUI + 3;
+      }else{
+        m_selected->p.combOP = m_selected->p.combOPUI;
+      }
+      // Update the transformation matrix and bounding box
       updateNodeData(m_selected);
+      // Flag to render engine that scene needs grid regeneration
       m_needsRefresh = true;
     }
 
@@ -110,7 +152,7 @@ void Scene::drawButtonGroup() {
   }
 
   if (ImGui::BeginPopup("AddNodePopup")) {
-    for (int i = 0; i < NodeTypeNames->length()-1; ++i) {
+    for (int i = 0; i < NodeTypeNames->length() - 1; ++i) {
       if (ImGui::MenuItem(nodeTypeToString((NodeType)i).c_str()))
         addChild((NodeType)i);
     }
@@ -173,12 +215,12 @@ bool Scene::deleteNodeRecursive(Node *parent, Node *target) {
   return false;
 }
 
-Scene::Node* Scene::addChild(NodeType t) {
+Scene::Node *Scene::addChild(NodeType t) {
   if (m_selected == nullptr)
     m_selected = m_root.get();
 
   auto node = std::make_unique<Node>();
-  Node* nodePtr = node.get();
+  Node *nodePtr = node.get();
 
   node->id = getNextId();
   node->type = t;
@@ -186,8 +228,6 @@ Scene::Node* Scene::addChild(NodeType t) {
   node->p.rotation = glm::vec3(0.0);
   node->p.tInv = glm::mat4(1.0f);
   node->p.scale = m_selected->p.scale;
-  node->p.albedo = m_selected->p.albedo;
-  node->p.physicsActive = false;
 
   m_selected->children.push_back(std::move(node));
   m_selected = m_selected->children[m_selected->children.size() - 1].get();
@@ -199,7 +239,7 @@ Scene::Node* Scene::addChild(NodeType t) {
 //------------------
 // Scene generation
 //------------------
-void Scene::updateNodeData(Node* n){
+void Scene::updateNodeData(Node *n) {
   generateMatrix(n);
   generateBBox(n);
 }
@@ -209,7 +249,7 @@ void Scene::generateMatrix(Node *n) {
   glm::mat4 transform4x4 = glm::mat4(1.0f);
 
   transform4x4 = glm::translate(transform4x4, n->p.position);
-  
+
   if (n->p.rotation != glm::vec3(0.0)) {
     transform4x4 =
         glm::rotate(transform4x4, n->p.rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
@@ -224,13 +264,14 @@ void Scene::generateMatrix(Node *n) {
 
 void Scene::generateBBox(Node *n) {
   glm::mat4 t = glm::inverse(n->p.tInv);
-  
-  glm::vec3 min(-0.5);
-  glm::vec3 max(0.5);
+
+  const float spacing = 0.1;
+  glm::vec3 min(-0.5 - spacing);
+  glm::vec3 max(0.5 + spacing);
   min *= n->p.scale;
   max *= n->p.scale;
 
-  nvutils::Bbox bbox(min,max);
+  nvutils::Bbox bbox(min, max);
   bbox = bbox.transform(t);
 
   n->bbox = bbox;
@@ -239,30 +280,31 @@ void Scene::generateBBox(Node *n) {
 // Post: Flatten node using breadth first
 std::vector<Scene::FlatNode> Scene::flattenNode(Node *root) {
   std::vector<Scene::FlatNode> out;
-  if(!root) return out;
+  if (!root)
+    return out;
 
-  struct Item{
-    Node* node;
+  struct Item {
+    Node *node;
     int fIdx;
   };
 
   std::queue<Item> q;
   out.push_back({});
-  q.push({root,0});
+  q.push({root, 0});
 
   while (!q.empty()) {
     Item it = q.front();
     q.pop();
-    
-    Node* n = it.node;
-    FlatNode& fn = out[it.fIdx];
+
+    Node *n = it.node;
+    FlatNode &fn = out[it.fIdx];
     fn.p = n->p;
     fn.type = (int)n->type;
     fn.childCount = n->children.size();
     fn.firstChild = out.size();
 
     for (auto &c : n->children) {
-      q.push({c.get(),(int)out.size()});
+      q.push({c.get(), (int)out.size()});
       out.push_back({});
     }
   }
@@ -270,18 +312,18 @@ std::vector<Scene::FlatNode> Scene::flattenNode(Node *root) {
   return out;
 }
 
-std::vector<shaderio::SceneObject> Scene::getObjects(){
+std::vector<shaderio::SceneObject> Scene::getObjects() {
   std::vector<shaderio::SceneObject> out;
 
-  std::queue<Node*> q;
+  std::queue<Node *> q;
   q.push(m_root.get());
 
   while (!q.empty()) {
-    Node* n = q.front();
+    Node *n = q.front();
     q.pop();
-    
-    nvutils::Bbox& nvbbox = n->bbox;
-    shaderio::Bbox shbbox({nvbbox.min(),nvbbox.max()});
+
+    nvutils::Bbox &nvbbox = n->bbox;
+    shaderio::Bbox shbbox({nvbbox.min(), nvbbox.max()});
     out.push_back({shbbox});
 
     for (auto &c : n->children) {
@@ -289,8 +331,8 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
     }
   }
 
-  //out[1].bbox.bMin = glm::vec3(-0.5);
-  //out[1].bbox.bMax = glm::vec3(0.5);
+  // out[1].bbox.bMin = glm::vec3(-0.5);
+  // out[1].bbox.bMax = glm::vec3(0.5);
 
   return out;
 }
@@ -313,9 +355,6 @@ float Scene::map(glm::vec3 point, std::vector<FlatNode> flat) {
   StackNode stack[MAX_STACK];
   int sp = 0;
 
-  using sdfFunc = float (*)(const glm::vec3 &);
-  static sdfFunc sdfTable[4] = {sdEmpty, sdBox,sdSphere,  sdSnowMan};
-
   stack[sp++] = {0, point, 1, iniD, iniD};
   stack[sp++] = {flat[0].firstChild, point, 0, iniD, 0};
 
@@ -330,23 +369,13 @@ float Scene::map(glm::vec3 point, std::vector<FlatNode> flat) {
 
     // If it's first time seeing this node calculate the primitive sdf and point
     if (sn.nextChild == 0) {
-
-      if (params.aop == (int)AxisOperation::Symmetry) {
-        if (params.symX)
-          p.x = glm::abs(p.x);
-        if (params.symY)
-          p.y = glm::abs(p.y);
-        if (params.symZ)
-          p.z = glm::abs(p.z);
-      } else if (params.aop == (int)AxisOperation::Repetition) {
-        p -= params.spacing * glm::clamp(glm::round(p / params.spacing),
-                                         glm::vec3(-params.limit),
-                                         glm::vec3(params.limit));
-      }
+      p = defFTable[params.defOp](p,params.defP);
+      
+      p = repFTable[params.repOp](p,params.spacing,params.limit);
 
       p = glm::vec3(params.tInv * glm::vec4(p, 1.0f));
 
-      d = sdfTable[fn.type](p/params.scale);
+      d = primFTable[fn.type](p / params.scale);
 
       d *= params.scale;
     } else {
@@ -356,32 +385,7 @@ float Scene::map(glm::vec3 point, std::vector<FlatNode> flat) {
 
     if (sn.nextChild >= fn.childCount) {
       // No more children to process => Apply the node scene operation
-      switch ((SceneOperation)params.sop) {
-      case SceneOperation::Union:
-        if (params.smoothness > 0.0f) {
-          popValue = opSmoothUnion(sn.current_value, sn.parent_value,
-                                   params.smoothness);
-        } else {
-          popValue = opUnion(sn.current_value, sn.parent_value);
-        }
-        break;
-      case SceneOperation::Substraction:
-        if (params.smoothness > 0.0f) {
-          popValue = opSmoothSubtraction(sn.current_value, sn.parent_value,
-                                         params.smoothness);
-        } else {
-          popValue = opSubtraction(sn.current_value, sn.parent_value);
-        }
-        break;
-      case SceneOperation::Intersection:
-        if (params.smoothness > 0.0f) {
-          popValue = opSmoothIntersection(sn.current_value, sn.parent_value,
-                                          params.smoothness);
-        } else {
-          popValue = opIntersection(sn.current_value, sn.parent_value);
-        }
-        break;
-      }
+      popValue = combFTable[params.combOP](sn.current_value, sn.parent_value,params.smoothness);
 
       sp--;
     } else {
@@ -416,16 +420,15 @@ std::vector<float> Scene::generateDenseGrid(int num_voxels_per_axis) {
   } else {
 #pragma omp parallel for schedule(static)
     for (int i = 0; i < total_voxels; i++) {
-    int z = i / axis_size_sq;
-    int y = (i % axis_size_sq) / axis_size;
-    int x = i % axis_size;
-          glm::vec3 point =
-              (glm::vec3(x + 0.5f, y + 0.5f, z + 0.5f) / float(axis_size) -
-               center);
+      int z = i / axis_size_sq;
+      int y = (i % axis_size_sq) / axis_size;
+      int x = i % axis_size;
+      glm::vec3 point =
+          (glm::vec3(x + 0.5f, y + 0.5f, z + 0.5f) / float(axis_size) - center);
 
-          float d = map(point, flat);
+      float d = map(point, flat);
 
-          data[z * axis_size_sq + y * axis_size + x] = d;
+      data[z * axis_size_sq + y * axis_size + x] = d;
     }
   }
 
@@ -443,44 +446,41 @@ Scene::Scene() {
   m_root->p.position = glm::vec3(0, 0, 0);
   m_root->p.rotation = glm::vec3(0, 0, 0);
   m_root->p.scale = 1.0;
-  m_root->p.albedo = glm::vec3(1, 1, 1);
-  m_root->p.physicsActive = false;
   updateNodeData(m_root.get());
 
   // Make the selected node the scene node by default
   m_selected = m_root.get();
 
   // Create the scene
-  Node* snowMan = addChild(NodeType::Snowman);
+  Node *snowMan = addChild(NodeType::Snowman);
   snowMan->p.scale = 0.8;
   updateNodeData(snowMan);
 
-  Node* box = addChild(NodeType::Box);
+  Node *box = addChild(NodeType::Box);
   box->p.scale = 0.2;
   box->p.position.x = -0.2;
   box->p.position.y = -0.15;
-  box->p.position.z = 0.2;
+  box->p.position.z = 0.25;
+  box->p.rotation.x = 0.2;
   box->p.rotation.y = 0.4;
-  box->p.smoothness=0.02;
+  box->p.rotation.z = 0.4;
+  box->p.smoothness = 0.02;
   updateNodeData(box);
 
   m_selected = snowMan;
-  Node* sphere = addChild(NodeType::Sphere);
+  Node *sphere = addChild(NodeType::Sphere);
   sphere->p.scale = 0.2;
   sphere->p.position.x = 0.1;
   sphere->p.position.y = 0.3;
-  sphere->p.sop = (int)SceneOperation::Substraction;
+  sphere->p.combOP = (int)CombinationOp::Substraction;
   updateNodeData(sphere);
- 
+
   m_selected = m_root.get();
-  Node* sphereGrid = addChild(NodeType::Sphere);
+  Node *sphereGrid = addChild(NodeType::Sphere);
   sphereGrid->p.scale = 0.1;
   sphereGrid->p.position.z = -0.4;
-  sphereGrid->p.aop = (int)AxisOperation::Repetition;
+  sphereGrid->p.repOp = (int)RepetitionOp::IlimRepetition;
   sphereGrid->p.spacing.x = 0.15;
   sphereGrid->p.spacing.y = 0.15;
-  sphereGrid->p.limit.x = 10;
-  sphereGrid->p.limit.y = 10;
   updateNodeData(sphereGrid);
-
 }
