@@ -115,8 +115,8 @@ void Scene::draw() {
       dirty |= ImGui::SliderFloat3(("Deformation" + id).c_str(),
                                    &m_selected->p.defP.x, 0.001f, 3.5f);
     }else if(m_selected->p.defOp == (int)DeformationOp::Elongate){
-      dirty |= ImGui::InputFloat3(("Spacing" + id).c_str(),
-                                  &m_selected->p.spacing.x);
+      dirty |= ImGui::InputFloat3(("Deformation" + id).c_str(),
+                                  &m_selected->p.defP.x);
     }
 
     ImGui::Separator();
@@ -297,7 +297,7 @@ void Scene::generateBBox(Node *n) {
   }else if (n->p.defOp == (int)DeformationOp::Twist) {
     glm::vec3 defAxisIncrease =
         n->p.scale * 0.4f *
-        glm::min(glm::abs(n->p.scale * n->p.defP), glm::vec3(1.57079632679f));
+        glm::min(glm::abs(n->p.scale * n->p.defP), glm::vec3(1.57079632679f)); // pi/2
 
     glm::vec3 defOffset(
       glm::max(defAxisIncrease.y,defAxisIncrease.z),
