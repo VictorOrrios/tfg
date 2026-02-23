@@ -102,6 +102,7 @@ glm::vec3 opTwist(const glm::vec3 &p, const glm::vec3 &defP) {
 
 // Modified to make it anisotropic
 glm::vec3 opBend(const glm::vec3 &p, const glm::vec3 &defP){
+/*   
   glm::vec3 a0 = glm::vec3(defP.y, defP.z, defP.x);
 
   float k2 = -glm::dot(a0, a0);
@@ -117,7 +118,8 @@ glm::vec3 opBend(const glm::vec3 &p, const glm::vec3 &defP){
   float c = cos(angle);
 
   return p * c + glm::cross(axis, p) * s + axis * glm::dot(axis, p) * (1.0f - c);
-/* 
+ */
+
   glm::vec3 axis = glm::normalize(glm::vec3(defP.y, defP.z, defP.x));
   float k = glm::length(defP);
 
@@ -141,7 +143,7 @@ glm::vec3 opBend(const glm::vec3 &p, const glm::vec3 &defP){
   );
 
   return R * p;
-   */
+  
 }
 
 glm::vec3 opElongate(const glm::vec3 &p, const glm::vec3 &defP) {
@@ -182,6 +184,14 @@ float sdRoundedCylinder(const glm::vec3 &p, float ra, float rb, float h) {
               glm::abs(p.y) - h + rb);
   return glm::min(glm::max(d.x, d.y), 0.0f) +
          glm::length(glm::max(d, glm::vec2(0.0f))) - rb;
+}
+
+float sdTorus(const glm::vec3 &p, const glm::vec2 &t){
+  glm::vec2 q = glm::vec2(length(glm::vec2(p.x,p.z))-t.x,p.y);
+  return length(q)-t.y;
+}
+float sdTorus(const glm::vec3 &p){
+  return sdTorus(p,glm::vec2(0.5,0.3));
 }
 
 float sdSnowMan(const glm::vec3 &point) {

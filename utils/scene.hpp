@@ -12,7 +12,7 @@
 
 class Scene {
 public:
-  enum class NodeType { Empty, Box, Sphere, Snowman };
+  enum class NodeType { Empty, Box, Sphere, Torus, Snowman };
   enum class CombinationOp { Union, Substraction, Intersection };
   enum class RepetitionOp { NoneOP, LimRepetition, IlimRepetition };
   enum class DeformationOp { NoneOP, Twist, Bend, Elongate };
@@ -35,6 +35,7 @@ public:
   struct Node {
     uint32_t id;
     std::vector<std::unique_ptr<Node>> children;
+    Node* parent;
     NodeType type;
     NodeParams p;
     nvutils::Bbox bbox;

@@ -49,4 +49,8 @@ float sdCapsule(const glm::vec3 &p, const glm::vec3 &a,
 
 float sdRoundedCylinder(const glm::vec3 &p, float ra, float rb,float h);
 
+float sdTorus(const glm::vec3 &p, const glm::vec2 &t);
+float sdTorus(const glm::vec3 &p);
+
+
 float sdSnowMan(const glm::vec3 &p);
