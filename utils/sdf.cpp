@@ -191,7 +191,7 @@ float sdTorus(const glm::vec3 &p, const glm::vec2 &t){
   return length(q)-t.y;
 }
 float sdTorus(const glm::vec3 &p){
-  return sdTorus(p,glm::vec2(0.5,0.3));
+  return sdTorus(p,glm::vec2(0.275,0.15));
 }
 
 float sdSnowMan(const glm::vec3 &point) {

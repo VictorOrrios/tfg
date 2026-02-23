@@ -555,7 +555,7 @@ Scene::Scene() {
 
   m_selected = m_root.get();
   Node* torus = addChild(NodeType::Torus);
-  torus->p.scale = 0.15;
+  torus->p.scale = 0.2;
   torus->p.position.x = 0.35;
   torus->p.position.y = 0.1;
   torus->p.position.z = -0.2;
@@ -564,7 +564,7 @@ Scene::Scene() {
 
   m_selected = m_root.get();
   Node* torus2 = addChild(NodeType::Torus);
-  torus2->p.scale = 0.15;
+  torus2->p.scale = 0.2;
   torus2->p.position.x = -0.35;
   torus2->p.position.y = 0.1;
   torus2->p.position.z = -0.2;
@@ -575,7 +575,7 @@ Scene::Scene() {
 
   m_selected = m_root.get();
   Node* torus3 = addChild(NodeType::Torus);
-  torus3->p.scale = 0.15;
+  torus3->p.scale = 0.2;
   torus3->p.position.y = 0.1;
   torus3->p.position.z = -0.2;
   torus3->p.rotation.x = 0.75;
