@@ -34,7 +34,7 @@
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
-[[vk::binding(BindingPoints::sceneObjects)]] StructuredBuffer<SceneObject> sceneObjects;
+[[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 
 const static int NUM_VOXELS_PER_AXIS = 99; // Numer of voxel2 per axis of globalGrids
 [[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
@@ -541,7 +541,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
     for(int i = 1; i<pushConst.numObjects; i++){
       const float eps = 0.05;
       float3 near, far, dir = r.dir;
-      Bbox bbox = sceneObjects[i].bbox;
+      Bbox bbox = aabbs[i];
       bbox.bMin *= bboxSize;
       bbox.bMax *= bboxSize;
       bool hit = intersectCube(r, bbox, near, far);

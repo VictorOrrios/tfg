@@ -23,8 +23,6 @@
 
 // TODO: Change the comment paragraph
 
-
-
 #define VMA_IMPLEMENTATION
 // TODO: Organize and label imports
 
@@ -51,8 +49,10 @@
 #include <nvapp/elem_logger.hpp>
 #include <nvapp/elem_default_menu.hpp>
 #include <nvapp/elem_default_title.hpp>
+#include <nvutils/bounding_box.hpp>
 #include <nvutils/logger.hpp>
 #include <nvutils/timers.hpp>              // Timers for profiling
+#include <nvvk/acceleration_structures.hpp>
 #include <nvvk/check_error.hpp>
 #include <nvvk/context.hpp>
 #include <nvvk/debug_util.hpp>
@@ -78,6 +78,7 @@
 #include <glm/geometric.hpp>
 #include <glm/matrix.hpp>
 #include <cstdint>
+#include <vector>
 
 const char* DebugModes[] = {
     "Debug color",
@@ -138,6 +139,13 @@ public:
     NVVK_CHECK(m_alloc.init(allocatorInfo));
     m_samplerPool.init(app->getDevice());
     m_stagingUploader.init(&m_alloc, true);
+    
+    // Get ray tracing properties
+    VkPhysicalDeviceProperties2 prop2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    m_rtProperties.pNext = &m_asProperties;
+    prop2.pNext          = &m_rtProperties;
+    vkGetPhysicalDeviceProperties2(m_app->getPhysicalDevice(), &prop2);
+
 
     // TODO set back to on when proper lighting solution is made
     // Set tonemapping off by default
@@ -179,7 +187,7 @@ public:
     vkDestroyShaderModule(device,m_lightingModule,nullptr);
 
     m_alloc.destroyBuffer(m_sceneInfoB);
-    m_alloc.destroyBuffer(m_sceneObjectsB);
+    m_alloc.destroyBuffer(m_sceneAabbB);
     m_alloc.destroyImage(m_globalGrid);
 
     m_gBuffers.deinit();
@@ -541,12 +549,38 @@ public:
     m_stagingUploader.cmdUploadAppended(cmd);
   }
 
+  nvvk::AccelerationStructureGeometryInfo primitiveToGeometry(const std::vector<nvutils::Bbox>& aabbVector){
+    nvvk::AccelerationStructureGeometryInfo result = {};
+
+    const uint32_t aabbCount = static_cast<uint32_t>(aabbVector.size());
+
+    // Describe buffer as array of VkAabbPostions
+    VkAccelerationStructureGeometryAabbsDataKHR aabbs{
+      .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR,
+      .data   = {.deviceAddress = m_sceneAabbB.address},
+      .stride = sizeof(VkAabbPositionsKHR)
+    };
+
+    // Identify the above data as containing opaque triangles.
+    result.geometry = VkAccelerationStructureGeometryKHR{
+        .sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+        .geometryType = VK_GEOMETRY_TYPE_AABBS_KHR,
+        .geometry     = {.aabbs = aabbs},
+        .flags        = VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR | VK_GEOMETRY_OPAQUE_BIT_KHR,
+    };
+
+    result.rangeInfo = VkAccelerationStructureBuildRangeInfoKHR{.primitiveCount = aabbCount};
+
+    return result;
+  }
+
+
   void updateSceneObjects(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
 
-    std::vector<shaderio::SceneObject> sceneObjects = m_scene.getObjects();
-    m_pushConst.numObjects = sceneObjects.size();
-    unsigned long size = sceneObjects.size()*sizeof(shaderio::SceneObject);
+    std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
+    m_pushConst.numObjects = aabbVector.size();
+    unsigned long size = aabbVector.size()*sizeof(nvutils::Bbox);
     /* 
     nvvk::ResourceAllocator* allocator = m_stagingUploader.getResourceAllocator();
     allocator->destroyBuffer(m_sceneObjectsB);
@@ -561,8 +595,8 @@ public:
                                        VK_PIPELINE_STAGE_2_TRANSFER_BIT});
      */
 
-    vkCmdUpdateBuffer(cmd, m_sceneObjectsB.buffer, 0, size, sceneObjects.data());
-    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneObjectsB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+    vkCmdUpdateBuffer(cmd, m_sceneAabbB.buffer, 0, size, aabbVector.data());
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneAabbB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
 
@@ -579,16 +613,16 @@ public:
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneInfoB, 0,
                                           std::span<const shaderio::SceneInfo>(&m_sceneInfo, 1)));
 
-      std::vector<shaderio::SceneObject> sceneObjects;
-      sceneObjects.push_back({});
+      std::vector<nvutils::Bbox> aabbVector;
+      aabbVector.push_back({});
 
       // TODO: This is temporary, limit max size to fixed number
       constexpr uint32_t MAX_OBJECTS = 1024;
-      NVVK_CHECK(allocator->createBuffer(m_sceneObjectsB,
-                                     MAX_OBJECTS*sizeof(shaderio::SceneObject),
+      NVVK_CHECK(allocator->createBuffer(m_sceneAabbB,
+                                     MAX_OBJECTS*sizeof(nvutils::Bbox),
                                      VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT));
-      NVVK_DBG_NAME(m_sceneObjectsB.buffer);
-      NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneObjectsB, 0,std::span(sceneObjects)));                     
+      NVVK_DBG_NAME(m_sceneAabbB.buffer);
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneAabbB, 0,std::span(aabbVector)));                     
 
       m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
 
@@ -612,7 +646,7 @@ public:
     bindings.addBinding(shaderio::BindingPoints::albedoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::depthBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::globalGrid, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
-    bindings.addBinding(shaderio::BindingPoints::sceneObjects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::aabbs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
     // Creating the descriptor set and set layout from the bindings
     // TODO: You can put flags here, maybe this is important
@@ -624,7 +658,7 @@ public:
     nvvk::WriteSetContainer writeContainer;
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::sceneInfo), m_sceneInfoB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::globalGrid), m_globalGrid.descriptor);
-    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::sceneObjects), m_sceneObjectsB.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::aabbs), m_sceneAabbB.buffer);
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
                         writeContainer.data(), 0, nullptr);
@@ -751,11 +785,11 @@ private:
   // Vulkan variables
   nvapp::Application*     m_app{};            // The application framework
   nvvk::ResourceAllocator m_alloc{};          // Resource allocator for Vulkan resources, used for buffers and images
-  nvvk::StagingUploader  m_stagingUploader{}; // Utility to upload data to the GPU, used for staging buffers and images
-  nvvk::SamplerPool      m_samplerPool{};     // Texture sampler pool, used to acquire texture samplers for images
-  nvvk::GBuffer          m_gBuffers{};        // The G-Buffer: color + depth
-  nvslang::SlangCompiler m_slangCompiler{};   // The Slang compiler used to compile the shaders
-  nvvk::DescriptorPack  m_descPack;           // The descriptor bindings used to create the descriptor set layout and descriptor sets
+  nvvk::StagingUploader   m_stagingUploader{};// Utility to upload data to the GPU, used for staging buffers and images
+  nvvk::SamplerPool       m_samplerPool{};    // Texture sampler pool, used to acquire texture samplers for images
+  nvvk::GBuffer           m_gBuffers{};       // The G-Buffer: color + depth
+  nvslang::SlangCompiler  m_slangCompiler{};  // The Slang compiler used to compile the shaders
+  nvvk::DescriptorPack    m_descPack;         // The descriptor bindings used to create the descriptor set layout and descriptor sets
 
   // Tracing Pipeline
   VkPipeline            m_tracingPipeline{};  // Compute pipeline
@@ -767,13 +801,35 @@ private:
   VkPipelineLayout      m_lightingLayout{};   // Compute pipeline layout
   VkShaderModule        m_lightingModule{};   // Compute shader module for lighting
 
+  // RT Pipeline
+  VkPipeline           m_rtPipeline{};        // Ray tracing pipeline
+  VkPipelineLayout     m_rtPipelineLayout{};  // Ray tracing pipeline layout
+
+  // Acceleration Structure Components
+  std::vector<nvvk::AccelerationStructure> m_blasAccel;     // Bottom-level acceleration structures
+  nvvk::AccelerationStructure              m_tlasAccel;     // Top-level acceleration structure
+
+  // Direct SBT management
+  nvvk::Buffer                    m_sbtBuffer;         // Buffer for shader binding table
+  std::vector<uint8_t>            m_shaderHandles;     // Storage for shader group handles
+  VkStridedDeviceAddressRegionKHR m_raygenRegion{};    // Ray generation shader region
+  VkStridedDeviceAddressRegionKHR m_missRegion{};      // Miss shader region
+  VkStridedDeviceAddressRegionKHR m_hitRegion{};       // Hit shader region
+  VkStridedDeviceAddressRegionKHR m_callableRegion{};  // Callable shader region
+
+  // Ray Tracing Properties
+  VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
+  VkPhysicalDeviceAccelerationStructurePropertiesKHR m_asProperties{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
+
   // Push constants to send 
   shaderio::PushConstant m_pushConst = {.time = 0.0f};
 
   // Scene information. TODO: encapsulate this into a class
   shaderio::SceneInfo   m_sceneInfo{};        // Struct containing the scene information
   nvvk::Buffer          m_sceneInfoB{};       // Buffer binded to the UBO of scene info
-  nvvk::Buffer          m_sceneObjectsB{};    // Buffer binded to the scene objects array
+  nvvk::Buffer          m_sceneAabbB{};    // Buffer binded to the scene objects array
 
   // 3D textures
   nvvk::Image m_globalGrid;
@@ -819,11 +875,20 @@ int main(int argc, char** argv)
     elementLogger->addLog(logLevel, "%s", text.c_str());
   });
 
+  VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeature{
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+  VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
+
   nvvk::ContextInitInfo vkSetup{
       .instanceExtensions = {VK_EXT_DEBUG_UTILS_EXTENSION_NAME},
       .deviceExtensions   = {
         {VK_KHR_SWAPCHAIN_EXTENSION_NAME},
-        {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME}},
+        {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME},                                    // Required for premade modules, like the tonemapper
+        {VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, &accelFeature},     // Build acceleration structures
+        {VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, &rtPipelineFeature},  // Use vkCmdTraceRaysKHR
+        {VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME},                           // Required by ray tracing pipeline
+      },
       .enableValidationLayers = true
   };
 

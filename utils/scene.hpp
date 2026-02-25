@@ -53,7 +53,7 @@ public:
   void draw();
 
   std::vector<float> generateDenseGrid(int num_voxels_per_axis);
-  std::vector<shaderio::SceneObject> getObjects();
+  std::vector<nvutils::Bbox> getBboxes();
 
   bool m_needsRefresh = false;
 

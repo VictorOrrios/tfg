@@ -376,8 +376,8 @@ std::vector<Scene::FlatNode> Scene::flattenNode(Node *root) {
   return out;
 }
 
-std::vector<shaderio::SceneObject> Scene::getObjects() {
-  std::vector<shaderio::SceneObject> out;
+std::vector<nvutils::Bbox> Scene::getBboxes() {
+  std::vector<nvutils::Bbox> out;
 
   std::queue<Node *> q;
   q.push(m_root.get());
@@ -386,9 +386,7 @@ std::vector<shaderio::SceneObject> Scene::getObjects() {
     Node *n = q.front();
     q.pop();
 
-    nvutils::Bbox &nvbbox = n->bbox;
-    shaderio::Bbox shbbox({nvbbox.min(), nvbbox.max()});
-    out.push_back({shbbox});
+    out.push_back(n->bbox);
 
     for (auto &c : n->children) {
       q.push(c.get());

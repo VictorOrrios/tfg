@@ -46,7 +46,7 @@ enum BindingPoints
   albedoBuffer = 3,
   depthBuffer  = 4,
   globalGrid = 5,
-  sceneObjects = 6,
+  aabbs = 6,
 };
 
 struct LightinParams{
@@ -79,10 +79,6 @@ struct SceneInfo{
 };
 CHECK_STRUCT_ALIGNMENT(SceneInfo)
 
-struct SceneObject{
-  Bbox bbox;
-};
-CHECK_STRUCT_ALIGNMENT(SceneObject)
 
 NAMESPACE_SHADERIO_END()
 
