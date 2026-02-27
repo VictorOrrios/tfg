@@ -47,6 +47,7 @@ enum BindingPoints
   depthBuffer  = 4,
   globalGrid = 5,
   aabbs = 6,
+  tLas = 7,
 };
 
 struct LightinParams{

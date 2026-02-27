@@ -3,7 +3,6 @@
 #include "glm/ext/matrix_float4x4.hpp"
 #include "glm/ext/vector_float3.hpp"
 #include "glm/ext/vector_int3_sized.hpp"
-#include "../shaders/shaderio.h"
 #include "nvutils/bounding_box.hpp"
 #include <imgui.h>
 #include <memory>

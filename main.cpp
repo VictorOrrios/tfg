@@ -23,6 +23,7 @@
 
 // TODO: Change the comment paragraph
 
+#include "slang.h"
 #define VMA_IMPLEMENTATION
 // TODO: Organize and label imports
 
@@ -40,6 +41,7 @@
 
 #include "_autogen/tracing.slang.h"
 #include "_autogen/lighting.slang.h"
+#include "_autogen/raytracing.slang.h"
 #include "_autogen/sky_simple.slang.h"
 #include "_autogen/tonemapper.slang.h"
 
@@ -60,6 +62,7 @@
 #include <nvvk/resource_allocator.hpp>
 #include <nvvk/sampler_pool.hpp>
 #include <nvvk/staging.hpp>
+#include <nvvk/sbt_generator.hpp>
 #include <nvvk/profiler_vk.hpp>
 #include <nvutils/parameter_parser.hpp>
 #include <nvvk/gbuffers.hpp>                // GBuffer management
@@ -139,7 +142,9 @@ public:
     NVVK_CHECK(m_alloc.init(allocatorInfo));
     m_samplerPool.init(app->getDevice());
     m_stagingUploader.init(&m_alloc, true);
-    
+    m_asBuilder.init(&m_alloc, &m_stagingUploader, m_app->getQueue(0)); // TODO: Is this the correct queue?
+    m_sbtGen.init(app->getDevice(),m_rtProperties);
+
     // Get ray tracing properties
     VkPhysicalDeviceProperties2 prop2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
     m_rtProperties.pNext = &m_asProperties;
@@ -151,14 +156,15 @@ public:
     // Set tonemapping off by default
     m_tonemapperData.isActive = 0;
 
-    setupSlangCompiler();         // Setup slang compiler with correct build config flags
-    createScene();                // Create the scene and fill it up with sdfs
-    setupGBuffers();              // Set up the GBuffers to render to
-    create3DTextures();           // Creates the different 3d textures used to store voxel grid data
-    createDescriptorSetLayout();  // Create the descriptor set layout for the pipeline
-    createPipelineLayouts();      // Create the pipeline layouts
-    compileAndCreateShaders();    // Compile the shaders and create the shader modules
-    createPipelines();      // Create the pipelines using the layouts and the shaders
+    setupSlangCompiler();           // Setup slang compiler with correct build config flags
+    createScene();                  // Create the scene and fill it up with sdfs
+    setupGBuffers();                // Set up the GBuffers to render to
+    create3DTextures();             // Creates the different 3d textures used to store voxel grid data
+    createAccelerationStructures(); // Creates the bLas and tLas needed for the rt pipeline 
+    createDescriptorSetLayout();    // Create the descriptor set layout for the pipelines
+    createPipelineLayouts();        // Create the pipelines layouts
+    compileAndCreateShaders();      // Compile the shaders and create the shader modules
+    createPipelines();              // Create the pipelines using the layouts and the shaders
 
     // Initialize the tonemapper with proe-compiled shader
     m_tonemapper.init(&m_alloc, std::span<const uint32_t>(tonemapper_slang));
@@ -181,17 +187,24 @@ public:
     m_descPack.deinit();
     vkDestroyPipeline(device,m_tracingPipeline,nullptr);
     vkDestroyPipeline(device,m_lightingPipeline,nullptr);
+    vkDestroyPipeline(device,m_rtPipeline,nullptr);
     vkDestroyPipelineLayout(device,m_tracingLayout,nullptr);
     vkDestroyPipelineLayout(device,m_lightingLayout,nullptr);
+    vkDestroyPipelineLayout(device,m_rtPipelineLayout,nullptr);
     vkDestroyShaderModule(device,m_tracingModule,nullptr);
     vkDestroyShaderModule(device,m_lightingModule,nullptr);
+    vkDestroyShaderModule(device,m_rtModule,nullptr);
 
     m_alloc.destroyBuffer(m_sceneInfoB);
     m_alloc.destroyBuffer(m_sceneAabbB);
     m_alloc.destroyImage(m_globalGrid);
+    m_alloc.destroyBuffer(m_sbtBuffer);
+    m_asBuilder.deinitAccelerationStructures();
 
     m_gBuffers.deinit();
+    m_sbtGen.deinit();
     m_stagingUploader.deinit();
+    m_asBuilder.deinit();
     //m_skySimple.deinit();
     m_tonemapper.deinit();
     m_samplerPool.deinit();
@@ -427,7 +440,7 @@ public:
 #ifdef NDEBUG
     LOGI("Slang compiler: RELEASE configuration\n");
     m_slangCompiler.addOption({slang::CompilerOptionName::Optimization,
-        { slang::CompilerOptionValueKind::Int, SLANG_OPTIMIZATION_LEVEL_HIGH }
+        { slang::CompilerOptionValueKind::Int, SLANG_OPTIMIZATION_LEVEL_MAXIMAL }
     });
     m_slangCompiler.addOption({slang::CompilerOptionName::DebugInformation,
         { slang::CompilerOptionValueKind::Int, SLANG_DEBUG_INFO_LEVEL_NONE }
@@ -574,6 +587,40 @@ public:
     return result;
   }
 
+  void createBottomLevelAS(const std::vector<nvvk::AccelerationStructureGeometryInfo> geoInfos){
+    m_asBuilder.blasSubmitBuildAndWait(geoInfos, 
+    VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
+    // TODO: Check out more flags
+  }
+
+  void createTopLevelAS(){
+    // TODO: This is hardwired to one global instance
+    const glm::mat4 transformM = glm::mat4(1.0f);
+    const int blasSetIndex = 0;
+    const int customIndex = 0;
+
+    std::vector<VkAccelerationStructureInstanceKHR> tlasInstances;
+    VkAccelerationStructureInstanceKHR ray_inst;
+    ray_inst.transform = nvvk::toTransformMatrixKHR(transformM);
+    ray_inst.accelerationStructureReference = m_asBuilder.blasSet[blasSetIndex].address;
+    ray_inst.instanceCustomIndex = customIndex;
+    ray_inst.mask = 0xFF;
+    // TODO: You can put flags here
+    tlasInstances.push_back(ray_inst);
+
+    m_asBuilder.tlasSubmitBuildAndWait(tlasInstances, 
+    VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
+    // TODO: Check out more flags
+  }
+
+  void createAccelerationStructures(){
+    std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
+    nvvk::AccelerationStructureGeometryInfo geoInfo = primitiveToGeometry(aabbVector);
+    std::vector<nvvk::AccelerationStructureGeometryInfo> geoInfos;
+    geoInfos.push_back(geoInfo);
+    createBottomLevelAS(geoInfos);
+    createTopLevelAS();
+  }
 
   void updateSceneObjects(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
@@ -620,7 +667,10 @@ public:
       constexpr uint32_t MAX_OBJECTS = 1024;
       NVVK_CHECK(allocator->createBuffer(m_sceneAabbB,
                                      MAX_OBJECTS*sizeof(nvutils::Bbox),
-                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT));
+                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
+                                          | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
+                                          | VK_BUFFER_USAGE_2_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
+                                        ));
       NVVK_DBG_NAME(m_sceneAabbB.buffer);
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneAabbB, 0,std::span(aabbVector)));                     
 
@@ -647,6 +697,7 @@ public:
     bindings.addBinding(shaderio::BindingPoints::depthBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::globalGrid, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::aabbs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::tLas, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
 
     // Creating the descriptor set and set layout from the bindings
     // TODO: You can put flags here, maybe this is important
@@ -667,6 +718,7 @@ public:
   void createPipelineLayouts(){
     createPipelineLayout(&m_tracingLayout);
     createPipelineLayout(&m_lightingLayout);
+    createPipelineLayout(&m_rtPipelineLayout);
   }
 
   void createPipelineLayout(VkPipelineLayout* pipelineLayout){
@@ -689,7 +741,7 @@ public:
     NVVK_DBG_NAME(m_tracingLayout);
   }
 
-  void createShaderModule(VkShaderModule* shaderModule, const std::filesystem::path& filename, const std::span<const uint32_t> spirv){
+  VkShaderModuleCreateInfo createShaderModule(VkShaderModule* shaderModule, const std::filesystem::path& filename, const std::span<const uint32_t> spirv){
 
     // Use pre-compiled shaders by default
     VkShaderModuleCreateInfo shaderCode = nvsamples::getShaderModuleCreateInfo(spirv);
@@ -708,24 +760,29 @@ public:
     // Create shader module using the pcode
     const uint32_t* spirvPtr = reinterpret_cast<const uint32_t*>(m_slangCompiler.getSpirv());
     size_t spirvWordCount = m_slangCompiler.getSpirvSize() / sizeof(uint32_t);
+    LOGI("Shader %s has %zu words\n",filename.c_str(),spirvWordCount);
     NVVK_CHECK(nvvk::createShaderModule(*shaderModule, m_app->getDevice(), 
     std::span<const uint32_t>(spirvPtr, spirvWordCount)));
     NVVK_DBG_NAME(*shaderModule);
+    return shaderCode;
   }
 
   void compileAndCreateShaders(){
     // Destroy the previous shader module, if it exist
     vkDestroyShaderModule(m_app->getDevice(), m_tracingModule, nullptr);
     vkDestroyShaderModule(m_app->getDevice(), m_lightingModule, nullptr);
+    vkDestroyShaderModule(m_app->getDevice(), m_rtModule, nullptr);
 
     createShaderModule(&m_tracingModule,"tracing.slang",tracing_slang);
     createShaderModule(&m_lightingModule,"lighting.slang",lighting_slang);
+    createShaderModule(&m_rtModule,"raytracing.slang",raytracing_slang);
 
   }
 
   void createPipelines(){
     createComputePipeline(&m_tracingPipeline,&m_tracingLayout,&m_tracingModule);
     createComputePipeline(&m_lightingPipeline,&m_lightingLayout,&m_lightingModule);
+    createRTPipeline(&m_rtPipeline,&m_rtPipelineLayout);
   }
 
   void createComputePipeline(VkPipeline* pipeline, VkPipelineLayout* pipelineLayout, VkShaderModule* shaderModule){
@@ -749,6 +806,114 @@ public:
         pipeline));
     NVVK_DBG_NAME(*pipeline);
   }
+
+  void createRTPipeline(VkPipeline* pipeline, VkPipelineLayout* pipelineLayout){
+    // Creating all shaders
+    enum StageIndices
+    {
+      eRaygen,
+      eMiss,
+      eClosestHit,
+      eShaderGroupCount
+    };
+    std::array<VkPipelineShaderStageCreateInfo, eShaderGroupCount> stages{};
+    for(auto& s : stages)
+      s.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+
+/* 
+    VkShaderModuleCreateInfo shaderCode = nvsamples::getShaderModuleCreateInfo(raytracing_slang);
+    //VkShaderModuleCreateInfo shaderCode = nvsamples::getShaderModuleCreateInfo(spirv);
+    
+    // Get .slang file and compile to spirv
+    std::filesystem::path shaderSource = nvutils::findFile("raytracing.slang", nvsamples::getShaderDirs());
+    if(m_slangCompiler.compileFile(shaderSource)){
+      // Using the Slang compiler to compile the shaders
+      shaderCode.codeSize = m_slangCompiler.getSpirvSize();
+      shaderCode.pCode    = m_slangCompiler.getSpirv();
+    }else{
+      LOGE("Error compiling shader: %s\n%s\n", shaderSource.string().c_str(),
+           m_slangCompiler.getLastDiagnosticMessage().c_str());
+    }
+    stages[eRaygen].pNext     = &shaderCode;
+    stages[eRaygen].pName     = "rgenMain";
+    stages[eRaygen].stage     = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    stages[eMiss].pNext       = &shaderCode;
+    stages[eMiss].pName       = "rmissMain";
+    stages[eMiss].stage       = VK_SHADER_STAGE_MISS_BIT_KHR;
+    stages[eClosestHit].pNext = &shaderCode;
+    stages[eClosestHit].pName = "rchitMain";
+    stages[eClosestHit].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+ */
+
+
+    stages[eRaygen].module      = m_rtModule;
+    stages[eRaygen].pName       = "rgenMain";
+    stages[eRaygen].stage       = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    stages[eMiss].module        = m_rtModule;
+    stages[eMiss].pName         = "rmissMain";
+    stages[eMiss].stage         = VK_SHADER_STAGE_MISS_BIT_KHR;
+    stages[eClosestHit].module  = m_rtModule;
+    stages[eClosestHit].pName   = "rchitMain";
+    stages[eClosestHit].stage   = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+    
+
+    // Shader groups
+    VkRayTracingShaderGroupCreateInfoKHR group{VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR};
+    group.anyHitShader       = VK_SHADER_UNUSED_KHR;
+    group.closestHitShader   = VK_SHADER_UNUSED_KHR;
+    group.generalShader      = VK_SHADER_UNUSED_KHR;
+    group.intersectionShader = VK_SHADER_UNUSED_KHR;
+
+    std::vector<VkRayTracingShaderGroupCreateInfoKHR> shader_groups;
+    // Raygen
+    group.type          = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+    group.generalShader = eRaygen;
+    shader_groups.push_back(group);
+
+    // Miss
+    group.type          = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+    group.generalShader = eMiss;
+    shader_groups.push_back(group);
+
+    // closest hit shader
+    group.type             = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
+    group.generalShader    = VK_SHADER_UNUSED_KHR;
+    group.closestHitShader = eClosestHit;
+    shader_groups.push_back(group);
+
+    // Assemble the shader stages and recursion depth info into the ray tracing pipeline
+    VkRayTracingPipelineCreateInfoKHR rtPipelineInfo{VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR};
+    rtPipelineInfo.stageCount                   = static_cast<uint32_t>(stages.size());  // Stages are shaders
+    rtPipelineInfo.pStages                      = stages.data();
+    rtPipelineInfo.groupCount                   = static_cast<uint32_t>(shader_groups.size());
+    rtPipelineInfo.pGroups                      = shader_groups.data();
+    rtPipelineInfo.maxPipelineRayRecursionDepth = std::max(3U, m_rtProperties.maxRayRecursionDepth);  // Ray depth
+    rtPipelineInfo.layout                       = m_rtPipelineLayout;
+    vkCreateRayTracingPipelinesKHR(m_app->getDevice(), {}, {}, 1, &rtPipelineInfo, nullptr, &m_rtPipeline);
+    NVVK_DBG_NAME(m_rtPipeline);
+
+    // Create the shader binding table for this pipeline
+    createShaderBindingTable(rtPipelineInfo);
+  }
+
+  void createShaderBindingTable(const VkRayTracingPipelineCreateInfoKHR& rtPipelineInfo)
+  {
+    SCOPED_TIMER(__FUNCTION__);
+    m_alloc.destroyBuffer(m_sbtBuffer);
+    // Calculate required SBT buffer size
+    size_t bufferSize = m_sbtGen.calculateSBTBufferSize(m_rtPipeline, rtPipelineInfo);
+
+    // Create SBT buffer using the size from above
+    NVVK_CHECK(m_alloc.createBuffer(m_sbtBuffer, bufferSize, VK_BUFFER_USAGE_2_SHADER_BINDING_TABLE_BIT_KHR, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+                                        VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
+                                        m_sbtGen.getBufferAlignment()));
+
+    NVVK_DBG_NAME(m_sbtBuffer.buffer);
+
+    // Populate the SBT buffer with shader handles and data using the CPU-mapped memory pointer
+    NVVK_CHECK(m_sbtGen.populateSBTBuffer(m_sbtBuffer.address, bufferSize, m_sbtBuffer.mapping));
+  }
+
 
   // Recompiles and waits for idle time to swap it into the pipeline
   void reloadShaders(){
@@ -802,20 +967,16 @@ private:
   VkShaderModule        m_lightingModule{};   // Compute shader module for lighting
 
   // RT Pipeline
-  VkPipeline           m_rtPipeline{};        // Ray tracing pipeline
-  VkPipelineLayout     m_rtPipelineLayout{};  // Ray tracing pipeline layout
+  VkPipeline            m_rtPipeline{};       // Ray tracing pipeline
+  VkPipelineLayout      m_rtPipelineLayout{}; // Ray tracing pipeline layout
+  VkShaderModule        m_rtModule{};         // Raytracing shader module for rt pipeline
 
   // Acceleration Structure Components
-  std::vector<nvvk::AccelerationStructure> m_blasAccel;     // Bottom-level acceleration structures
-  nvvk::AccelerationStructure              m_tlasAccel;     // Top-level acceleration structure
+  nvvk::AccelerationStructureHelper        m_asBuilder{};
 
   // Direct SBT management
-  nvvk::Buffer                    m_sbtBuffer;         // Buffer for shader binding table
-  std::vector<uint8_t>            m_shaderHandles;     // Storage for shader group handles
-  VkStridedDeviceAddressRegionKHR m_raygenRegion{};    // Ray generation shader region
-  VkStridedDeviceAddressRegionKHR m_missRegion{};      // Miss shader region
-  VkStridedDeviceAddressRegionKHR m_hitRegion{};       // Hit shader region
-  VkStridedDeviceAddressRegionKHR m_callableRegion{};  // Callable shader region
+  nvvk::SBTGenerator    m_sbtGen;
+  nvvk::Buffer          m_sbtBuffer;         // Buffer for shader binding table
 
   // Ray Tracing Properties
   VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties{
@@ -827,9 +988,9 @@ private:
   shaderio::PushConstant m_pushConst = {.time = 0.0f};
 
   // Scene information. TODO: encapsulate this into a class
-  shaderio::SceneInfo   m_sceneInfo{};        // Struct containing the scene information
-  nvvk::Buffer          m_sceneInfoB{};       // Buffer binded to the UBO of scene info
-  nvvk::Buffer          m_sceneAabbB{};    // Buffer binded to the scene objects array
+  shaderio::SceneInfo   m_sceneInfo{};          // Struct containing the scene information
+  nvvk::Buffer          m_sceneInfoB{};         // Buffer binded to the UBO of scene info
+  nvvk::Buffer          m_sceneAabbB{};         // Buffer binded to the scene objects array
 
   // 3D textures
   nvvk::Image m_globalGrid;
