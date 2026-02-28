@@ -233,6 +233,10 @@ public:
     if(ImGui::CollapsingHeader("Tonemapper"))
         nvgui::tonemapperWidget(m_tonemapperData);
 
+    if(!ImGui::CollapsingHeader("Tracing")){
+      ImGui::Checkbox("Hardware RTX", &m_RTX_ON);
+    }
+
     if(ImGui::CollapsingHeader("Lighting data")){
       ImGui::Text("Directional Light");
       ImGui::SliderFloat3("Direction", &m_pushConst.lp.lightDir.x, -1.0f, 1.0f);
@@ -381,8 +385,14 @@ public:
       m_scene.m_needsRefresh = false;
     }
 
-    tracingPass(cmd);
+    if(m_RTX_ON){
+      raytracingPass(cmd);
+    }else{
+      tracingPass(cmd);
+    }
+
     lightingPass(cmd);
+    
     postProcess(cmd);
   }
 
@@ -419,6 +429,29 @@ public:
     // Dispatch
     VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE);
     vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
+  }
+
+  void raytracingPass(VkCommandBuffer cmd){
+    NVVK_DBG_SCOPE(cmd);
+
+    // Bind pipeline
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline);  
+    // Bind descriptor sets
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipelineLayout,
+                            0, 1, m_descPack.getSetPtr(), 0, nullptr);  
+    // Push constants
+    vkCmdPushConstants(cmd, m_rtPipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
+    // Dispatch
+    const VkExtent2D& size = m_app->getViewportSize();
+    auto& sbt = m_sbtGen.getSBTRegions();
+    vkCmdTraceRaysKHR(cmd,
+      &sbt.raygen,
+      &sbt.miss,
+      &sbt.hit,
+      &sbt.callable,
+      size.width,
+      size.height,
+      1);
   }
 
   // Apply post-processing
@@ -616,7 +649,9 @@ public:
   }
 
   void createAccelerationStructures(){
-    std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
+    //std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
+    std::vector<nvutils::Bbox> aabbVector;
+    aabbVector.push_back(nvutils::Bbox(glm::vec3(-0.5f),glm::vec3(0.5f)));
     nvvk::AccelerationStructureGeometryInfo geoInfo = primitiveToGeometry(aabbVector);
     std::vector<nvvk::AccelerationStructureGeometryInfo> geoInfos;
     geoInfos.push_back(geoInfo);
@@ -628,6 +663,8 @@ public:
     NVVK_DBG_SCOPE(cmd);
 
     std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
+    //std::vector<nvutils::Bbox> aabbVector;
+    //aabbVector.push_back(nvutils::Bbox(glm::vec3(-0.2f),glm::vec3(0.2f)));
     m_pushConst.numObjects = aabbVector.size();
     unsigned long size = aabbVector.size()*sizeof(nvutils::Bbox);
     /* 
@@ -712,6 +749,7 @@ public:
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::sceneInfo), m_sceneInfoB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::globalGrid), m_globalGrid.descriptor);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::aabbs), m_sceneAabbB.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLas), m_asBuilder.tlas);
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
                         writeContainer.data(), 0, nullptr);
@@ -954,11 +992,6 @@ private:
   // Direct SBT management
   nvvk::SBTGenerator    m_sbtGen;
   nvvk::Buffer          m_sbtBuffer;         // Buffer for shader binding table
-  std::vector<uint8_t>            m_shaderHandles;     // Storage for shader group handles
-  VkStridedDeviceAddressRegionKHR m_raygenRegion{};    // Ray generation shader region
-  VkStridedDeviceAddressRegionKHR m_missRegion{};      // Miss shader region
-  VkStridedDeviceAddressRegionKHR m_hitRegion{};       // Hit shader region
-  VkStridedDeviceAddressRegionKHR m_callableRegion{};  // Callable shader region
 
 
   // Ray Tracing Properties
@@ -986,6 +1019,7 @@ private:
   // UI params
   bool m_debugActive = false;
   int m_debugMode = 0;
+  bool m_RTX_ON = false;
 
   // Scene
   Scene m_scene;

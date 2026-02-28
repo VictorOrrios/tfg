@@ -75,7 +75,8 @@ void rgenMain()
     float3 color = payload.color;
     
     albedo = color;
-    normal = float3(1.0);
+    //albedo = float3(uv,0);
+    normal = float3(0.0);
     depth = 1.0;
 
     // Write the result to the output image
