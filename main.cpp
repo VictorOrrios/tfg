@@ -127,9 +127,16 @@ public:
 
   ~AppElement() override = default;
 
-  void onAttach(nvapp::Application* app) override
-  {
+  void onAttach(nvapp::Application* app) override{
     m_app                                = app;
+
+    // Get ray tracing properties
+    VkPhysicalDeviceProperties2 prop2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    m_rtProperties.pNext = &m_asProperties;
+    prop2.pNext          = &m_rtProperties;
+    vkGetPhysicalDeviceProperties2(m_app->getPhysicalDevice(), &prop2);
+
+    // Initialize allocator
     VmaAllocatorCreateInfo allocatorInfo = {
         .flags            = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
         .physicalDevice   = app->getPhysicalDevice(),
@@ -137,19 +144,14 @@ public:
         .instance         = app->getInstance(),
         .vulkanApiVersion = VK_API_VERSION_1_4, 
     };
+    NVVK_CHECK(m_alloc.init(allocatorInfo));
 
     // Initialize core components
-    NVVK_CHECK(m_alloc.init(allocatorInfo));
     m_samplerPool.init(app->getDevice());
     m_stagingUploader.init(&m_alloc, true);
     m_asBuilder.init(&m_alloc, &m_stagingUploader, m_app->getQueue(0)); // TODO: Is this the correct queue?
     m_sbtGen.init(app->getDevice(),m_rtProperties);
 
-    // Get ray tracing properties
-    VkPhysicalDeviceProperties2 prop2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
-    m_rtProperties.pNext = &m_asProperties;
-    prop2.pNext          = &m_rtProperties;
-    vkGetPhysicalDeviceProperties2(m_app->getPhysicalDevice(), &prop2);
 
 
     // TODO set back to on when proper lighting solution is made
@@ -817,34 +819,10 @@ public:
       eShaderGroupCount
     };
     std::array<VkPipelineShaderStageCreateInfo, eShaderGroupCount> stages{};
-    for(auto& s : stages)
+    for(auto& s : stages){
+      s = {};
       s.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-
-/* 
-    VkShaderModuleCreateInfo shaderCode = nvsamples::getShaderModuleCreateInfo(raytracing_slang);
-    //VkShaderModuleCreateInfo shaderCode = nvsamples::getShaderModuleCreateInfo(spirv);
-    
-    // Get .slang file and compile to spirv
-    std::filesystem::path shaderSource = nvutils::findFile("raytracing.slang", nvsamples::getShaderDirs());
-    if(m_slangCompiler.compileFile(shaderSource)){
-      // Using the Slang compiler to compile the shaders
-      shaderCode.codeSize = m_slangCompiler.getSpirvSize();
-      shaderCode.pCode    = m_slangCompiler.getSpirv();
-    }else{
-      LOGE("Error compiling shader: %s\n%s\n", shaderSource.string().c_str(),
-           m_slangCompiler.getLastDiagnosticMessage().c_str());
     }
-    stages[eRaygen].pNext     = &shaderCode;
-    stages[eRaygen].pName     = "rgenMain";
-    stages[eRaygen].stage     = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
-    stages[eMiss].pNext       = &shaderCode;
-    stages[eMiss].pName       = "rmissMain";
-    stages[eMiss].stage       = VK_SHADER_STAGE_MISS_BIT_KHR;
-    stages[eClosestHit].pNext = &shaderCode;
-    stages[eClosestHit].pName = "rchitMain";
-    stages[eClosestHit].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
- */
-
 
     stages[eRaygen].module      = m_rtModule;
     stages[eRaygen].pName       = "rgenMain";
@@ -866,18 +844,18 @@ public:
 
     std::vector<VkRayTracingShaderGroupCreateInfoKHR> shader_groups;
     // Raygen
-    group.type          = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+    group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
     group.generalShader = eRaygen;
     shader_groups.push_back(group);
 
     // Miss
-    group.type          = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+    group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
     group.generalShader = eMiss;
     shader_groups.push_back(group);
 
     // closest hit shader
-    group.type             = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
-    group.generalShader    = VK_SHADER_UNUSED_KHR;
+    group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
+    group.generalShader = VK_SHADER_UNUSED_KHR;
     group.closestHitShader = eClosestHit;
     shader_groups.push_back(group);
 
@@ -887,17 +865,16 @@ public:
     rtPipelineInfo.pStages                      = stages.data();
     rtPipelineInfo.groupCount                   = static_cast<uint32_t>(shader_groups.size());
     rtPipelineInfo.pGroups                      = shader_groups.data();
-    rtPipelineInfo.maxPipelineRayRecursionDepth = std::max(3U, m_rtProperties.maxRayRecursionDepth);  // Ray depth
+    rtPipelineInfo.maxPipelineRayRecursionDepth = std::min(3U, m_rtProperties.maxRayRecursionDepth);  // Ray depth
     rtPipelineInfo.layout                       = m_rtPipelineLayout;
-    vkCreateRayTracingPipelinesKHR(m_app->getDevice(), {}, {}, 1, &rtPipelineInfo, nullptr, &m_rtPipeline);
+    NVVK_CHECK(vkCreateRayTracingPipelinesKHR (m_app->getDevice(), {}, {}, 1, &rtPipelineInfo, nullptr, &m_rtPipeline));
     NVVK_DBG_NAME(m_rtPipeline);
 
     // Create the shader binding table for this pipeline
     createShaderBindingTable(rtPipelineInfo);
   }
 
-  void createShaderBindingTable(const VkRayTracingPipelineCreateInfoKHR& rtPipelineInfo)
-  {
+  void createShaderBindingTable(const VkRayTracingPipelineCreateInfoKHR& rtPipelineInfo){
     SCOPED_TIMER(__FUNCTION__);
     m_alloc.destroyBuffer(m_sbtBuffer);
     // Calculate required SBT buffer size
@@ -977,6 +954,12 @@ private:
   // Direct SBT management
   nvvk::SBTGenerator    m_sbtGen;
   nvvk::Buffer          m_sbtBuffer;         // Buffer for shader binding table
+  std::vector<uint8_t>            m_shaderHandles;     // Storage for shader group handles
+  VkStridedDeviceAddressRegionKHR m_raygenRegion{};    // Ray generation shader region
+  VkStridedDeviceAddressRegionKHR m_missRegion{};      // Miss shader region
+  VkStridedDeviceAddressRegionKHR m_hitRegion{};       // Hit shader region
+  VkStridedDeviceAddressRegionKHR m_callableRegion{};  // Callable shader region
+
 
   // Ray Tracing Properties
   VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties{
