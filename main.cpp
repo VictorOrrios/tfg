@@ -83,7 +83,6 @@
 #include <cstdint>
 #include <vector>
 #include "slang.h"
-#include <iostream>
 
 const char* DebugModes[] = {
     "Debug color",
@@ -138,18 +137,6 @@ public:
     prop2.pNext          = &m_rtProperties;
     vkGetPhysicalDeviceProperties2(m_app->getPhysicalDevice(), &prop2);
 
-        // AHORA m_rtProperties y m_asProperties están correctamente llenados
-    std::cout << "=== Ray Tracing Properties ===" << std::endl;
-    std::cout << "shaderGroupHandleSize: " << m_rtProperties.shaderGroupHandleSize << std::endl;
-    std::cout << "shaderGroupBaseAlignment: " << m_rtProperties.shaderGroupBaseAlignment << std::endl;
-    std::cout << "maxRayRecursionDepth: " << m_rtProperties.maxRayRecursionDepth << std::endl;
-    std::cout << "==============================" << std::endl;
-    
-    // También puedes verificar las propiedades de acceleration structure
-    std::cout << "=== Acceleration Structure Properties ===" << std::endl;
-    std::cout << "maxPrimitiveCount: " << m_asProperties.maxPrimitiveCount << std::endl;
-    std::cout << "maxInstanceCount: " << m_asProperties.maxInstanceCount << std::endl;
-    std::cout << "==========================================" << std::endl;
 
     // Initialize allocator
     VmaAllocatorCreateInfo allocatorInfo = {
@@ -612,10 +599,8 @@ public:
     m_stagingUploader.cmdUploadAppended(cmd);
   }
 
-  nvvk::AccelerationStructureGeometryInfo primitiveToGeometry(const std::vector<nvutils::Bbox>& aabbVector){
+  nvvk::AccelerationStructureGeometryInfo primitiveToGeometry(const uint32_t aabbCount){
     nvvk::AccelerationStructureGeometryInfo result = {};
-
-    const uint32_t aabbCount = static_cast<uint32_t>(aabbVector.size());
 
     // Describe buffer as array of VkAabbPostions
     VkAccelerationStructureGeometryAabbsDataKHR aabbs{
@@ -643,23 +628,23 @@ public:
     // TODO: Check out more flags
   }
 
-  void createTopLevelAS(){
+  void createTopLevelAS(const int instanceCount){
     // TODO: This is hardwired to one global instance
     const glm::mat4 transformM = glm::mat4(1.0f);
-    const int blasSetIndex = 0;
-    const int customIndex = 0;
 
     std::vector<VkAccelerationStructureInstanceKHR> tlasInstances;
-    VkAccelerationStructureInstanceKHR ray_inst{};
-
-    ray_inst.transform = nvvk::toTransformMatrixKHR(transformM);
-    ray_inst.accelerationStructureReference = m_asBuilder.blasSet[blasSetIndex].address;
-    ray_inst.instanceCustomIndex = customIndex;
-    ray_inst.mask = 0xFF;
-    ray_inst.instanceShaderBindingTableRecordOffset = 0;
-    ray_inst.flags = 0;
-    // TODO: You can put flags here
-    tlasInstances.push_back(ray_inst);
+    LOGI("Instance count: %i\n",instanceCount);
+    for(int i = 0; i<instanceCount; i++){
+      VkAccelerationStructureInstanceKHR ray_inst{};
+      ray_inst.transform = nvvk::toTransformMatrixKHR(transformM);
+      ray_inst.accelerationStructureReference = m_asBuilder.blasSet[i].address;
+      ray_inst.instanceCustomIndex = i;
+      ray_inst.mask = 0xFF;
+      ray_inst.instanceShaderBindingTableRecordOffset = 0;
+      ray_inst.flags = 0;
+      // TODO: You can put flags here
+      tlasInstances.push_back(ray_inst);
+    }
 
     m_asBuilder.tlasSubmitBuildAndWait(tlasInstances, 
     VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
@@ -668,24 +653,55 @@ public:
 
   void createAccelerationStructures(){
     //std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
-    std::vector<nvutils::Bbox> aabbVector;
-    aabbVector.push_back(nvutils::Bbox(glm::vec3(-1.0f),glm::vec3(1.0f)));
+    std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
 
-    nvvk::AccelerationStructureGeometryInfo geoInfo = primitiveToGeometry(aabbVector);
     std::vector<nvvk::AccelerationStructureGeometryInfo> geoInfos;
-    geoInfos.push_back(geoInfo);
+    VkDeviceSize stride = sizeof(VkAabbPositionsKHR);
+    VkDeviceSize currentOffset = 0;
+    for(int i = 0; i < aabbVector.size(); i++){
+      nvvk::AccelerationStructureGeometryInfo geoInfo = {};
+
+      // Describe buffer as array of VkAabbPostions
+      VkAccelerationStructureGeometryAabbsDataKHR aabbs{
+        .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR,
+        .data   = {.deviceAddress = m_sceneAabbB.address + currentOffset},
+        .stride = stride
+      };
+
+      // Identify the above data as containing opaque triangles.
+      geoInfo.geometry = VkAccelerationStructureGeometryKHR{
+          .sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+          .geometryType = VK_GEOMETRY_TYPE_AABBS_KHR,
+          .geometry     = {.aabbs = aabbs},
+          .flags        = VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR | VK_GEOMETRY_OPAQUE_BIT_KHR,
+      };
+
+      geoInfo.rangeInfo = VkAccelerationStructureBuildRangeInfoKHR{
+        .primitiveCount = 1,
+        .firstVertex = 0
+      };
+
+      geoInfos.push_back(geoInfo);
+      currentOffset += stride;
+    }
     createBottomLevelAS(geoInfos);
-    createTopLevelAS();
+    createTopLevelAS(aabbVector.size());
   }
 
   void updateSceneObjects(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
 
-    //std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
-    std::vector<nvutils::Bbox> aabbVector;
-    aabbVector.push_back(nvutils::Bbox(glm::vec3(-1.0f),glm::vec3(1.0f)));
+    std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
     m_pushConst.numObjects = aabbVector.size();
     unsigned long size = aabbVector.size()*sizeof(nvutils::Bbox);
+/* 
+    LOGI("AABB VECTOR\n");
+    for(auto i:aabbVector){
+      auto min = i.min();
+      auto max = i.max();
+      LOGI("(%f,%f,%f),(%f,%f,%f)\n",min.x,min.y,min.z,max.x,max.y,max.z);
+    }
+     */
     /* 
     nvvk::ResourceAllocator* allocator = m_stagingUploader.getResourceAllocator();
     allocator->destroyBuffer(m_sceneObjectsB);
@@ -953,21 +969,6 @@ public:
 
     // Populate the SBT buffer with shader handles and data using the CPU-mapped memory pointer
     NVVK_CHECK(m_sbtGen.populateSBTBuffer(m_sbtBuffer.address, bufferSize, m_sbtBuffer.mapping));
-  
-    uint32_t handleSize = m_rtProperties.shaderGroupHandleSize;
-    uint8_t* data = (uint8_t*)m_sbtBuffer.mapping;
-    
-    std::cout << "SBT Content (first 16 bytes of each group):" << std::endl;
-    for(int group = 0; group < 3; group++) {
-        std::cout << "  Group " << group << ": ";
-        bool allZero = true;
-        for(int byte = 0; byte < 16; byte++) {
-            uint8_t val = data[group * handleSize + byte];
-            if(val != 0) allZero = false;
-            std::cout << std::hex << (int)val << " ";
-        }
-        std::cout << std::dec << (allZero ? " (ALL ZEROS!)" : "") << std::endl;
-    }
   }
 
 
