@@ -283,7 +283,6 @@ float evalCubic(float t, float4 c){
   return fma(t, fma(t, fma(t, c.w, c.z), c.y), c.x);
 }
 
-// TODO: Fix X axis artifacts
 float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS;
 

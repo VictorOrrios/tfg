@@ -515,15 +515,6 @@ Scene::Scene() {
   // Make the selected node the scene node by default
   m_selected = m_root.get();
 
-  m_selected = m_root.get();
-  Node *sphereGrid = addChild(NodeType::Sphere);
-  sphereGrid->p.scale = 0.1;
-  sphereGrid->p.position.z = -0.4;
-  sphereGrid->p.repOp = (int)RepetitionOp::IlimRepetition;
-  sphereGrid->p.spacing.x = 0.15;
-  sphereGrid->p.spacing.y = 0.15;
-  updateNodeData(sphereGrid);
-
   // Create the scene
   m_selected = m_root.get();
   Node *snowMan = addChild(NodeType::Snowman);
@@ -552,7 +543,14 @@ Scene::Scene() {
   sphere->p.combOp = (int)CombinationOp::Substraction;
   updateNodeData(sphere);
 
-  
+  m_selected = m_root.get();
+  Node *sphereGrid = addChild(NodeType::Sphere);
+  sphereGrid->p.scale = 0.1;
+  sphereGrid->p.position.z = -0.4;
+  sphereGrid->p.repOp = (int)RepetitionOp::IlimRepetition;
+  sphereGrid->p.spacing.x = 0.15;
+  sphereGrid->p.spacing.y = 0.15;
+  updateNodeData(sphereGrid);
 
   m_selected = m_root.get();
   Node* torus = addChild(NodeType::Torus);

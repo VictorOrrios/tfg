@@ -633,7 +633,6 @@ public:
     const glm::mat4 transformM = glm::mat4(1.0f);
 
     std::vector<VkAccelerationStructureInstanceKHR> tlasInstances;
-    LOGI("Instance count: %i\n",instanceCount);
     for(int i = 0; i<instanceCount; i++){
       VkAccelerationStructureInstanceKHR ray_inst{};
       ray_inst.transform = nvvk::toTransformMatrixKHR(transformM);
@@ -652,7 +651,10 @@ public:
   }
 
   void createAccelerationStructures(){
-    //std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
+    VkCommandBuffer cmd = m_app->createTempCmdBuffer();
+    updateSceneObjects(cmd);  // Call update scene after the initial reation of buffers
+    m_app->submitAndWaitTempCmdBuffer(cmd); 
+
     std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
 
     std::vector<nvvk::AccelerationStructureGeometryInfo> geoInfos;
@@ -750,9 +752,6 @@ public:
 
       m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
 
-      // Call update scene after the initial reation of buffers
-      updateSceneObjects(cmd);
-
     m_app->submitAndWaitTempCmdBuffer(cmd); 
 
 
@@ -838,7 +837,7 @@ public:
     // Create shader module using the pcode
     const uint32_t* spirvPtr = reinterpret_cast<const uint32_t*>(m_slangCompiler.getSpirv());
     size_t spirvWordCount = m_slangCompiler.getSpirvSize() / sizeof(uint32_t);
-    LOGI("Shader %s has %zu words\n",filename.c_str(),spirvWordCount);
+    //LOGI("Shader %s has %zu words\n",filename.c_str(),spirvWordCount);
     NVVK_CHECK(nvvk::createShaderModule(*shaderModule, m_app->getDevice(), 
     std::span<const uint32_t>(spirvPtr, spirvWordCount)));
     NVVK_DBG_NAME(*shaderModule);
