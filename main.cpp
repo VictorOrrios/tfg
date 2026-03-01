@@ -83,6 +83,7 @@
 #include <cstdint>
 #include <vector>
 #include "slang.h"
+#include <iostream>
 
 const char* DebugModes[] = {
     "Debug color",
@@ -136,6 +137,19 @@ public:
     m_rtProperties.pNext = &m_asProperties;
     prop2.pNext          = &m_rtProperties;
     vkGetPhysicalDeviceProperties2(m_app->getPhysicalDevice(), &prop2);
+
+        // AHORA m_rtProperties y m_asProperties están correctamente llenados
+    std::cout << "=== Ray Tracing Properties ===" << std::endl;
+    std::cout << "shaderGroupHandleSize: " << m_rtProperties.shaderGroupHandleSize << std::endl;
+    std::cout << "shaderGroupBaseAlignment: " << m_rtProperties.shaderGroupBaseAlignment << std::endl;
+    std::cout << "maxRayRecursionDepth: " << m_rtProperties.maxRayRecursionDepth << std::endl;
+    std::cout << "==============================" << std::endl;
+    
+    // También puedes verificar las propiedades de acceleration structure
+    std::cout << "=== Acceleration Structure Properties ===" << std::endl;
+    std::cout << "maxPrimitiveCount: " << m_asProperties.maxPrimitiveCount << std::endl;
+    std::cout << "maxInstanceCount: " << m_asProperties.maxInstanceCount << std::endl;
+    std::cout << "==========================================" << std::endl;
 
     // Initialize allocator
     VmaAllocatorCreateInfo allocatorInfo = {
@@ -643,7 +657,7 @@ public:
     ray_inst.instanceCustomIndex = customIndex;
     ray_inst.mask = 0xFF;
     ray_inst.instanceShaderBindingTableRecordOffset = 0;
-    //ray_inst.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+    ray_inst.flags = 0;
     // TODO: You can put flags here
     tlasInstances.push_back(ray_inst);
 
@@ -719,6 +733,9 @@ public:
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneAabbB, 0,std::span(aabbVector)));                     
 
       m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
+
+      // Call update scene after the initial reation of buffers
+      updateSceneObjects(cmd);
 
     m_app->submitAndWaitTempCmdBuffer(cmd); 
 
@@ -900,9 +917,10 @@ public:
     shader_groups.push_back(group);
 
     // closest hit shader
-    group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
+    group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR;
     group.generalShader = VK_SHADER_UNUSED_KHR;
     group.closestHitShader = eClosestHit;
+    group.intersectionShader = eIntersection;
     shader_groups.push_back(group);
 
     // Assemble the shader stages and recursion depth info into the ray tracing pipeline
@@ -935,6 +953,21 @@ public:
 
     // Populate the SBT buffer with shader handles and data using the CPU-mapped memory pointer
     NVVK_CHECK(m_sbtGen.populateSBTBuffer(m_sbtBuffer.address, bufferSize, m_sbtBuffer.mapping));
+  
+    uint32_t handleSize = m_rtProperties.shaderGroupHandleSize;
+    uint8_t* data = (uint8_t*)m_sbtBuffer.mapping;
+    
+    std::cout << "SBT Content (first 16 bytes of each group):" << std::endl;
+    for(int group = 0; group < 3; group++) {
+        std::cout << "  Group " << group << ": ";
+        bool allZero = true;
+        for(int byte = 0; byte < 16; byte++) {
+            uint8_t val = data[group * handleSize + byte];
+            if(val != 0) allZero = false;
+            std::cout << std::hex << (int)val << " ";
+        }
+        std::cout << std::dec << (allZero ? " (ALL ZEROS!)" : "") << std::endl;
+    }
   }
 
 

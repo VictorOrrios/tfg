@@ -63,14 +63,14 @@ void rgenMain()
 
     // Initialize ray payload with default values
     HitPayload payload;
-    payload.color = float3(0.64,0.2,0.55);  // Start with black
+    payload.color = float3(1,0,1);  // Start with black
     payload.weight = 1;               // Full weight for primary rays
     payload.depth = 0;                // Start at depth 0
     
 
     // Cast the ray into the scene using the acceleration structure
     // Parameters: AS, flags, instance mask, sbt offset, sbt stride, miss offset, ray, payload
-    TraceRay(topLevelAS, rayFlags, 0xff, 0, 0, 0, ray, payload);
+    TraceRay(topLevelAS, rayFlags, 0xff, 0,0,0, ray, payload);
     
     // Get the final color from the ray tracing result
     float3 color = payload.color;
@@ -89,6 +89,10 @@ void rgenMain()
 [shader("intersection")]
 void rintMain()
 {
+    BuiltInTriangleIntersectionAttributes attr;
+    ReportHit(1.0f, 0, attr);
+    return;
+
     Ray r;
     r.orig = WorldRayOrigin();
     r.dir  = WorldRayDirection();
@@ -115,7 +119,6 @@ void rintMain()
             ReportHit(tNear, 0, attr);
         }
     }
-
 }
 
 // Closest hit shader - called when ray hits geometry
@@ -139,7 +142,7 @@ void rmissMain(inout HitPayload payload)
     // - Skybox textures
     // - Procedural sky gradients
     // - Environment maps
-    payload.color = float3(0.31,0.34,0.22); // Gray background
+    payload.color = float3(0,0,1); // Gray background
 /* 
     Ray r;
     r.orig = WorldRayOrigin();
