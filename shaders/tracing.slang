@@ -538,7 +538,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   if(debugColor){
     albedo = debug;
   }else if(bboxColor){
-    for(int i = 1; i<pushConst.numObjects; i++){
+    for(int i = 0; i<pushConst.numObjects; i++){
       const float eps = 0.05;
       float3 near, far, dir = r.dir;
       Bbox bbox = aabbs[i];

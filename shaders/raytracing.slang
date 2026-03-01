@@ -1,6 +1,7 @@
 #include "shaderio.h"
 #include "nvshaders/constants.h.slang"
 #include "utils/common.slang"     // Shared definitions with shaders
+#include "utils/bbox.slang"       // AABB helpers
 
 
 [[vk::push_constant]]  ConstantBuffer<PushConstant> pushConst;
@@ -62,9 +63,9 @@ void rgenMain()
 
     // Initialize ray payload with default values
     HitPayload payload;
-    payload.color = float3(0, 0, 0);  // Start with black
+    payload.color = float3(0.64,0.2,0.55);  // Start with black
     payload.weight = 1;               // Full weight for primary rays
-    payload.depth = 0;                // Start at depth 0ç
+    payload.depth = 0;                // Start at depth 0
     
 
     // Cast the ray into the scene using the acceleration structure
@@ -83,6 +84,38 @@ void rgenMain()
     normalImage[int2(launchID)] = float4(normal, 0.0F);
     albedoImage[int2(launchID)] = float4(albedo,1.0F);
     depthImage[int2(launchID)]  = depth;
+}
+
+[shader("intersection")]
+void rintMain()
+{
+    Ray r;
+    r.orig = WorldRayOrigin();
+    r.dir  = WorldRayDirection();
+
+    uint primitiveID = PrimitiveIndex();
+    Bbox bbox = aabbs[primitiveID];
+
+    float3 nearP, farP;
+    if(intersectCube(r, bbox, nearP, farP)){
+        float3 vecToNear = nearP - r.orig;
+        float3 vecToFar = farP - r.orig;
+        
+        float tNear = length(nearP - r.orig);
+        float tFar = length(farP - r.orig);
+        
+        if(tNear < 0 && tFar >= 0){
+            tNear = tFar;
+        }
+        
+        if(tNear >= RayTMin()){
+            BuiltInTriangleIntersectionAttributes attr;
+            attr.barycentrics = float2(0, 0);
+            
+            ReportHit(tNear, 0, attr);
+        }
+    }
+
 }
 
 // Closest hit shader - called when ray hits geometry
@@ -106,5 +139,16 @@ void rmissMain(inout HitPayload payload)
     // - Skybox textures
     // - Procedural sky gradients
     // - Environment maps
-    payload.color = float3(0.5, 0.5, 0.5); // Gray background
+    payload.color = float3(0.31,0.34,0.22); // Gray background
+/* 
+    Ray r;
+    r.orig = WorldRayOrigin();
+    r.dir  = WorldRayDirection();
+    Bbox bbox = aabbs[0];
+    float3 nearP, farP;
+    if(intersectCube(r, bbox, nearP, farP))
+    {
+        payload.color = float3(0, 1, 0);
+    }
+     */
 }

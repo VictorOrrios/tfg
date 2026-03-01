@@ -23,7 +23,7 @@
 
 // TODO: Change the comment paragraph
 
-#include "slang.h"
+
 #define VMA_IMPLEMENTATION
 // TODO: Organize and label imports
 
@@ -82,6 +82,7 @@
 #include <glm/matrix.hpp>
 #include <cstdint>
 #include <vector>
+#include "slang.h"
 
 const char* DebugModes[] = {
     "Debug color",
@@ -635,11 +636,14 @@ public:
     const int customIndex = 0;
 
     std::vector<VkAccelerationStructureInstanceKHR> tlasInstances;
-    VkAccelerationStructureInstanceKHR ray_inst;
+    VkAccelerationStructureInstanceKHR ray_inst{};
+
     ray_inst.transform = nvvk::toTransformMatrixKHR(transformM);
     ray_inst.accelerationStructureReference = m_asBuilder.blasSet[blasSetIndex].address;
     ray_inst.instanceCustomIndex = customIndex;
     ray_inst.mask = 0xFF;
+    ray_inst.instanceShaderBindingTableRecordOffset = 0;
+    //ray_inst.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
     // TODO: You can put flags here
     tlasInstances.push_back(ray_inst);
 
@@ -651,7 +655,8 @@ public:
   void createAccelerationStructures(){
     //std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
     std::vector<nvutils::Bbox> aabbVector;
-    aabbVector.push_back(nvutils::Bbox(glm::vec3(-0.5f),glm::vec3(0.5f)));
+    aabbVector.push_back(nvutils::Bbox(glm::vec3(-1.0f),glm::vec3(1.0f)));
+
     nvvk::AccelerationStructureGeometryInfo geoInfo = primitiveToGeometry(aabbVector);
     std::vector<nvvk::AccelerationStructureGeometryInfo> geoInfos;
     geoInfos.push_back(geoInfo);
@@ -662,9 +667,9 @@ public:
   void updateSceneObjects(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
 
-    std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
-    //std::vector<nvutils::Bbox> aabbVector;
-    //aabbVector.push_back(nvutils::Bbox(glm::vec3(-0.2f),glm::vec3(0.2f)));
+    //std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
+    std::vector<nvutils::Bbox> aabbVector;
+    aabbVector.push_back(nvutils::Bbox(glm::vec3(-1.0f),glm::vec3(1.0f)));
     m_pushConst.numObjects = aabbVector.size();
     unsigned long size = aabbVector.size()*sizeof(nvutils::Bbox);
     /* 
@@ -854,6 +859,7 @@ public:
       eRaygen,
       eMiss,
       eClosestHit,
+      eIntersection,
       eShaderGroupCount
     };
     std::array<VkPipelineShaderStageCreateInfo, eShaderGroupCount> stages{};
@@ -862,17 +868,19 @@ public:
       s.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     }
 
-    stages[eRaygen].module      = m_rtModule;
-    stages[eRaygen].pName       = "rgenMain";
-    stages[eRaygen].stage       = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
-    stages[eMiss].module        = m_rtModule;
-    stages[eMiss].pName         = "rmissMain";
-    stages[eMiss].stage         = VK_SHADER_STAGE_MISS_BIT_KHR;
-    stages[eClosestHit].module  = m_rtModule;
-    stages[eClosestHit].pName   = "rchitMain";
-    stages[eClosestHit].stage   = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+    stages[eRaygen].module        = m_rtModule;
+    stages[eRaygen].pName         = "rgenMain";
+    stages[eRaygen].stage         = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    stages[eMiss].module          = m_rtModule;
+    stages[eMiss].pName           = "rmissMain";
+    stages[eMiss].stage           = VK_SHADER_STAGE_MISS_BIT_KHR;
+    stages[eClosestHit].module    = m_rtModule;
+    stages[eClosestHit].pName     = "rchitMain";
+    stages[eClosestHit].stage     = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+    stages[eIntersection].module  = m_rtModule;
+    stages[eIntersection].pName   = "rintMain";
+    stages[eIntersection].stage   = VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
     
-
     // Shader groups
     VkRayTracingShaderGroupCreateInfoKHR group{VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR};
     group.anyHitShader       = VK_SHADER_UNUSED_KHR;
@@ -903,7 +911,7 @@ public:
     rtPipelineInfo.pStages                      = stages.data();
     rtPipelineInfo.groupCount                   = static_cast<uint32_t>(shader_groups.size());
     rtPipelineInfo.pGroups                      = shader_groups.data();
-    rtPipelineInfo.maxPipelineRayRecursionDepth = std::min(3U, m_rtProperties.maxRayRecursionDepth);  // Ray depth
+    rtPipelineInfo.maxPipelineRayRecursionDepth = std::max(3U, m_rtProperties.maxRayRecursionDepth);  // Ray depth
     rtPipelineInfo.layout                       = m_rtPipelineLayout;
     NVVK_CHECK(vkCreateRayTracingPipelinesKHR (m_app->getDevice(), {}, {}, 1, &rtPipelineInfo, nullptr, &m_rtPipeline));
     NVVK_DBG_NAME(m_rtPipeline);
@@ -936,6 +944,7 @@ public:
     vkDeviceWaitIdle(m_app->getDevice());
     vkDestroyPipeline(m_app->getDevice(),m_tracingPipeline,nullptr);
     vkDestroyPipeline(m_app->getDevice(),m_lightingPipeline,nullptr);
+    vkDestroyPipeline(m_app->getDevice(),m_rtPipeline,nullptr);
     createPipelines();
   }
 
