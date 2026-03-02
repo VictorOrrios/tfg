@@ -531,7 +531,8 @@ public:
 
     // ===============
     // Global grid paramters
-    VkExtent3D extent = {100,100,100};  // XYZ size
+    const int num_values = NUM_VOXELS_PER_AXIS + 1;
+    VkExtent3D extent = {num_values,num_values,num_values};  // XYZ size
     VkFormat format = VK_FORMAT_R32_SFLOAT;                   // Texel format
     glm::float32 clearValue = 10000.0f;
 
@@ -592,7 +593,7 @@ public:
     // TODO: This only works on start up because there is no concurrency problems. This assumtion might be false
 
     assert(m_globalGrid.image);
-    std::vector<float> imageData = m_scene.generateDenseGrid(100);
+    std::vector<float> imageData = m_scene.generateDenseGrid(NUM_VOXELS_PER_AXIS);
     assert(m_stagingUploader.isAppendedEmpty());
     nvvk::SemaphoreState cmdSemaphoreState{};
     NVVK_CHECK(m_stagingUploader.appendImage(m_globalGrid, std::span(imageData), m_globalGrid.descriptor.imageLayout, cmdSemaphoreState));

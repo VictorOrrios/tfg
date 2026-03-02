@@ -462,15 +462,18 @@ float Scene::map(glm::vec3 point, std::vector<FlatNode> flat) {
   return popValue;
 }
 
-std::vector<float> Scene::generateDenseGrid(int num_voxels_per_axis) {
+std::vector<float> Scene::generateDenseGrid(int num_voxels2) {
   Node *root = m_root.get();
   glm::vec3 center = glm::vec3(0.5, 0.5, 0.5);
+  const int num_voxels_per_axis = num_voxels2 + 1;
   int total_voxels =
       num_voxels_per_axis * num_voxels_per_axis * num_voxels_per_axis;
   std::vector<float> data(total_voxels);
 
   int axis_size = num_voxels_per_axis;
   int axis_size_sq = axis_size * axis_size;
+  float voxel_size = 1/float(axis_size);
+  float max_d = glm::sqrt(3.0*2.5*2.5*voxel_size*voxel_size);
 
   std::vector<FlatNode> flat = flattenNode(root);
 
@@ -487,9 +490,9 @@ std::vector<float> Scene::generateDenseGrid(int num_voxels_per_axis) {
       int y = (i % axis_size_sq) / axis_size;
       int x = i % axis_size;
       glm::vec3 point =
-          (glm::vec3(x + 0.5f, y + 0.5f, z + 0.5f) / float(axis_size) - center);
+          (glm::vec3(x + 0.5f, y + 0.5f, z + 0.5f) * voxel_size - center);
 
-      float d = map(point, flat);
+      float d = glm::min(map(point, flat),max_d);
 
       data[z * axis_size_sq + y * axis_size + x] = d;
     }
@@ -518,7 +521,7 @@ Scene::Scene() {
   // Create the scene
   m_selected = m_root.get();
   Node *snowMan = addChild(NodeType::Snowman);
-  snowMan->p.scale = 0.8;
+  snowMan->p.scale = 0.2;
   snowMan->p.position.z = 0.1;
   updateNodeData(snowMan);
 
@@ -569,7 +572,7 @@ Scene::Scene() {
   torus2->p.position.z = -0.2;
   torus2->p.rotation.x = 0.75;
   torus2->p.defOp = (int)DeformationOp::Twist;
-  torus2->p.defP.z = 35;
+  torus2->p.defP.z = 0;
   updateNodeData(torus2);
 
   m_selected = m_root.get();

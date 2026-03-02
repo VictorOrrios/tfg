@@ -14,7 +14,7 @@
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 [[vk::binding(BindingPoints::tLas)]] RaytracingAccelerationStructure topLevelAS;
 
-const static int NUM_VOXELS_PER_AXIS = 99; // Numer of voxel2 per axis of globalGrids
+ // Numer of voxel2 per axis of globalGrids
 [[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
 
 #ifdef NDEBUGSHADER
@@ -120,7 +120,7 @@ float sphereTraceGridMod(Ray r, Bbox bbox, out float3 normal, out float3 debug){
   debug = float3(0);
 
   // Debug visualizers
-  const bool drawSilhouette = debugColor && true;  // Draw the silhouette of the grid
+  const bool drawSilhouette = debugColor && false;  // Draw the silhouette of the grid
   const bool drawSteps      = debugColor && true;   // Draw the numer of steps taken
   const bool drawHitIndex   = debugColor && false;  // Draw the grid voxel index at the hit point
 

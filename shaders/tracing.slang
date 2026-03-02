@@ -36,7 +36,7 @@
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 
-const static int NUM_VOXELS_PER_AXIS = 99; // Numer of voxel2 per axis of globalGrids
+
 [[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
 
 #ifdef NDEBUGSHADER

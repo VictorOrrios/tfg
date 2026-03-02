@@ -34,6 +34,7 @@ NAMESPACE_SHADERIO_BEGIN()
 
 
 #define WORKGROUP_SIZE 32
+#define NUM_VOXELS_PER_AXIS  100
 
 // TODO: Clean this file and iclude de std packing used per buffer
 
