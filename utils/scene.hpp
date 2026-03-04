@@ -14,7 +14,7 @@ public:
   enum class NodeType { Empty, Box, Sphere, Torus, Snowman };
   enum class CombinationOp { Union, Substraction, Intersection };
   enum class RepetitionOp { NoneOP, LimRepetition, IlimRepetition };
-  enum class DeformationOp { NoneOP, Twist, Bend, Elongate };
+  enum class DeformationOp { NoneOP, Elongate };
 
   struct NodeParams {
     glm::vec3 position;
@@ -33,18 +33,9 @@ public:
 
   struct Node {
     uint32_t id;
-    std::vector<std::unique_ptr<Node>> children;
-    Node* parent;
     NodeType type;
     NodeParams p;
     nvutils::Bbox bbox;
-  };
-
-  struct FlatNode {
-    Scene::NodeParams p;
-    int type;
-    uint32_t firstChild;
-    uint32_t childCount;
   };
 
   Scene();
@@ -61,21 +52,20 @@ private:
   std::string getLabel(Node *n);
   uint32_t getNextId();
 
-  void drawNode(Node *node);
+  void drawPrimitives();
   void drawButtonGroup();
 
   void deleteSelected();
-  bool deleteNodeRecursive(Node *parent, Node *target);
-
-  Node* addChild(NodeType t);
+  void addNode(NodeType t);
+  void addNode(Node*);
+  Node* createNode(NodeType t);
 
   void updateNodeData(Node *n);
   void generateMatrix(Node *n);
   void generateBBox(Node *n);
-  float map(glm::vec3 p, std::vector<FlatNode> flat);
-  std::vector<Scene::FlatNode> flattenNode(Node *root);
+  float map(glm::vec3 p);
 
-  std::unique_ptr<Node> m_root;
-  Node *m_selected = nullptr;
+  std::vector<Node> m_root;
+  int m_selected = -1;
   uint32_t m_nextID = 1;
 };

@@ -30,8 +30,6 @@
 
 NAMESPACE_SHADERIO_BEGIN()
 
-#include "utils/common.slang"
-
 
 #define WORKGROUP_SIZE 32
 #define NUM_VOXELS_PER_AXIS  100
