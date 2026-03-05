@@ -1,5 +1,6 @@
 // TODO: Clean imports
 #include "scene.hpp"
+#include "basisu_enc.h"
 #include "glm/common.hpp"
 #include "nvutils/bounding_box.hpp"
 #include "sdf.hpp"
@@ -9,7 +10,6 @@
 #include <glm/matrix.hpp>
 #include <imgui.h>
 #include <omp.h>
-#include <queue>
 #include <string>
 #include <vector>
 
@@ -165,8 +165,8 @@ void Scene::drawButtonGroup() {
 void Scene::drawPrimitives() {
   ImGuiSelectableFlags selectableFlags = 0;
 
-  int idx = 0;
-  for (auto &node : m_root) {
+  for (int idx = 0; idx < m_root.size(); idx++) {
+    auto& node = m_root[idx];
     bool isSelected = idx == m_selected;
     std::string label = getLabel(&node).c_str();
 
@@ -199,8 +199,6 @@ void Scene::drawPrimitives() {
       }
       ImGui::EndDragDropTarget();
     }
-
-    idx++;
   }
 }
 
@@ -275,7 +273,7 @@ void Scene::generateMatrix(Node *n) {
 // TODO: Make children expand parent bbox and make children use the parents
 // p.tInv
 void Scene::generateBBox(Node *n) {
-  float spacing = 0.1; // Safety margin
+  float spacing = 0.15; // Safety margin
   spacing += n->p.smoothness * 5;
   spacing += n->p.roundness;
 
@@ -319,15 +317,28 @@ std::vector<nvutils::Bbox> Scene::getBboxes() {
   return out;
 }
 
+bool pointInBBox(const glm::vec3& p, const nvutils::Bbox& bbox) {
+  glm::vec3 min = bbox.min();
+  glm::vec3 max = bbox.max();
+
+  return glm::all(glm::greaterThanEqual(p, min)) &&
+           glm::all(glm::lessThanEqual(p, max));
+}
+
 float Scene::map(glm::vec3 point) {
   const float iniD = 1000000.0f;
 
   float result = iniD;
 
   for (auto &node : m_root) {
-    NodeParams &params = node.p;
     glm::vec3 p = point;
     float d;
+
+    // If not inside bbox primitive continue with next 
+    if(!pointInBBox(p,node.bbox))
+      continue;
+
+    NodeParams &params = node.p;
 
     p = glm::vec3(params.tInv * glm::vec4(p, 1.0f));
 
