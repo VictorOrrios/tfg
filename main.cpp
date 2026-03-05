@@ -449,7 +449,7 @@ public:
     // Push constants
     vkCmdPushConstants(cmd, m_rtPipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     // Dispatch
-    VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE_2D);
+    const VkExtent2D& group_counts = m_app->getViewportSize();
     auto& sbt = m_sbtGen.getSBTRegions();
     vkCmdTraceRaysKHR(cmd,
       &sbt.raygen,
@@ -684,7 +684,7 @@ public:
 
   void createAccelerationStructures(){
     VkCommandBuffer cmd = m_app->createTempCmdBuffer();
-    //updateSceneObjects(cmd);  // Call update scene after the initial reation of buffers
+    updateSceneObjects(cmd);  // Call update scene after the initial reation of buffers
     m_app->submitAndWaitTempCmdBuffer(cmd); 
 
     std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();

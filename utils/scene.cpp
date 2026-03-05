@@ -438,13 +438,12 @@ Scene::Scene() {
   // Create the scene
   Node *snowMan = createNode(NodeType::Snowman);
   snowMan->p.scale = 0.8;
-  snowMan->p.position.z = 0.1;
   updateNodeData(snowMan);
   addNode(snowMan);
 
   Node *box = createNode(NodeType::Box);
   box->p.scale = 0.2;
-  box->p.position = glm::vec3(-0.2, -0.15, 0.35);
+  box->p.position = glm::vec3(-0.2, -0.15, 0.25);
   box->p.rotation = glm::vec3(0.2, 0.4, 0.4);
   box->p.combOp = (int)CombinationOp::Union + 3;
   box->p.smoothness = 0.02;

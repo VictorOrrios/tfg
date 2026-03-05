@@ -8,7 +8,7 @@
 // BBox woth 1x1x1 units in size with the center at 0,0,0
 const static Bbox unitBBox =  {float3(-0.5, -0.5, -0.5),float3(0.5, 0.5, 0.5)};
 
-// Rturns if a points fits inside a bbox
+// Returns if a points fits inside a bbox
 bool insideBbox(float3 p, Bbox bbox){
   return all(p >= bbox.bMin) && all(p <= bbox.bMax);
 }

@@ -12,6 +12,9 @@
 [[vk::binding(BindingPoints::objects)]] StructuredBuffer<SceneObject> objects;
 [[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
 
+const static float VOXEL_SIZE = 1.0 / float(NUM_VOXELS_PER_AXIS+1);
+
+
 float evalPrimitive(int primType, float3 p){
   switch(primType)
   {
@@ -57,16 +60,16 @@ float3 applyDefOp(int opIndex, float3 p, float3 defP){
 }
 
 float map(float3 point){
-  const float iniD = 1000000.0f;
+  const float iniD = VOXEL_SIZE*2.5;
   float result = iniD;
 
   for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
-    float3 p = point;
+    float3 p = float3(point);
     Bbox bbox = aabbs[obIdx];
 
     // If not inside bbox primitive continue with next 
-    //if(!insideBbox(p,bbox))
-      //continue;
+    if(!insideBbox(p,bbox))
+      continue;
 
     SceneObject params = objects[obIdx];
 
@@ -91,8 +94,7 @@ float map(float3 point){
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE_3D, WORKGROUP_SIZE_3D, WORKGROUP_SIZE_3D)]
 void computeMain(uint3 tId : SV_DispatchThreadID){
-  const float voxel_size = 1.0 / float(NUM_VOXELS_PER_AXIS+1);
   const float3 center = float3(0.5);
-  const float3 p = tId*voxel_size - center;
+  const float3 p = tId*VOXEL_SIZE - center;
   globalGrid[tId] = map(p);
 }
