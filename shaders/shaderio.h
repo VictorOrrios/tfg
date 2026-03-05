@@ -22,8 +22,10 @@
 
 #ifdef __cplusplus
 #define CHECK_STRUCT_ALIGNMENT(_s) static_assert(sizeof(_s) % 8 == 0);
+#define CHECK_GRID_ALIGNMENT(_s) static_assert((_s+1) % 8 == 0);
 #elif defined(__SLANG__)
 #define CHECK_STRUCT_ALIGNMENT(_s)
+#define CHECK_GRID_ALIGNMENT(_s);
 #endif
 
 #include "nvshaders/slang_types.h"
@@ -31,8 +33,13 @@
 NAMESPACE_SHADERIO_BEGIN()
 
 
-#define WORKGROUP_SIZE 32
-#define NUM_VOXELS_PER_AXIS  100
+#define WORKGROUP_SIZE_2D 32
+#define WORKGROUP_SIZE_3D 8
+
+#define MAX_SCENE_OBJECTS  1024
+
+#define NUM_VOXELS_PER_AXIS  119
+CHECK_GRID_ALIGNMENT(NUM_VOXELS_PER_AXIS)
 
 // TODO: Clean this file and iclude de std packing used per buffer
 
@@ -46,7 +53,8 @@ enum BindingPoints
   depthBuffer  = 4,
   globalGrid = 5,
   aabbs = 6,
-  tLas = 7,
+  objects = 7,
+  tLas = 8,
 };
 
 struct LightinParams{
@@ -78,6 +86,24 @@ struct SceneInfo{
   float     _pad;
 };
 CHECK_STRUCT_ALIGNMENT(SceneInfo)
+
+struct SceneObject{
+  float4x4 tInv;
+  float4 position;
+  float4 rotation;
+  float4 spacing;
+  float4 defP;
+  int4 limit;
+  int type;
+  int combOp;
+  int repOp;
+  int defOp;
+  float scale;
+  float roundness;
+  float smoothness;
+  float _padding;
+};
+CHECK_STRUCT_ALIGNMENT(SceneObject)
 
 
 NAMESPACE_SHADERIO_END()

@@ -35,6 +35,7 @@
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
+[[vk::binding(BindingPoints::objects)]] StructuredBuffer<SceneObject> objects;
 
 
 [[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
@@ -503,7 +504,7 @@ Ray get_ray(float2 uv){
 }
 
 [shader("compute")]
-[numthreads(WORKGROUP_SIZE, WORKGROUP_SIZE, 1)]
+[numthreads(WORKGROUP_SIZE_2D, WORKGROUP_SIZE_2D, 1)]
 void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   float depth; float3 albedo, normal;
 

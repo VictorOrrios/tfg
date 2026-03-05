@@ -42,6 +42,7 @@
 #include "_autogen/tracing.slang.h"
 #include "_autogen/lighting.slang.h"
 #include "_autogen/raytracing.slang.h"
+#include "_autogen/generation.slang.h"
 #include "_autogen/sky_simple.slang.h"
 #include "_autogen/tonemapper.slang.h"
 
@@ -192,15 +193,19 @@ public:
     vkDestroyPipeline(device,m_tracingPipeline,nullptr);
     vkDestroyPipeline(device,m_lightingPipeline,nullptr);
     vkDestroyPipeline(device,m_rtPipeline,nullptr);
+    vkDestroyPipeline(device,m_gridGPipeline,nullptr);
     vkDestroyPipelineLayout(device,m_tracingLayout,nullptr);
     vkDestroyPipelineLayout(device,m_lightingLayout,nullptr);
     vkDestroyPipelineLayout(device,m_rtPipelineLayout,nullptr);
+    vkDestroyPipelineLayout(device,m_gridGLayout,nullptr);
     vkDestroyShaderModule(device,m_tracingModule,nullptr);
     vkDestroyShaderModule(device,m_lightingModule,nullptr);
     vkDestroyShaderModule(device,m_rtModule,nullptr);
+    vkDestroyShaderModule(device,m_gridGModule,nullptr);
 
     m_alloc.destroyBuffer(m_sceneInfoB);
     m_alloc.destroyBuffer(m_sceneAabbB);
+    m_alloc.destroyBuffer(m_sceneObjectsB);
     m_alloc.destroyImage(m_globalGrid);
     m_alloc.destroyBuffer(m_sbtBuffer);
     m_asBuilder.deinitAccelerationStructures();
@@ -382,8 +387,8 @@ public:
     updateSceneBuffer(cmd);
 
     if(m_scene.m_needsRefresh){
-      updateTextureData(cmd);
       updateSceneObjects(cmd);
+      updateTextureData(cmd);
       m_scene.m_needsRefresh = false;
     }
 
@@ -409,7 +414,7 @@ public:
     // Push constants
     vkCmdPushConstants(cmd, m_tracingLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     // Dispatch
-    VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE);
+    VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE_2D);
     vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
   }
 
@@ -427,9 +432,9 @@ public:
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_lightingLayout,
                             0, 1, m_descPack.getSetPtr(), 0, nullptr);  
     // Push constants
-    vkCmdPushConstants(cmd, m_tracingLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
+    vkCmdPushConstants(cmd, m_lightingLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     // Dispatch
-    VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE);
+    VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE_2D);
     vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
   }
 
@@ -444,16 +449,40 @@ public:
     // Push constants
     vkCmdPushConstants(cmd, m_rtPipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     // Dispatch
-    const VkExtent2D& size = m_app->getViewportSize();
+    VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE_2D);
     auto& sbt = m_sbtGen.getSBTRegions();
     vkCmdTraceRaysKHR(cmd,
       &sbt.raygen,
       &sbt.miss,
       &sbt.hit,
       &sbt.callable,
-      size.width,
-      size.height,
-      1);
+      group_counts.width, 
+      group_counts.height,
+      1
+    );
+  }
+
+  void generationPass(VkCommandBuffer cmd){
+    NVVK_DBG_SCOPE(cmd);
+
+    // Bind pipeline
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_gridGPipeline);  
+
+    // Bind descriptor sets
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_gridGLayout,
+                            0, 1, m_descPack.getSetPtr(), 0, nullptr);  
+    // Push constants
+    vkCmdPushConstants(cmd, m_gridGLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
+    
+    // Dispatch
+    const int num_values_per_axis = NUM_VOXELS_PER_AXIS + 1;
+    VkExtent3D grid_size = {num_values_per_axis,num_values_per_axis,num_values_per_axis};
+    VkExtent3D workgroup_size = {WORKGROUP_SIZE_3D,WORKGROUP_SIZE_3D,WORKGROUP_SIZE_3D};
+    VkExtent3D group_counts = nvvk::getGroupCounts(grid_size, workgroup_size);
+    vkCmdDispatch(cmd, group_counts.width, group_counts.height, group_counts.depth);
+  
+    nvvk::cmdImageMemoryBarrier(cmd, {m_globalGrid.image, VK_IMAGE_LAYOUT_GENERAL,
+                                    VK_IMAGE_LAYOUT_GENERAL});
   }
 
   // Apply post-processing
@@ -577,7 +606,6 @@ public:
     VkClearColorValue       clearColor = {{clearValue,clearValue,clearValue,clearValue}};
     vkCmdClearColorImage(cmd, m_globalGrid.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
 
-    updateTextureData(cmd);
     m_app->submitAndWaitTempCmdBuffer(cmd);
     m_stagingUploader.releaseStaging();
 
@@ -587,10 +615,8 @@ public:
     NVVK_DBG_NAME(m_globalGrid.descriptor.imageView);
   }
 
-  void updateTextureData(VkCommandBuffer cmd){
+  void updateTextureDataCPU(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
-
-    // TODO: This only works on start up because there is no concurrency problems. This assumtion might be false
 
     assert(m_globalGrid.image);
     std::vector<float> imageData = m_scene.generateDenseGrid(NUM_VOXELS_PER_AXIS);
@@ -598,6 +624,11 @@ public:
     nvvk::SemaphoreState cmdSemaphoreState{};
     NVVK_CHECK(m_stagingUploader.appendImage(m_globalGrid, std::span(imageData), m_globalGrid.descriptor.imageLayout, cmdSemaphoreState));
     m_stagingUploader.cmdUploadAppended(cmd);
+  }
+
+  void updateTextureData(VkCommandBuffer cmd){
+    //updateTextureDataCPU(cmd);
+    generationPass(cmd);
   }
 
   nvvk::AccelerationStructureGeometryInfo primitiveToGeometry(const uint32_t aabbCount){
@@ -653,7 +684,7 @@ public:
 
   void createAccelerationStructures(){
     VkCommandBuffer cmd = m_app->createTempCmdBuffer();
-    updateSceneObjects(cmd);  // Call update scene after the initial reation of buffers
+    //updateSceneObjects(cmd);  // Call update scene after the initial reation of buffers
     m_app->submitAndWaitTempCmdBuffer(cmd); 
 
     std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
@@ -695,32 +726,29 @@ public:
     NVVK_DBG_SCOPE(cmd);
 
     std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
-    m_pushConst.numObjects = aabbVector.size();
-    unsigned long size = aabbVector.size()*sizeof(nvutils::Bbox);
-/* 
-    LOGI("AABB VECTOR\n");
-    for(auto i:aabbVector){
-      auto min = i.min();
-      auto max = i.max();
-      LOGI("(%f,%f,%f),(%f,%f,%f)\n",min.x,min.y,min.z,max.x,max.y,max.z);
+    std::vector<shaderio::SceneObject> objectsVector = m_scene.getObjects();
+    if(aabbVector.size() != objectsVector.size())
+        LOGE("Aabb vector is diferent size from objects vector %zu != %zu\n",aabbVector.size(),objectsVector.size());
+    if(aabbVector.size()>MAX_SCENE_OBJECTS)
+      LOGE("Number of scene objects exceeds maximum %zu > %i\n",aabbVector.size(),MAX_SCENE_OBJECTS);
+
+    if(aabbVector.size() == 0){
+      aabbVector.push_back({});
+      objectsVector.push_back({});
+      m_pushConst.numObjects = 0;
+    }else{
+      m_pushConst.numObjects = aabbVector.size();
     }
-     */
-    /* 
-    nvvk::ResourceAllocator* allocator = m_stagingUploader.getResourceAllocator();
-    allocator->destroyBuffer(m_sceneObjectsB);
 
-    NVVK_CHECK(allocator->createBuffer(m_sceneObjectsB,size,
-                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT));
-    m_stagingUploader.cmdUploadAppended(cmd);
-     */
-
-    /* 
-    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneInfoB.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                       VK_PIPELINE_STAGE_2_TRANSFER_BIT});
-     */
-
+    unsigned long size = aabbVector.size() * sizeof(nvutils::Bbox);
     vkCmdUpdateBuffer(cmd, m_sceneAabbB.buffer, 0, size, aabbVector.data());
+
+    size = objectsVector.size() * sizeof(shaderio::SceneObject);
+    vkCmdUpdateBuffer(cmd, m_sceneObjectsB.buffer, 0, size, objectsVector.data());
+    
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneAabbB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneObjectsB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
 
@@ -737,19 +765,29 @@ public:
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneInfoB, 0,
                                           std::span<const shaderio::SceneInfo>(&m_sceneInfo, 1)));
 
-      std::vector<nvutils::Bbox> aabbVector;
-      aabbVector.push_back({});
+      std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
+      std::vector<shaderio::SceneObject> objectsVector = m_scene.getObjects();
+      if(aabbVector.size() != objectsVector.size())
+        LOGE("Aabb vector is diferent size from objects vector %zu != %zu\n",aabbVector.size(),objectsVector.size());
+      if(aabbVector.size()>MAX_SCENE_OBJECTS)
+        LOGE("Number of scene objects exceeds maximum %zu > %i\n",aabbVector.size(),MAX_SCENE_OBJECTS);
 
-      // TODO: This is temporary, limit max size to fixed number
-      constexpr uint32_t MAX_OBJECTS = 1024;
       NVVK_CHECK(allocator->createBuffer(m_sceneAabbB,
-                                     MAX_OBJECTS*sizeof(nvutils::Bbox),
+                                     MAX_SCENE_OBJECTS*sizeof(nvutils::Bbox),
                                      VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
                                           | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
                                           | VK_BUFFER_USAGE_2_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
                                         ));
       NVVK_DBG_NAME(m_sceneAabbB.buffer);
-      NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneAabbB, 0,std::span(aabbVector)));                     
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneAabbB, 0,std::span(aabbVector)));  
+      
+      NVVK_CHECK(allocator->createBuffer(m_sceneObjectsB,
+                                     MAX_SCENE_OBJECTS*sizeof(shaderio::SceneObject),
+                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
+                                          | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
+                                        ));
+      NVVK_DBG_NAME(m_sceneObjectsB.buffer);
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneObjectsB, 0,std::span(objectsVector)));  
 
       m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
 
@@ -774,6 +812,7 @@ public:
     bindings.addBinding(shaderio::BindingPoints::depthBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::globalGrid, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::aabbs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::objects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::tLas, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
 
     // Creating the descriptor set and set layout from the bindings
@@ -787,6 +826,7 @@ public:
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::sceneInfo), m_sceneInfoB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::globalGrid), m_globalGrid.descriptor);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::aabbs), m_sceneAabbB.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::objects), m_sceneObjectsB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLas), m_asBuilder.tlas);
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
@@ -797,6 +837,7 @@ public:
     createPipelineLayout(&m_tracingLayout);
     createPipelineLayout(&m_lightingLayout);
     createPipelineLayout(&m_rtPipelineLayout);
+    createPipelineLayout(&m_gridGLayout);
   }
 
   void createPipelineLayout(VkPipelineLayout* pipelineLayout){
@@ -816,7 +857,7 @@ public:
         .pPushConstantRanges    = &pushConstantsRange,
     };
     NVVK_CHECK(vkCreatePipelineLayout(m_app->getDevice(), &pipelineLayoutInfo, nullptr, pipelineLayout));
-    NVVK_DBG_NAME(m_tracingLayout);
+    NVVK_DBG_NAME(*pipelineLayout);
   }
 
   VkShaderModuleCreateInfo createShaderModule(VkShaderModule* shaderModule, const std::filesystem::path& filename, const std::span<const uint32_t> spirv){
@@ -850,10 +891,12 @@ public:
     vkDestroyShaderModule(m_app->getDevice(), m_tracingModule, nullptr);
     vkDestroyShaderModule(m_app->getDevice(), m_lightingModule, nullptr);
     vkDestroyShaderModule(m_app->getDevice(), m_rtModule, nullptr);
+    vkDestroyShaderModule(m_app->getDevice(), m_gridGModule, nullptr);
 
     createShaderModule(&m_tracingModule,"tracing.slang",tracing_slang);
     createShaderModule(&m_lightingModule,"lighting.slang",lighting_slang);
     createShaderModule(&m_rtModule,"raytracing.slang",raytracing_slang);
+    createShaderModule(&m_gridGModule,"generation.slang",generation_slang);
 
   }
 
@@ -861,6 +904,7 @@ public:
     createComputePipeline(&m_tracingPipeline,&m_tracingLayout,&m_tracingModule);
     createComputePipeline(&m_lightingPipeline,&m_lightingLayout,&m_lightingModule);
     createRTPipeline(&m_rtPipeline,&m_rtPipelineLayout);
+    createComputePipeline(&m_gridGPipeline,&m_gridGLayout,&m_gridGModule);
   }
 
   void createComputePipeline(VkPipeline* pipeline, VkPipelineLayout* pipelineLayout, VkShaderModule* shaderModule){
@@ -979,6 +1023,7 @@ public:
     vkDestroyPipeline(m_app->getDevice(),m_tracingPipeline,nullptr);
     vkDestroyPipeline(m_app->getDevice(),m_lightingPipeline,nullptr);
     vkDestroyPipeline(m_app->getDevice(),m_rtPipeline,nullptr);
+    vkDestroyPipeline(m_app->getDevice(),m_gridGPipeline,nullptr);
     createPipelines();
   }
 
@@ -1017,7 +1062,7 @@ private:
   // Tracing Pipeline
   VkPipeline            m_tracingPipeline{};  // Compute pipeline
   VkPipelineLayout      m_tracingLayout{};    // Compute pipeline layout
-  VkShaderModule        m_tracingModule{};    // Compute shader module
+  VkShaderModule        m_tracingModule{};    // Compute shader module for tracing
 
   // Lighting Pipeline (Deferred)
   VkPipeline            m_lightingPipeline{}; // Compute pipeline
@@ -1029,13 +1074,17 @@ private:
   VkPipelineLayout      m_rtPipelineLayout{}; // Ray tracing pipeline layout
   VkShaderModule        m_rtModule{};         // Raytracing shader module for rt pipeline
 
+  // Grid generation Pipeline
+  VkPipeline            m_gridGPipeline{};  // Compute pipeline
+  VkPipelineLayout      m_gridGLayout{};    // Compute pipeline layout
+  VkShaderModule        m_gridGModule{};    // Compute shader module for grid generation
+
   // Acceleration Structure Components
   nvvk::AccelerationStructureHelper        m_asBuilder{};
 
   // Direct SBT management
   nvvk::SBTGenerator    m_sbtGen;
   nvvk::Buffer          m_sbtBuffer;         // Buffer for shader binding table
-
 
   // Ray Tracing Properties
   VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties{
@@ -1049,7 +1098,8 @@ private:
   // Scene information. TODO: encapsulate this into a class
   shaderio::SceneInfo   m_sceneInfo{};          // Struct containing the scene information
   nvvk::Buffer          m_sceneInfoB{};         // Buffer binded to the UBO of scene info
-  nvvk::Buffer          m_sceneAabbB{};         // Buffer binded to the scene objects array
+  nvvk::Buffer          m_sceneAabbB{};         // Buffer binded to the scene aabbs array
+  nvvk::Buffer          m_sceneObjectsB{};      // Buffer binded to the scene objects array
 
   // 3D textures
   nvvk::Image m_globalGrid;

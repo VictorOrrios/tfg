@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "../shaders/shaderio.h"
 
 class Scene {
 public:
@@ -17,6 +18,7 @@ public:
   enum class DeformationOp { NoneOP, Elongate };
 
   struct NodeParams {
+    NodeType type;
     glm::vec3 position;
     glm::vec3 rotation;
     glm::mat4 tInv;
@@ -33,7 +35,6 @@ public:
 
   struct Node {
     uint32_t id;
-    NodeType type;
     NodeParams p;
     nvutils::Bbox bbox;
   };
@@ -44,8 +45,9 @@ public:
 
   std::vector<float> generateDenseGrid(int num_voxels_per_axis);
   std::vector<nvutils::Bbox> getBboxes();
+  std::vector<shaderio::SceneObject> getObjects();
 
-  bool m_needsRefresh = false;
+  bool m_needsRefresh = true;
 
 private:
   std::string nodeTypeToString(NodeType type);

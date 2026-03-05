@@ -50,7 +50,7 @@ float3 scalarToColor(float x){
 }
 
 [shader("compute")]
-[numthreads(WORKGROUP_SIZE, WORKGROUP_SIZE, 1)]
+[numthreads(WORKGROUP_SIZE_2D, WORKGROUP_SIZE_2D, 1)]
 void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 {
   float2 fragCoord = threadIdx.xy;

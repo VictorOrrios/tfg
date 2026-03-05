@@ -50,8 +50,7 @@ glm::vec3 opRepetition(const glm::vec3 &p, const glm::vec3 &spacing,
 
 glm::vec3 opLimRepetition(const glm::vec3 &p, const glm::vec3 &spacing,
                           const glm::vec3 &limit) {
-  return p - spacing * glm::clamp(glm::round(p / spacing), glm::vec3(-limit),
-                                  glm::vec3(limit));
+  return p - spacing * glm::clamp(glm::round(p / spacing), -limit,limit);
 }
 
 glm::vec3 opNone(const glm::vec3 &p, const glm::vec3 &kk) { return p; }

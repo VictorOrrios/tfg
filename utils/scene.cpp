@@ -56,7 +56,7 @@ std::string Scene::nodeTypeToString(NodeType type) {
 }
 
 std::string Scene::getLabel(Node *n) {
-  return nodeTypeToString(n->type) + "##" + std::to_string(n->id);
+  return nodeTypeToString(n->p.type) + "##" + std::to_string(n->id);
 }
 
 uint32_t Scene::getNextId() { return m_nextID++; }
@@ -219,7 +219,7 @@ void Scene::deleteSelected() {
 Scene::Node *Scene::createNode(NodeType t) {
   Node *node = new Node({
       .id = getNextId(),
-      .type = t,
+      .p={.type = t},
   });
 
   if (m_selected != -1) {
@@ -227,6 +227,8 @@ Scene::Node *Scene::createNode(NodeType t) {
     node->p.position = selectedNode.p.position;
     node->p.rotation = selectedNode.p.rotation;
     node->p.scale = selectedNode.p.scale;
+  }else{
+    node->p.scale = 1.0;
   }
 
   updateNodeData(node);
@@ -317,6 +319,44 @@ std::vector<nvutils::Bbox> Scene::getBboxes() {
   return out;
 }
 
+glm::mat4 columnMajorToRowMajor(const glm::mat4& mat) {
+  glm::mat4 result;
+  
+  for (int row = 0; row < 4; row++) {
+    for (int col = 0; col < 4; col++) {
+      result[row][col] = mat[col][row];
+    }
+  }
+  
+  return result;
+}
+
+
+std::vector<shaderio::SceneObject> Scene::getObjects(){
+  std::vector<shaderio::SceneObject> out;
+
+  for (auto &node : m_root) {
+    NodeParams& p = node.p; 
+    out.push_back({
+      .tInv=columnMajorToRowMajor(p.tInv),
+      .position=glm::vec4(p.position,0),
+      .rotation=glm::vec4(p.rotation,0),
+      .spacing=glm::vec4(p.spacing,0),
+      .defP=glm::vec4(p.defP,0),
+      .limit=glm::ivec4(p.limit,0),
+      .type=int(p.type),
+      .combOp=p.combOp,
+      .repOp=p.repOp,
+      .defOp=p.defOp,
+      .scale=p.scale,
+      .roundness=p.roundness,
+      .smoothness=p.smoothness,
+    });
+  }
+
+  return out;
+}
+
 bool pointInBBox(const glm::vec3& p, const nvutils::Bbox& bbox) {
   glm::vec3 min = bbox.min();
   glm::vec3 max = bbox.max();
@@ -346,7 +386,7 @@ float Scene::map(glm::vec3 point) {
 
     p = defFTable[params.defOp](p, params.defP);
 
-    d = primFTable[int(node.type)](p / params.scale) - params.roundness;
+    d = primFTable[int(node.p.type)](p / params.scale) - params.roundness;
 
     d *= params.scale;
 
@@ -379,8 +419,7 @@ std::vector<float> Scene::generateDenseGrid(int num_voxels2) {
       int z = i / axis_size_sq;
       int y = (i % axis_size_sq) / axis_size;
       int x = i % axis_size;
-      glm::vec3 point =
-          (glm::vec3(x + 0.5f, y + 0.5f, z + 0.5f) * voxel_size - center);
+      glm::vec3 point = (glm::vec3(x,y,z) * voxel_size - center);
 
       float d = glm::min(map(point), max_d);
 
@@ -425,8 +464,7 @@ Scene::Scene() {
   sphereGrid->p.rotation = glm::vec3(0);
   sphereGrid->p.scale = 0.1;
   sphereGrid->p.repOp = (int)RepetitionOp::IlimRepetition;
-  sphereGrid->p.spacing.x = 0.15;
-  sphereGrid->p.spacing.y = 0.15;
+  sphereGrid->p.spacing = glm::vec3(0.14,0.14,0);
   updateNodeData(sphereGrid);
   addNode(sphereGrid);
 
@@ -436,4 +474,5 @@ Scene::Scene() {
   torus->p.rotation = glm::vec3(0.75, 0, 0);
   updateNodeData(torus);
   addNode(torus);
+
 }
