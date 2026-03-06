@@ -12,7 +12,7 @@
 [[vk::binding(BindingPoints::objects)]] StructuredBuffer<SceneObject> objects;
 [[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
 
-const static float VOXEL_SIZE = 1.0 / float(NUM_VOXELS_PER_AXIS+1);
+
 
 
 float evalPrimitive(int primType, float3 p){
@@ -60,7 +60,7 @@ float3 applyDefOp(int opIndex, float3 p, float3 defP){
 }
 
 float map(float3 point){
-  const float iniD = VOXEL_SIZE*2.5;
+  const float iniD = 10000.0f;
   float result = iniD;
 
   for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
@@ -96,5 +96,6 @@ float map(float3 point){
 void computeMain(uint3 tId : SV_DispatchThreadID){
   const float3 center = float3(0.5);
   const float3 p = tId*VOXEL_SIZE - center;
-  globalGrid[tId] = map(p);
+  float mapV = clamp(map(p)/MAX_VOXEL_VALUE,-1.0,1.0);
+  globalGrid[tId] = mapV;
 }

@@ -38,8 +38,10 @@ NAMESPACE_SHADERIO_BEGIN()
 
 #define MAX_SCENE_OBJECTS  1024
 
-#define NUM_VOXELS_PER_AXIS  119
+#define NUM_VOXELS_PER_AXIS  511
 CHECK_GRID_ALIGNMENT(NUM_VOXELS_PER_AXIS)
+const static float VOXEL_SIZE = 1.0 / float(NUM_VOXELS_PER_AXIS+1);
+const static float MAX_VOXEL_VALUE = 2.5*sqrt(3.0*VOXEL_SIZE*VOXEL_SIZE);
 
 // TODO: Clean this file and iclude de std packing used per buffer
 

@@ -562,7 +562,7 @@ public:
     // Global grid paramters
     const int num_values = NUM_VOXELS_PER_AXIS + 1;
     VkExtent3D extent = {num_values,num_values,num_values};  // XYZ size
-    VkFormat format = VK_FORMAT_R32_SFLOAT;                   // Texel format
+    VkFormat format = VK_FORMAT_R16_SNORM;  // Texel format
     glm::float32 clearValue = 10000.0f;
 
     std::array<uint32_t, 1> queueFamilies = {
