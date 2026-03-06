@@ -24,6 +24,7 @@
 // TODO: Change the comment paragraph
 
 
+#include "nvvk/resources.hpp"
 #define VMA_IMPLEMENTATION
 // TODO: Organize and label imports
 
@@ -207,6 +208,8 @@ public:
     m_alloc.destroyBuffer(m_sceneAabbB);
     m_alloc.destroyBuffer(m_sceneObjectsB);
     m_alloc.destroyImage(m_globalGrid);
+    m_alloc.destroyImage(m_clipMap);
+    m_alloc.destroyImage(m_brickAtlas);
     m_alloc.destroyBuffer(m_sbtBuffer);
     m_asBuilder.deinitAccelerationStructures();
 
@@ -475,8 +478,7 @@ public:
     vkCmdPushConstants(cmd, m_gridGLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     
     // Dispatch
-    const int num_values_per_axis = NUM_VOXELS_PER_AXIS + 1;
-    VkExtent3D grid_size = {num_values_per_axis,num_values_per_axis,num_values_per_axis};
+    VkExtent3D grid_size = {shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS};
     VkExtent3D workgroup_size = {WORKGROUP_SIZE_3D,WORKGROUP_SIZE_3D,WORKGROUP_SIZE_3D};
     VkExtent3D group_counts = nvvk::getGroupCounts(grid_size, workgroup_size);
     vkCmdDispatch(cmd, group_counts.width, group_counts.height, group_counts.depth);
@@ -552,21 +554,13 @@ public:
     m_gBuffers.init(gBufferInit);
   }
 
-  void create3DTextures(){
-    SCOPED_TIMER(__FUNCTION__);
-
+  void create3DStorageTexture(nvvk::Image& image, VkExtent3D extent, VkFormat format, VkClearColorValue clearColor){
     // Destroy if already created
-    m_alloc.destroyImage(m_globalGrid);
+    m_alloc.destroyImage(image);
 
-    // ===============
-    // Global grid paramters
-    const int num_values = NUM_VOXELS_PER_AXIS + 1;
-    VkExtent3D extent = {num_values,num_values,num_values};  // XYZ size
-    VkFormat format = VK_FORMAT_R16_SNORM;  // Texel format
-    glm::float32 clearValue = 10000.0f;
 
     std::array<uint32_t, 1> queueFamilies = {
-        m_app->getQueue(0).familyIndex, // Compute queue
+        m_app->getQueue(0).familyIndex,
     };
 
     VkImageCreateInfo ci = DEFAULT_VkImageCreateInfo;
@@ -579,13 +573,11 @@ public:
     // ci.pQueueFamilyIndices = queueFamilies; // TODO: Check if necesary
 
     VkImageViewCreateInfo vi = DEFAULT_VkImageViewCreateInfo;
-    vi.image = m_globalGrid.image;
+    vi.image = image.image;
     vi.viewType = VK_IMAGE_VIEW_TYPE_3D;
     vi.format = format;
 
-    NVVK_CHECK(m_alloc.createImage(m_globalGrid, ci, vi));
-    NVVK_DBG_NAME(m_globalGrid.image);
-    NVVK_DBG_NAME(m_globalGrid.descriptor.imageView);
+    NVVK_CHECK(m_alloc.createImage(image, ci, vi));
 
     // Setup sampler to be ortholinear storage with no interpolation or repetition
     VkSamplerCreateInfo si = DEFAULT_VkSamplerCreateInfo;
@@ -596,30 +588,56 @@ public:
     si.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
 
-    NVVK_CHECK(m_samplerPool.acquireSampler(m_globalGrid.descriptor.sampler, si));
+    NVVK_CHECK(m_samplerPool.acquireSampler(image.descriptor.sampler, si));
 
-    m_globalGrid.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    image.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
     VkCommandBuffer cmd = m_app->createTempCmdBuffer();
-    nvvk::cmdImageMemoryBarrier(cmd, {m_globalGrid.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL});
+
+    nvvk::cmdImageMemoryBarrier(cmd, {image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL});
     VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    VkClearColorValue       clearColor = {{clearValue,clearValue,clearValue,clearValue}};
-    vkCmdClearColorImage(cmd, m_globalGrid.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
+    vkCmdClearColorImage(cmd, image.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
 
     m_app->submitAndWaitTempCmdBuffer(cmd);
     m_stagingUploader.releaseStaging();
 
     // Debugging information
-    NVVK_DBG_NAME(m_globalGrid.image);
-    NVVK_DBG_NAME(m_globalGrid.descriptor.sampler);
-    NVVK_DBG_NAME(m_globalGrid.descriptor.imageView);
+    NVVK_DBG_NAME(image.image);
+    NVVK_DBG_NAME(image.descriptor.sampler);
+    NVVK_DBG_NAME(image.descriptor.imageView);
+  }
+
+  void create3DTextures(){
+    SCOPED_TIMER(__FUNCTION__);
+
+    // Global grid 
+    VkExtent3D extent = {shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS};  // XYZ size
+    VkFormat format = VK_FORMAT_R16_SNORM;  // Texel format
+    glm::float32 clearValueF = 1.0f;
+    VkClearColorValue clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
+    create3DStorageTexture(m_globalGrid, extent, format, clearColor);
+
+    // Clipmap
+    extent = {shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS};  // XYZ size
+    format = VK_FORMAT_R32_UINT;  // Texel format
+    uint32_t clearValueUI = std::numeric_limits<uint32_t>::max();
+    clearColor = {.uint32={clearValueUI,clearValueUI,clearValueUI,clearValueUI}};
+    create3DStorageTexture(m_clipMap, extent, format, clearColor);
+
+    // Brick atlas
+    extent = {shaderio::MAX_BRICKS_ATLAS_WIDTH,shaderio::MAX_BRICKS_ATLAS_HEIGHT,shaderio::NUM_VALUES_PER_BRICK_AXIS};  // XYZ size
+    format = VK_FORMAT_R32_UINT;  // Texel format
+    clearValueF = 1.0f;
+    clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
+    create3DStorageTexture(m_brickAtlas, extent, format, clearColor);
+    
   }
 
   void updateTextureDataCPU(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
 
     assert(m_globalGrid.image);
-    std::vector<float> imageData = m_scene.generateDenseGrid(NUM_VOXELS_PER_AXIS);
+    std::vector<float> imageData = m_scene.generateDenseGrid();
     assert(m_stagingUploader.isAppendedEmpty());
     nvvk::SemaphoreState cmdSemaphoreState{};
     NVVK_CHECK(m_stagingUploader.appendImage(m_globalGrid, std::span(imageData), m_globalGrid.descriptor.imageLayout, cmdSemaphoreState));
@@ -814,6 +832,8 @@ public:
     bindings.addBinding(shaderio::BindingPoints::aabbs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::objects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::tLas, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::clipMap, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::brickAtlas, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
 
     // Creating the descriptor set and set layout from the bindings
     // TODO: You can put flags here, maybe this is important
@@ -828,6 +848,8 @@ public:
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::aabbs), m_sceneAabbB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::objects), m_sceneObjectsB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLas), m_asBuilder.tlas);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::clipMap), m_clipMap.descriptor);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::brickAtlas), m_brickAtlas.descriptor);
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
                         writeContainer.data(), 0, nullptr);
@@ -1103,6 +1125,8 @@ private:
 
   // 3D textures
   nvvk::Image m_globalGrid;
+  nvvk::Image m_clipMap;
+  nvvk::Image m_brickAtlas;
 
   // Pre-built components
   std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()}; // Camera manipulator

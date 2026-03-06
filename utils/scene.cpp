@@ -272,8 +272,7 @@ void Scene::generateMatrix(Node *n) {
   n->p.tInv = glm::inverse(transform4x4);
 }
 
-// TODO: Make children expand parent bbox and make children use the parents
-// p.tInv
+// TODO: Make bboxes with intersection op include all bbox above it in the scene
 void Scene::generateBBox(Node *n) {
   float spacing = 0.15; // Safety margin
   spacing += n->p.smoothness * 5;
@@ -396,14 +395,14 @@ float Scene::map(glm::vec3 point) {
   return result;
 }
 
-std::vector<float> Scene::generateDenseGrid(int num_voxels2) {
+std::vector<float> Scene::generateDenseGrid() {
   glm::vec3 center = glm::vec3(0.5, 0.5, 0.5);
-  const int num_voxels_per_axis = num_voxels2 + 1;
+  const int num_values_per_axis = shaderio::NUM_VALUES_PER_AXIS;
   int total_voxels =
-      num_voxels_per_axis * num_voxels_per_axis * num_voxels_per_axis;
+      num_values_per_axis * num_values_per_axis * num_values_per_axis;
   std::vector<float> data(total_voxels);
 
-  int axis_size = num_voxels_per_axis;
+  int axis_size = num_values_per_axis;
   int axis_size_sq = axis_size * axis_size;
   float voxel_size = 1 / float(axis_size);
   float max_d = glm::sqrt(3.0 * 2.5 * 2.5 * voxel_size * voxel_size);

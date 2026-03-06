@@ -22,7 +22,7 @@
 
 #ifdef __cplusplus
 #define CHECK_STRUCT_ALIGNMENT(_s) static_assert(sizeof(_s) % 8 == 0);
-#define CHECK_GRID_ALIGNMENT(_s) static_assert((_s+1) % 8 == 0);
+#define CHECK_GRID_ALIGNMENT(_s) static_assert((_s) % 8 == 0);
 #elif defined(__SLANG__)
 #define CHECK_STRUCT_ALIGNMENT(_s)
 #define CHECK_GRID_ALIGNMENT(_s);
@@ -32,14 +32,22 @@
 
 NAMESPACE_SHADERIO_BEGIN()
 
-
+// Dispatch group counts
 #define WORKGROUP_SIZE_2D 32
 #define WORKGROUP_SIZE_3D 8
 
+// Buffers static max limit
 #define MAX_SCENE_OBJECTS  1024
+const static int MAX_BRICKS_ATLAS_WIDTH = 1024;
+const static int MAX_BRICKS_ATLAS_HEIGHT = 1024;
 
-#define NUM_VOXELS_PER_AXIS  511
-CHECK_GRID_ALIGNMENT(NUM_VOXELS_PER_AXIS)
+#define NUM_BRICKS_PER_AXIS  64
+CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS)
+
+#define NUM_VOXELS_PER_BRICK_AXIS  7
+const static int NUM_VALUES_PER_BRICK_AXIS = NUM_VOXELS_PER_BRICK_AXIS+1;
+const static int NUM_VOXELS_PER_AXIS = NUM_BRICKS_PER_AXIS*NUM_VOXELS_PER_BRICK_AXIS;
+const static int NUM_VALUES_PER_AXIS = NUM_BRICKS_PER_AXIS*NUM_VALUES_PER_BRICK_AXIS;
 const static float VOXEL_SIZE = 1.0 / float(NUM_VOXELS_PER_AXIS+1);
 const static float MAX_VOXEL_VALUE = 2.5*sqrt(3.0*VOXEL_SIZE*VOXEL_SIZE);
 
@@ -57,6 +65,8 @@ enum BindingPoints
   aabbs = 6,
   objects = 7,
   tLas = 8,
+  clipMap = 9,
+  brickAtlas = 10,
 };
 
 struct LightinParams{
