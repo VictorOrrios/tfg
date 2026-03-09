@@ -5,7 +5,6 @@
 #include "glm/ext/vector_int3_sized.hpp"
 #include "nvutils/bounding_box.hpp"
 #include <imgui.h>
-#include <memory>
 #include <string>
 #include <vector>
 #include "../shaders/shaderio.h"
@@ -46,6 +45,7 @@ public:
   std::vector<float> generateDenseGrid();
   std::vector<nvutils::Bbox> getBboxes();
   std::vector<shaderio::SceneObject> getObjects();
+  std::vector<shaderio::BuildJob> getBuildJobs(std::vector<nvutils::Bbox> aabbs);
 
   bool m_needsRefresh = true;
 
@@ -66,6 +66,8 @@ private:
   void generateMatrix(Node *n);
   void generateBBox(Node *n);
   float map(glm::vec3 p);
+
+  std::vector<shaderio::BuildJob> splitBuildJob(shaderio::BuildJob);
 
   std::vector<Node> m_root;
   int m_selected = -1;

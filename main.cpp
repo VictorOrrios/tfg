@@ -24,6 +24,7 @@
 // TODO: Change the comment paragraph
 
 
+#include "glm/vector_relational.hpp"
 #include "nvvk/resources.hpp"
 #define VMA_IMPLEMENTATION
 // TODO: Organize and label imports
@@ -276,6 +277,25 @@ public:
       if(ImGui::Button("Refresh grid")){
         m_scene.m_needsRefresh = true;
       }
+
+      auto aabbs = m_scene.getBboxes();
+      auto jobs = m_scene.getBuildJobs(aabbs);
+      if(ImGui::Button("Test")){
+        auto aabbs = m_scene.getBboxes();
+        auto jobs = m_scene.getBuildJobs(aabbs);
+        m_testSize = jobs.size();
+        m_testMed = glm::ivec3(0);
+        for(auto& job: jobs){
+          auto num_b = glm::ivec3(job.num_b);
+          if(glm::any(glm::greaterThan(num_b, glm::ivec3(MAX_BUILD_JOB_SIZE)))){
+            LOGI("OH NO! %i,%i,%i\n",num_b.x,num_b.y,num_b.z);
+          }
+          m_testMed += num_b;
+        }
+        m_testMed /= m_testSize;
+      }
+      ImGui::Text("Test size: %i",m_testSize);
+      ImGui::Text("Test Median: %f,%f,%f",m_testMed.x,m_testMed.y,m_testMed.z);
     }
 
     ImGui::End();
@@ -625,7 +645,9 @@ public:
     create3DStorageTexture(m_clipMap, extent, format, clearColor);
 
     // Brick atlas
-    extent = {shaderio::MAX_BRICKS_ATLAS_WIDTH,shaderio::MAX_BRICKS_ATLAS_HEIGHT,shaderio::NUM_VALUES_PER_BRICK_AXIS};  // XYZ size
+    const int brick_size = BRICK_SIZE;
+    const int atlas_axis_size = BRICK_PER_ATLAS_AXIS*BRICK_SIZE;
+    extent = {atlas_axis_size,atlas_axis_size,brick_size};  // XYZ size
     format = VK_FORMAT_R32_UINT;  // Texel format
     clearValueF = 1.0f;
     clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
@@ -1140,6 +1162,8 @@ private:
 
   // Scene
   Scene m_scene;
+  int m_testSize = 0;
+  glm::vec3 m_testMed;
 
   // Startup managers for profiler and paramter registry
   Info m_info;

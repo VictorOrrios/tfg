@@ -38,18 +38,22 @@ NAMESPACE_SHADERIO_BEGIN()
 
 // Buffers static max limit
 #define MAX_SCENE_OBJECTS  1024
-const static int MAX_BRICKS_ATLAS_WIDTH = 1024;
-const static int MAX_BRICKS_ATLAS_HEIGHT = 1024;
+#define BRICK_PER_ATLAS_AXIS 1024
 
 #define NUM_BRICKS_PER_AXIS  64
 CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS)
+#define CLIPMAP_LEVELS 5
 
-#define NUM_VOXELS_PER_BRICK_AXIS  7
-const static int NUM_VALUES_PER_BRICK_AXIS = NUM_VOXELS_PER_BRICK_AXIS+1;
-const static int NUM_VOXELS_PER_AXIS = NUM_BRICKS_PER_AXIS*NUM_VOXELS_PER_BRICK_AXIS;
-const static int NUM_VALUES_PER_AXIS = NUM_BRICKS_PER_AXIS*NUM_VALUES_PER_BRICK_AXIS;
+#define BRICK_SIZE  8
+const static int NUM_VOXELS_PER_AXIS = NUM_BRICKS_PER_AXIS*(BRICK_SIZE-1);
+const static int NUM_VALUES_PER_AXIS = NUM_BRICKS_PER_AXIS*BRICK_SIZE;
 const static float VOXEL_SIZE = 1.0 / float(NUM_VOXELS_PER_AXIS+1);
 const static float MAX_VOXEL_VALUE = 2.5*sqrt(3.0*VOXEL_SIZE*VOXEL_SIZE);
+
+#define MAX_BUILD_JOB_SIZE 8
+#define MAX_NUM_BUILD_JOBS 2048
+const static int MAX_NUM_BRICK_JOBS = MAX_NUM_BUILD_JOBS*MAX_BUILD_JOB_SIZE*MAX_BUILD_JOB_SIZE*MAX_BUILD_JOB_SIZE;
+
 
 // TODO: Clean this file and iclude de std packing used per buffer
 
@@ -116,6 +120,17 @@ struct SceneObject{
   float _padding;
 };
 CHECK_STRUCT_ALIGNMENT(SceneObject)
+
+struct BuildJob{
+  int4 min_b_Q_offset;
+  int4 num_b;
+};
+CHECK_STRUCT_ALIGNMENT(BuildJob)
+
+struct BrickJob{
+  int4 id_valid;
+};
+CHECK_STRUCT_ALIGNMENT(BrickJob)
 
 
 NAMESPACE_SHADERIO_END()

@@ -4,12 +4,14 @@
 #include "glm/common.hpp"
 #include "nvutils/bounding_box.hpp"
 #include "sdf.hpp"
+#include <cstdlib>
 #include <glm/ext/vector_float3.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/matrix.hpp>
 #include <imgui.h>
 #include <omp.h>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -427,6 +429,75 @@ std::vector<float> Scene::generateDenseGrid() {
   }
 
   return data;
+}
+
+// Splits BuildJobs into chunks that have a max size of MAX_BUILD_JOB_SIZE³
+std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
+  const glm::ivec3 base_min_b = glm::ivec3(buildJ.min_b_Q_offset.x,buildJ.min_b_Q_offset.y,buildJ.min_b_Q_offset.z);
+  const glm::ivec3 base_num_b = glm::ivec3(buildJ.num_b.x,buildJ.num_b.y,buildJ.num_b.z);
+  const glm::ivec3 max_chunk = glm::ivec3(MAX_BUILD_JOB_SIZE);
+
+  std::vector<shaderio::BuildJob> out;
+
+  for(int z = 0; z<buildJ.num_b.z; z+= MAX_BUILD_JOB_SIZE)
+  for(int y = 0; y<buildJ.num_b.y; y+= MAX_BUILD_JOB_SIZE)
+  for(int x = 0; x<buildJ.num_b.x; x+= MAX_BUILD_JOB_SIZE)
+  {
+    glm::ivec3 offset = glm::ivec3(x,y,z);
+    glm::ivec3 num_b = glm::min(base_num_b-offset,max_chunk);
+    glm::ivec3 min_b = base_min_b+offset;
+    out.push_back({
+      .min_b_Q_offset=glm::ivec4(min_b,0),
+      .num_b=glm::ivec4(num_b,0)
+    });
+  };
+
+  int q_offset = buildJ.min_b_Q_offset.w;
+  for(auto& job: out){
+    job.min_b_Q_offset.w = q_offset;
+    const glm::ivec3 s = glm::ivec3(job.num_b);
+    q_offset += s.x * s.y * s.z;
+  }
+
+  return out;
+}
+
+// TODO: Implement with multiple levels
+std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> aabbs){
+  const glm::vec3 centerOffset = glm::vec3(0.5f);
+  std::vector<shaderio::BuildJob> out, baseJobs;
+  int brick_q_offset = 0;
+
+  out.reserve(aabbs.size()*4);
+  baseJobs.reserve(aabbs.size());
+  
+  for(auto& bbox: aabbs){
+
+    glm::ivec3 min_b = (bbox.min()+centerOffset)*float(NUM_BRICKS_PER_AXIS);
+    glm::ivec3 max_b = (bbox.max()+centerOffset)*float(NUM_BRICKS_PER_AXIS);
+    min_b = glm::clamp(min_b, glm::ivec3(0), glm::ivec3(NUM_BRICKS_PER_AXIS-1));
+    max_b = glm::clamp(max_b, glm::ivec3(0), glm::ivec3(NUM_BRICKS_PER_AXIS-1));
+
+    // Negative volume build job check
+    if(glm::any(glm::lessThan(max_b,min_b)))
+      continue;
+
+    glm::ivec3 num_b = max_b - min_b + glm::ivec3(1);
+
+    baseJobs.push_back({
+      .min_b_Q_offset=glm::ivec4(min_b,brick_q_offset),
+      .num_b=glm::ivec4(num_b,0)
+    });
+
+    brick_q_offset += num_b.x * num_b.y * num_b.z;
+  }
+
+  for(auto& buildJob: baseJobs){
+    auto splited = splitBuildJob(buildJob);
+    out.insert(out.end(),splited.begin(),splited.end());
+  }
+
+  return out;
 }
 
 //------------------
