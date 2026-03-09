@@ -24,6 +24,7 @@
 // TODO: Change the comment paragraph
 
 
+#include "glm/common.hpp"
 #include "glm/vector_relational.hpp"
 #include "nvvk/resources.hpp"
 #define VMA_IMPLEMENTATION
@@ -44,7 +45,8 @@
 #include "_autogen/tracing.slang.h"
 #include "_autogen/lighting.slang.h"
 #include "_autogen/raytracing.slang.h"
-#include "_autogen/generation.slang.h"
+#include "_autogen/brick.slang.h"
+#include "_autogen/build.slang.h"
 #include "_autogen/sky_simple.slang.h"
 #include "_autogen/tonemapper.slang.h"
 
@@ -195,19 +197,24 @@ public:
     vkDestroyPipeline(device,m_tracingPipeline,nullptr);
     vkDestroyPipeline(device,m_lightingPipeline,nullptr);
     vkDestroyPipeline(device,m_rtPipeline,nullptr);
-    vkDestroyPipeline(device,m_gridGPipeline,nullptr);
+    vkDestroyPipeline(device,m_brickJobPipeline,nullptr);
+    vkDestroyPipeline(device,m_buildJobPipeline,nullptr);
     vkDestroyPipelineLayout(device,m_tracingLayout,nullptr);
     vkDestroyPipelineLayout(device,m_lightingLayout,nullptr);
     vkDestroyPipelineLayout(device,m_rtPipelineLayout,nullptr);
-    vkDestroyPipelineLayout(device,m_gridGLayout,nullptr);
+    vkDestroyPipelineLayout(device,m_brickJobLayout,nullptr);
+    vkDestroyPipelineLayout(device,m_buildJobLayout,nullptr);
     vkDestroyShaderModule(device,m_tracingModule,nullptr);
     vkDestroyShaderModule(device,m_lightingModule,nullptr);
     vkDestroyShaderModule(device,m_rtModule,nullptr);
-    vkDestroyShaderModule(device,m_gridGModule,nullptr);
+    vkDestroyShaderModule(device,m_brickJobModule,nullptr);
+    vkDestroyShaderModule(device,m_buildJobModule,nullptr);
 
     m_alloc.destroyBuffer(m_sceneInfoB);
     m_alloc.destroyBuffer(m_sceneAabbB);
     m_alloc.destroyBuffer(m_sceneObjectsB);
+    m_alloc.destroyBuffer(m_buildJobQueue);
+    m_alloc.destroyBuffer(m_brickJobQueue);
     m_alloc.destroyImage(m_globalGrid);
     m_alloc.destroyImage(m_clipMap);
     m_alloc.destroyImage(m_brickAtlas);
@@ -278,11 +285,12 @@ public:
         m_scene.m_needsRefresh = true;
       }
 
-      auto aabbs = m_scene.getBboxes();
-      auto jobs = m_scene.getBuildJobs(aabbs);
+      //auto aabbs = m_scene.getBboxes();
+      //auto jobs = m_scene.getBuildJobs(aabbs);
       if(ImGui::Button("Test")){
         auto aabbs = m_scene.getBboxes();
-        auto jobs = m_scene.getBuildJobs(aabbs);
+        int x;
+        auto jobs = m_scene.getBuildJobs(aabbs,x);
         m_testSize = jobs.size();
         m_testMed = glm::ivec3(0);
         for(auto& job: jobs){
@@ -485,26 +493,61 @@ public:
     );
   }
 
-  void generationPass(VkCommandBuffer cmd){
+  void executeBrickJobs(VkCommandBuffer cmd, int num_brick_jobs){
     NVVK_DBG_SCOPE(cmd);
 
     // Bind pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_gridGPipeline);  
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_brickJobPipeline);  
 
     // Bind descriptor sets
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_gridGLayout,
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_brickJobLayout,
                             0, 1, m_descPack.getSetPtr(), 0, nullptr);  
     // Push constants
-    vkCmdPushConstants(cmd, m_gridGLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
+    vkCmdPushConstants(cmd, m_brickJobLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     
     // Dispatch
-    VkExtent3D grid_size = {shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS};
-    VkExtent3D workgroup_size = {WORKGROUP_SIZE_3D,WORKGROUP_SIZE_3D,WORKGROUP_SIZE_3D};
-    VkExtent3D group_counts = nvvk::getGroupCounts(grid_size, workgroup_size);
-    vkCmdDispatch(cmd, group_counts.width, group_counts.height, group_counts.depth);
+    vkCmdDispatch(cmd, 256, glm::ceil(float(num_brick_jobs)/256.0f), 1);
   
-    nvvk::cmdImageMemoryBarrier(cmd, {m_globalGrid.image, VK_IMAGE_LAYOUT_GENERAL,
+    nvvk::cmdImageMemoryBarrier(cmd, {m_brickAtlas.image, VK_IMAGE_LAYOUT_GENERAL,
                                     VK_IMAGE_LAYOUT_GENERAL});
+  }
+
+  void generationPass(VkCommandBuffer cmd){
+    NVVK_DBG_SCOPE(cmd);
+
+    int num_bricks;
+    std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
+    std::vector<shaderio::BuildJob> buildJobs = m_scene.getBuildJobs(aabbVector,num_bricks);
+
+    if(buildJobs.size() > MAX_NUM_BUILD_JOBS)
+      LOGE("Not enough space in build job queue to allocale %i jobs\n",num_bricks);
+    if(num_bricks > shaderio::MAX_NUM_BRICK_JOBS)
+      LOGE("Not enough space in brick job queue to allocale %i jobs\n",num_bricks);
+
+    m_pushConst.numBrickJobs = num_bricks;
+
+    unsigned long size = buildJobs.size() * sizeof(shaderio::BuildJob);
+    vkCmdUpdateBuffer(cmd, m_buildJobQueue.buffer, 0, size, buildJobs.data());
+
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_buildJobQueue.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
+
+    // Bind pipeline
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_buildJobPipeline);  
+
+    // Bind descriptor sets
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_buildJobLayout,
+                            0, 1, m_descPack.getSetPtr(), 0, nullptr);  
+    // Push constants
+    vkCmdPushConstants(cmd, m_buildJobLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
+    
+    // Dispatch
+    vkCmdDispatch(cmd, 1, 1, buildJobs.size());
+  
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_brickJobQueue.buffer, VK_IMAGE_LAYOUT_GENERAL,
+                                    VK_IMAGE_LAYOUT_GENERAL});
+
+    executeBrickJobs(cmd, num_bricks);
   }
 
   // Apply post-processing
@@ -797,21 +840,17 @@ public:
     nvvk::ResourceAllocator* allocator = m_stagingUploader.getResourceAllocator();
     
     VkCommandBuffer cmd = m_app->createTempCmdBuffer();
-
+      // ------------------
+      // Scene info buffer
+      // ------------------
       NVVK_CHECK(allocator->createBuffer(m_sceneInfoB,
                                      std::span<const shaderio::SceneInfo>(&m_sceneInfo, 1).size_bytes(),
                                      VK_BUFFER_USAGE_2_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT));
       NVVK_DBG_NAME(m_sceneInfoB.buffer);
-      NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneInfoB, 0,
-                                          std::span<const shaderio::SceneInfo>(&m_sceneInfo, 1)));
 
-      std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
-      std::vector<shaderio::SceneObject> objectsVector = m_scene.getObjects();
-      if(aabbVector.size() != objectsVector.size())
-        LOGE("Aabb vector is diferent size from objects vector %zu != %zu\n",aabbVector.size(),objectsVector.size());
-      if(aabbVector.size()>MAX_SCENE_OBJECTS)
-        LOGE("Number of scene objects exceeds maximum %zu > %i\n",aabbVector.size(),MAX_SCENE_OBJECTS);
-
+      // ------------------
+      // AABB and objects buffers
+      // ------------------
       NVVK_CHECK(allocator->createBuffer(m_sceneAabbB,
                                      MAX_SCENE_OBJECTS*sizeof(nvutils::Bbox),
                                      VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
@@ -819,7 +858,6 @@ public:
                                           | VK_BUFFER_USAGE_2_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
                                         ));
       NVVK_DBG_NAME(m_sceneAabbB.buffer);
-      NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneAabbB, 0,std::span(aabbVector)));  
       
       NVVK_CHECK(allocator->createBuffer(m_sceneObjectsB,
                                      MAX_SCENE_OBJECTS*sizeof(shaderio::SceneObject),
@@ -827,7 +865,26 @@ public:
                                           | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
                                         ));
       NVVK_DBG_NAME(m_sceneObjectsB.buffer);
-      NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneObjectsB, 0,std::span(objectsVector)));  
+
+      // ------------------
+      // Job queues
+      // ------------------
+      NVVK_CHECK(allocator->createBuffer(m_buildJobQueue,
+                                     MAX_NUM_BUILD_JOBS*sizeof(shaderio::BuildJob),
+                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
+                                          | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
+                                        ));
+      NVVK_DBG_NAME(m_buildJobQueue.buffer);
+
+      VkDeviceSize b_size = sizeof(int)+shaderio::MAX_NUM_BRICK_JOBS*sizeof(shaderio::BrickJob);
+      std::vector<uint8_t> zeros(b_size, 0);
+      NVVK_CHECK(allocator->createBuffer(m_brickJobQueue,
+                                     b_size,
+                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
+                                          | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
+                                        )); // TODO: Is it necesary the transfer bit?
+      NVVK_DBG_NAME(m_brickJobQueue.buffer);
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_brickJobQueue, 0,std::span(zeros)));  
 
       m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
 
@@ -856,6 +913,8 @@ public:
     bindings.addBinding(shaderio::BindingPoints::tLas, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::clipMap, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::brickAtlas, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::buildJobQ, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::brickJobQ, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
     // Creating the descriptor set and set layout from the bindings
     // TODO: You can put flags here, maybe this is important
@@ -872,6 +931,8 @@ public:
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLas), m_asBuilder.tlas);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::clipMap), m_clipMap.descriptor);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::brickAtlas), m_brickAtlas.descriptor);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::buildJobQ), m_buildJobQueue.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::brickJobQ), m_brickJobQueue.buffer);
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
                         writeContainer.data(), 0, nullptr);
@@ -881,7 +942,8 @@ public:
     createPipelineLayout(&m_tracingLayout);
     createPipelineLayout(&m_lightingLayout);
     createPipelineLayout(&m_rtPipelineLayout);
-    createPipelineLayout(&m_gridGLayout);
+    createPipelineLayout(&m_brickJobLayout);
+    createPipelineLayout(&m_buildJobLayout);
   }
 
   void createPipelineLayout(VkPipelineLayout* pipelineLayout){
@@ -935,12 +997,14 @@ public:
     vkDestroyShaderModule(m_app->getDevice(), m_tracingModule, nullptr);
     vkDestroyShaderModule(m_app->getDevice(), m_lightingModule, nullptr);
     vkDestroyShaderModule(m_app->getDevice(), m_rtModule, nullptr);
-    vkDestroyShaderModule(m_app->getDevice(), m_gridGModule, nullptr);
+    vkDestroyShaderModule(m_app->getDevice(), m_brickJobModule, nullptr);
+    vkDestroyShaderModule(m_app->getDevice(), m_buildJobModule, nullptr);
 
     createShaderModule(&m_tracingModule,"tracing.slang",tracing_slang);
     createShaderModule(&m_lightingModule,"lighting.slang",lighting_slang);
     createShaderModule(&m_rtModule,"raytracing.slang",raytracing_slang);
-    createShaderModule(&m_gridGModule,"generation.slang",generation_slang);
+    createShaderModule(&m_brickJobModule,"brick.slang",brick_slang);
+    createShaderModule(&m_buildJobModule,"build.slang",build_slang);
 
   }
 
@@ -948,7 +1012,8 @@ public:
     createComputePipeline(&m_tracingPipeline,&m_tracingLayout,&m_tracingModule);
     createComputePipeline(&m_lightingPipeline,&m_lightingLayout,&m_lightingModule);
     createRTPipeline(&m_rtPipeline,&m_rtPipelineLayout);
-    createComputePipeline(&m_gridGPipeline,&m_gridGLayout,&m_gridGModule);
+    createComputePipeline(&m_brickJobPipeline,&m_brickJobLayout,&m_brickJobModule);
+    createComputePipeline(&m_buildJobPipeline,&m_buildJobLayout,&m_buildJobModule);
   }
 
   void createComputePipeline(VkPipeline* pipeline, VkPipelineLayout* pipelineLayout, VkShaderModule* shaderModule){
@@ -1067,7 +1132,8 @@ public:
     vkDestroyPipeline(m_app->getDevice(),m_tracingPipeline,nullptr);
     vkDestroyPipeline(m_app->getDevice(),m_lightingPipeline,nullptr);
     vkDestroyPipeline(m_app->getDevice(),m_rtPipeline,nullptr);
-    vkDestroyPipeline(m_app->getDevice(),m_gridGPipeline,nullptr);
+    vkDestroyPipeline(m_app->getDevice(),m_brickJobPipeline,nullptr);
+    vkDestroyPipeline(m_app->getDevice(),m_buildJobPipeline,nullptr);
     createPipelines();
   }
 
@@ -1118,10 +1184,15 @@ private:
   VkPipelineLayout      m_rtPipelineLayout{}; // Ray tracing pipeline layout
   VkShaderModule        m_rtModule{};         // Raytracing shader module for rt pipeline
 
-  // Grid generation Pipeline
-  VkPipeline            m_gridGPipeline{};  // Compute pipeline
-  VkPipelineLayout      m_gridGLayout{};    // Compute pipeline layout
-  VkShaderModule        m_gridGModule{};    // Compute shader module for grid generation
+  // Brick generation Pipeline
+  VkPipeline            m_brickJobPipeline{};  // Compute pipeline
+  VkPipelineLayout      m_brickJobLayout{};    // Compute pipeline layout
+  VkShaderModule        m_brickJobModule{};    // Compute shader module for brick generation
+
+  // Build job Pipeline
+  VkPipeline            m_buildJobPipeline{};  // Compute pipeline
+  VkPipelineLayout      m_buildJobLayout{};    // Compute pipeline layout
+  VkShaderModule        m_buildJobModule{};    // Compute shader module for build jobs
 
   // Acceleration Structure Components
   nvvk::AccelerationStructureHelper        m_asBuilder{};
@@ -1145,10 +1216,14 @@ private:
   nvvk::Buffer          m_sceneAabbB{};         // Buffer binded to the scene aabbs array
   nvvk::Buffer          m_sceneObjectsB{};      // Buffer binded to the scene objects array
 
+  // Job queues 
+  nvvk::Buffer m_buildJobQueue{};   // Queue for the Build jobs
+  nvvk::Buffer m_brickJobQueue{};   // Queue for the Brick jobs
+
   // 3D textures
-  nvvk::Image m_globalGrid;
-  nvvk::Image m_clipMap;
-  nvvk::Image m_brickAtlas;
+  nvvk::Image m_globalGrid;   // Dense value grid
+  nvvk::Image m_clipMap;      // 3D map of pointers to the brick atlas
+  nvvk::Image m_brickAtlas;   // Atlas where all the bricks are stored
 
   // Pre-built components
   std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()}; // Camera manipulator
@@ -1162,6 +1237,8 @@ private:
 
   // Scene
   Scene m_scene;
+
+  // Test variables TODO: Remove after debugging
   int m_testSize = 0;
   glm::vec3 m_testMed;
 

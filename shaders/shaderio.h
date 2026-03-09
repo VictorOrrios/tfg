@@ -71,6 +71,8 @@ enum BindingPoints
   tLas = 8,
   clipMap = 9,
   brickAtlas = 10,
+  buildJobQ = 11,
+  brickJobQ = 12,
 };
 
 struct LightinParams{
@@ -92,6 +94,7 @@ struct PushConstant{
   DebugParams debug;
   LightinParams lp;
   int numObjects;
+  int numBrickJobs;
 };
 
 struct SceneInfo{

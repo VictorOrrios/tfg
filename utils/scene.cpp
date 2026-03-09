@@ -463,10 +463,10 @@ std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
 }
 
 // TODO: Implement with multiple levels
-std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> aabbs){
+std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> aabbs, int& num_bricks){
   const glm::vec3 centerOffset = glm::vec3(0.5f);
   std::vector<shaderio::BuildJob> out, baseJobs;
-  int brick_q_offset = 0;
+  num_bricks = 0;
 
   out.reserve(aabbs.size()*4);
   baseJobs.reserve(aabbs.size());
@@ -485,11 +485,11 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> a
     glm::ivec3 num_b = max_b - min_b + glm::ivec3(1);
 
     baseJobs.push_back({
-      .min_b_Q_offset=glm::ivec4(min_b,brick_q_offset),
+      .min_b_Q_offset=glm::ivec4(min_b,num_bricks),
       .num_b=glm::ivec4(num_b,0)
     });
 
-    brick_q_offset += num_b.x * num_b.y * num_b.z;
+    num_bricks += num_b.x * num_b.y * num_b.z;
   }
 
   for(auto& buildJob: baseJobs){

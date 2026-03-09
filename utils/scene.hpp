@@ -45,7 +45,7 @@ public:
   std::vector<float> generateDenseGrid();
   std::vector<nvutils::Bbox> getBboxes();
   std::vector<shaderio::SceneObject> getObjects();
-  std::vector<shaderio::BuildJob> getBuildJobs(std::vector<nvutils::Bbox> aabbs);
+  std::vector<shaderio::BuildJob> getBuildJobs(std::vector<nvutils::Bbox> aabbs, int& num_bricks);
 
   bool m_needsRefresh = true;
 
