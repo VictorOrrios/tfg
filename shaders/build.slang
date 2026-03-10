@@ -88,11 +88,10 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   InterlockedOr(clipMap[brickIndex],DIRTY_BIT,prevClipPointer);
   if((prevClipPointer & DIRTY_BIT) == 0){
     brickJob.id_valid = int4(brickIndex,1);
-    float3 p = (float3(brickIndex)+0.5)*BRICK_AXIS_SIZE;
+    float3 p = (float3(brickIndex)+0.5)*BRICK_AXIS_SIZE-float3(0.5);
     float centerSDF = map(p);
     if(abs(centerSDF) > MAX_BRICK_CENTER_VALUE){
       freePointer(prevClipPointer);
-      brickJob.id_valid.w=0;
       int newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
       clipMap[brickIndex] = newPointer | DIRTY_BIT;
     }else if(prevClipPointer >= BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){

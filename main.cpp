@@ -685,7 +685,7 @@ public:
     create3DStorageTexture(m_globalGrid, extent, format, clearColor);
 
     // Clipmap
-    extent = {shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS};  // XYZ size
+    extent = {NUM_BRICKS_PER_AXIS,NUM_BRICKS_PER_AXIS,NUM_BRICKS_PER_AXIS};  // XYZ size
     format = VK_FORMAT_R32_UINT;  // Texel format
     uint32_t clearValueClip = shaderio::UNIFORM_POSITIVE_BRICK_POINTER;
     clearColor = {.uint32={clearValueClip,clearValueClip,clearValueClip,clearValueClip}};

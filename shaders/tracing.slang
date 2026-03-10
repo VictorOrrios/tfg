@@ -37,8 +37,8 @@
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 [[vk::binding(BindingPoints::objects)]] StructuredBuffer<SceneObject> objects;
 
-
-[[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
+[[vk::binding(BindingPoints::clipMap)]] RWTexture3D<uint32_t> clipMap;
+[[vk::binding(BindingPoints::brickAtlas)]] RWTexture3D<float> brickAtlas;
 
 #ifdef NDEBUGSHADER
 // TODO: Change to false for final release and boost performance
@@ -118,19 +118,35 @@ float sphereTraceMap(Ray ray){
 // Left hand coordinate system (x=right, y=up, z=forwards)
 // TODO: This looks slow, might be interesting to make more efficient
 void sampleVoxel2(int3 index, out float4 sBottom, out float4 sTop){
-  sBottom = float4(
-    globalGrid[index + int3(0,0,0)],  // s000
-    globalGrid[index + int3(1,0,0)],  // s100
-    globalGrid[index + int3(1,0,1)],  // s101
-    globalGrid[index + int3(0,0,1)]   // s001
-  ) * MAX_VOXEL_VALUE;
+  int3 brickIndex = index/(BRICK_SIZE-1);
+  uint pointer = clipMap[brickIndex] & NOT_DIRTY_BIT;
+  if(pointer == UNIFORM_POSITIVE_BRICK_POINTER){
+    sBottom = float4(MAX_VOXEL_VALUE);
+    sTop    = float4(MAX_VOXEL_VALUE);
+  }else if(pointer == UNIFORM_NEGATIVE_BRICK_POINTER){
+    sBottom = float4(-MAX_VOXEL_VALUE);
+    sTop    = float4(-MAX_VOXEL_VALUE);
+  }else{
+    sBottom = float4(-MAX_VOXEL_VALUE);
+    sTop    = float4(-MAX_VOXEL_VALUE);
+    /* 
+    int3 brickAtlasIndex = int3(pointer%BRICK_PER_ATLAS_AXIS,pointer/BRICK_PER_ATLAS_AXIS,1);
+    int3 voxelIndex = brickAtlasIndex + index%(BRICK_SIZE-1);
+    sBottom = float4(
+      brickAtlas[voxelIndex + int3(0,0,0)],  // s000
+      brickAtlas[voxelIndex + int3(1,0,0)],  // s100
+      brickAtlas[voxelIndex + int3(1,0,1)],  // s101
+      brickAtlas[voxelIndex + int3(0,0,1)]   // s001
+    ) * MAX_VOXEL_VALUE;
 
-  sTop = float4(
-    globalGrid[index + int3(0,1,0)],  // s010
-    globalGrid[index + int3(1,1,0)],  // s110
-    globalGrid[index + int3(1,1,1)],  // s111
-    globalGrid[index + int3(0,1,1)]   // s011
-  ) * MAX_VOXEL_VALUE;
+    sTop = float4(
+      brickAtlas[voxelIndex + int3(0,1,0)],  // s010
+      brickAtlas[voxelIndex + int3(1,1,0)],  // s110
+      brickAtlas[voxelIndex + int3(1,1,1)],  // s111
+      brickAtlas[voxelIndex + int3(0,1,1)]   // s011
+    ) * MAX_VOXEL_VALUE;
+ */
+  }
 }
 
 void getkConstants(float4 sBottom, float4 sTop, out float4 k0123, out float4 k4567){
@@ -306,7 +322,7 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   }
 
   const float3 gridSize = bbox.bMax - bbox.bMin;            // World space grid size
-  const float3 voxelSize = gridSize/NUM_VOXELS_PER_AXIS;    // Size of a voxel
+  const float3 voxelSize = VOXEL_SIZE;                      // Size of a voxel
   const float3 voxelDensity = NUM_VOXELS_PER_AXIS/gridSize; // How many voxels per unit of world space
   
   float3 hitCoor, voxelCoor;
@@ -406,17 +422,18 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal){
     return 1;
   }
 
-  const float3 gridSize = bbox.bMax - bbox.bMin;                // World space grid size
-  const int3 step = sign(dir);                                  // How many indices to jump per axis traversal
-  const float3 voxelDensity = (NUM_VOXELS_PER_AXIS+1)/gridSize; // How many voxels per unit of world space
-  const float3 voxelSize = gridSize/(NUM_VOXELS_PER_AXIS+1);    // Size of a voxel
-  const float3 delta = voxelSize/abs(dir);                      // How much to travel in each direction till we meet the next voxel of that axis
+  const int numVoxelsPerAxis = NUM_BRICKS_PER_AXIS;       // How many voxels are per axis the grid
+  const float3 gridSize = bbox.bMax - bbox.bMin;          // World space grid size
+  const int3 step = sign(dir);                            // How many indices to jump per axis traversal
+  const float3 voxelDensity = numVoxelsPerAxis/gridSize;  // How many voxels per unit of world space
+  const float3 voxelSize = gridSize/numVoxelsPerAxis;     // Size of a voxel
+  const float3 delta = voxelSize/abs(dir);                // How much to travel in each direction till we meet the next voxel of that axis
   
   float3 hitCoorPos = (orig-bbox.bMin)*voxelDensity;
   float3 hitCoorNeg = max(bbox.bMax-orig,float3(0))*voxelDensity;
   float3 hitCoor = lerp(hitCoorNeg,hitCoorPos,step*0.5+0.5);
 
-  int3 origIndex = min(int3(NUM_VOXELS_PER_AXIS),max(int3(0),int3(
+  int3 origIndex = min(int3(numVoxelsPerAxis-1),max(int3(0),int3(
     trunc(hitCoorPos)
   )));
   int3 index = origIndex;
@@ -427,10 +444,12 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal){
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
     // Check current voxel for hit
-    if(globalGrid[index] < voxelSize.x/10){
+    int pointer = clipMap[index];
+    if(pointer < BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
 
       // Debug visualizer of step count
-      if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
+      //if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
+      if(drawSteps) debug = scalarToColor(float(pointer)/(float(BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS)*0.03));
       
       // Calculate normal based on last step
       normal = -step*lastTraversal;
@@ -524,8 +543,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   bbox.bMin = bbox.bMin*bboxSize+bboxPos;
   bbox.bMax = bbox.bMax*bboxSize+bboxPos;
   
-  //depth = rayMarchAmaWoo(r,bbox,normal);
-  depth = sphereTraceGrid(r,bbox,normal);
+  depth = rayMarchAmaWoo(r,bbox,normal);
+  //depth = sphereTraceGrid(r,bbox,normal);
 
   bool hit = depth >= 0.0;
   if(hit){

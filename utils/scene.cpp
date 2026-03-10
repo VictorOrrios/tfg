@@ -507,7 +507,7 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> a
 Scene::Scene() {
   // Create the scene
   Node *snowMan = createNode(NodeType::Snowman);
-  snowMan->p.scale = 0.8;
+  snowMan->p.scale = 0.2;
   updateNodeData(snowMan);
   addNode(snowMan);
 
