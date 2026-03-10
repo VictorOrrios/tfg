@@ -55,6 +55,11 @@ float map(float3 point){
 [numthreads(BRICK_SIZE, BRICK_SIZE, BRICK_SIZE)]
 void computeMain(uint3 tId : SV_DispatchThreadID){
   const int brickJobIdx = tId.x/BRICK_SIZE + (tId.y/BRICK_SIZE)*BRICK_JOB_GROUP_X_DISPATCH_SIZE;
+
+  if(brickJobIdx>=pushConst.numBrickJobs){
+    return;
+  }
+
   const BrickJob brickJob = brick_job_queue[brickJobIdx];
 
   // Invalid job check
@@ -67,7 +72,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   clipMap[brickJob.id_valid.xyz] = clipPointer;
 
   if(clipPointer < BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
-    int3 brickPointer = int3(clipPointer%BRICK_PER_ATLAS_AXIS,clipPointer/BRICK_PER_ATLAS_AXIS,1);
+    int3 brickPointer = int3(clipPointer%BRICK_PER_ATLAS_AXIS,clipPointer/BRICK_PER_ATLAS_AXIS,0)*BRICK_SIZE;
     int3 voxelId = int3(tId.x%BRICK_SIZE,tId.y%BRICK_SIZE,tId.z%BRICK_SIZE);
     float3 brickPos = float3(brickJob.id_valid.xyz)*BRICK_AXIS_SIZE-float3(0.5);
     float3 p = brickPos + float3(voxelId)*VOXEL_SIZE;

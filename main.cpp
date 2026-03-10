@@ -548,8 +548,11 @@ public:
     // Dispatch
     vkCmdDispatch(cmd, 1, 1, buildJobs.size());
   
-    nvvk::cmdBufferMemoryBarrier(cmd, {m_brickJobQueue.buffer, VK_IMAGE_LAYOUT_GENERAL,
-                                    VK_IMAGE_LAYOUT_GENERAL});
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_brickJobQueue.buffer, 
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                               VK_ACCESS_SHADER_WRITE_BIT,
+                               VK_ACCESS_SHADER_READ_BIT}); 
 
     executeBrickJobs(cmd, num_bricks);
   }

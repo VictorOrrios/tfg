@@ -118,8 +118,11 @@ float sphereTraceMap(Ray ray){
 // Left hand coordinate system (x=right, y=up, z=forwards)
 // TODO: This looks slow, might be interesting to make more efficient
 void sampleVoxel2(int3 index, out float4 sBottom, out float4 sTop){
-  int3 brickIndex = index/(BRICK_SIZE-1);
+  const int NUM_VOXELS_PER_BRICK = BRICK_SIZE-1;
+
+  int3 brickIndex = index/NUM_VOXELS_PER_BRICK;
   uint pointer = clipMap[brickIndex] & NOT_DIRTY_BIT;
+
   if(pointer == UNIFORM_POSITIVE_BRICK_POINTER){
     sBottom = float4(MAX_VOXEL_VALUE);
     sTop    = float4(MAX_VOXEL_VALUE);
@@ -127,11 +130,11 @@ void sampleVoxel2(int3 index, out float4 sBottom, out float4 sTop){
     sBottom = float4(-MAX_VOXEL_VALUE);
     sTop    = float4(-MAX_VOXEL_VALUE);
   }else{
-    sBottom = float4(-MAX_VOXEL_VALUE);
-    sTop    = float4(-MAX_VOXEL_VALUE);
-    /* 
-    int3 brickAtlasIndex = int3(pointer%BRICK_PER_ATLAS_AXIS,pointer/BRICK_PER_ATLAS_AXIS,1);
-    int3 voxelIndex = brickAtlasIndex + index%(BRICK_SIZE-1);
+
+    int3 brickAtlasIndex = int3(pointer%BRICK_PER_ATLAS_AXIS,pointer/BRICK_PER_ATLAS_AXIS,0);
+    int3 voxelId = int3(index.x%NUM_VOXELS_PER_BRICK,index.y%NUM_VOXELS_PER_BRICK,index.z%NUM_VOXELS_PER_BRICK);
+    int3 voxelIndex = brickAtlasIndex*BRICK_SIZE + voxelId;
+
     sBottom = float4(
       brickAtlas[voxelIndex + int3(0,0,0)],  // s000
       brickAtlas[voxelIndex + int3(1,0,0)],  // s100
@@ -145,7 +148,6 @@ void sampleVoxel2(int3 index, out float4 sBottom, out float4 sTop){
       brickAtlas[voxelIndex + int3(1,1,1)],  // s111
       brickAtlas[voxelIndex + int3(0,1,1)]   // s011
     ) * MAX_VOXEL_VALUE;
- */
   }
 }
 
@@ -322,7 +324,7 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   }
 
   const float3 gridSize = bbox.bMax - bbox.bMin;            // World space grid size
-  const float3 voxelSize = VOXEL_SIZE;                      // Size of a voxel
+  const float3 voxelSize = float3(VOXEL_SIZE);                      // Size of a voxel
   const float3 voxelDensity = NUM_VOXELS_PER_AXIS/gridSize; // How many voxels per unit of world space
   
   float3 hitCoor, voxelCoor;
@@ -345,8 +347,7 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
     }
 
     // Interpolate current sdf value of the voxel2
-    //float t = triLerp(voxelCoor,sBottom,sTop);
-    float t = triLerp(voxelCoor,sBottom, sTop);
+    float t = triLerp(voxelCoor,sBottom,sTop);
 
 
     // Cutoff condition: A distance of 1/10 voxels
@@ -446,10 +447,13 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal){
     // Check current voxel for hit
     int pointer = clipMap[index];
     if(pointer < BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
-
       // Debug visualizer of step count
       //if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
-      if(drawSteps) debug = scalarToColor(float(pointer)/(float(BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS)*0.03));
+      //if(drawSteps) debug = scalarToColor(float(pointer)/(float(BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS)*0.03));
+      
+      int3 atlasIndex = int3(pointer%BRICK_PER_ATLAS_AXIS,pointer/BRICK_PER_ATLAS_AXIS,0)+int3(3);
+      float v = brickAtlas[atlasIndex];
+      if(drawSteps) debug = scalarToColor(v);
       
       // Calculate normal based on last step
       normal = -step*lastTraversal;
@@ -543,8 +547,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   bbox.bMin = bbox.bMin*bboxSize+bboxPos;
   bbox.bMax = bbox.bMax*bboxSize+bboxPos;
   
-  depth = rayMarchAmaWoo(r,bbox,normal);
-  //depth = sphereTraceGrid(r,bbox,normal);
+  //depth = rayMarchAmaWoo(r,bbox,normal);
+  depth = sphereTraceGrid(r,bbox,normal);
 
   bool hit = depth >= 0.0;
   if(hit){
