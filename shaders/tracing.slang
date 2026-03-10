@@ -335,8 +335,9 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
     hitCoor = (p-bbox.bMin)*voxelDensity; // P coordinates relative to grid, in [0,1]³
 
     // TODO: Check if it needs clamping
-    currentIndex = int3(trunc(hitCoor));  // Grid index of p
-    voxelCoor = frac(hitCoor);            // P Coordinates relative to voxel, in [0,1]³
+    currentIndex = max(int3(0),min(int3(NUM_VOXELS_PER_AXIS-1),
+      int3(trunc(hitCoor))));     // Grid index of p
+    voxelCoor = frac(hitCoor);    // P Coordinates relative to voxel, in [0,1]³
 
     // If this voxel hasn't been visited yet
     if(steps == 1 || any(currentIndex != lastIndex)){
@@ -448,13 +449,8 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal){
     int pointer = clipMap[index];
     if(pointer < BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
       // Debug visualizer of step count
-      //if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
-      //if(drawSteps) debug = scalarToColor(float(pointer)/(float(BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS)*0.03));
-      
-      int3 atlasIndex = int3(pointer%BRICK_PER_ATLAS_AXIS,pointer/BRICK_PER_ATLAS_AXIS,0)+int3(3);
-      float v = brickAtlas[atlasIndex];
-      if(drawSteps) debug = scalarToColor(v);
-      
+      if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
+
       // Calculate normal based on last step
       normal = -step*lastTraversal;
 
