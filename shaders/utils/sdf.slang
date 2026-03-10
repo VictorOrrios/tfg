@@ -106,3 +106,51 @@ float sdSnowMan(float3 point){
   r = opUnion(r,sdRoundedCylinder(p-float3(0.0,2.5,0.0),0.4,0.05,0.5));
   return r * scale;
 }
+
+//---------------------------------------
+// Int to sdf op/primitive
+//---------------------------------------
+
+float evalPrimitive(int primType, float3 p){
+  switch(primType)
+  {
+    default:
+    case 0: return sdEmpty(p);
+    case 1: return sdBox(p);
+    case 2: return sdSphere(p);
+    case 3: return sdTorus(p);
+    case 4: return sdSnowMan(p);
+  }
+}
+
+float evalCombOp(int opIndex, float d, float result, float smoothness){
+  switch(opIndex)
+  {
+    default:
+    case 0: return opUnion(d,result);
+    case 1: return opSubtraction(d,result);
+    case 2: return opIntersection(d,result);
+    case 3: return opSmoothUnion(d,result,smoothness);
+    case 4: return opSmoothSubtraction(d,result,smoothness);
+    case 5: return opSmoothIntersection(d,result,smoothness);
+  }
+}
+
+float3 applyRepOp(int opIndex, float3 p, float3 spacing, int3 limit){
+  switch(opIndex)
+  {
+    default:
+    case 0: return p;
+    case 1: return opLimRepetition(p,spacing,limit);
+    case 2: return opRepetition(p,spacing);
+  }
+}
+
+float3 applyDefOp(int opIndex, float3 p, float3 defP){
+  switch(opIndex)
+  {
+    default:
+    case 0: return p;
+    case 1: return opElongate(p,defP);
+  }
+}

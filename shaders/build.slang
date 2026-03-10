@@ -10,54 +10,13 @@
 
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 [[vk::binding(BindingPoints::objects)]] StructuredBuffer<SceneObject> objects;
-[[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
 
+[[vk::binding(BindingPoints::clipMap)]] RWTexture3D<uint32_t> clipMap;
 
+[[vk::binding(BindingPoints::buildJobQ)]] StructuredBuffer<BuildJob> build_job_queue;
+[[vk::binding(BindingPoints::brickJobQ)]] RWStructuredBuffer<BrickJob> brick_job_queue;
+[[vk::binding(BindingPoints::freeListCounter)]] RWStructuredBuffer<uint32_t> free_list_counter;
 
-
-float evalPrimitive(int primType, float3 p){
-  switch(primType)
-  {
-    default:
-    case 0: return sdEmpty(p);
-    case 1: return sdBox(p);
-    case 2: return sdSphere(p);
-    case 3: return sdTorus(p);
-    case 4: return sdSnowMan(p);
-  }
-}
-
-float evalCombOp(int opIndex, float d, float result, float smoothness){
-  switch(opIndex)
-  {
-    default:
-    case 0: return opUnion(d,result);
-    case 1: return opSubtraction(d,result);
-    case 2: return opIntersection(d,result);
-    case 3: return opSmoothUnion(d,result,smoothness);
-    case 4: return opSmoothSubtraction(d,result,smoothness);
-    case 5: return opSmoothIntersection(d,result,smoothness);
-  }
-}
-
-float3 applyRepOp(int opIndex, float3 p, float3 spacing, int3 limit){
-  switch(opIndex)
-  {
-    default:
-    case 0: return p;
-    case 1: return opLimRepetition(p,spacing,limit);
-    case 2: return opRepetition(p,spacing);
-  }
-}
-
-float3 applyDefOp(int opIndex, float3 p, float3 defP){
-  switch(opIndex)
-  {
-    default:
-    case 0: return p;
-    case 1: return opElongate(p,defP);
-  }
-}
 
 float map(float3 point){
   const float iniD = 10000.0f;
@@ -91,11 +50,53 @@ float map(float3 point){
   return result;
 }
 
+int allocPointer(){
+  int prevValue;
+  InterlockedAdd(free_list_counter[0],1,prevValue);
+  // TODO: Maybe add a max value check
+  return prevValue;
+}
+
+void freePointer(int pointer){
+  // Out of range pointer
+  if(pointer >= BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS)
+    return;
+
+  // DO NOTHING. TODO FOR LATER
+}
+
 [shader("compute")]
 [numthreads(MAX_BUILD_JOB_SIZE, MAX_BUILD_JOB_SIZE, MAX_BUILD_JOB_SIZE)]
 void computeMain(uint3 tId : SV_DispatchThreadID){
-  const float3 center = float3(0.5);
-  const float3 p = tId*VOXEL_SIZE - center;
-  float mapV = clamp(map(p)/MAX_VOXEL_VALUE,-1.0,1.0);
-  globalGrid[tId] = mapV;
+
+  BrickJob brickJob = BrickJob(int4(0));
+  int prevClipPointer;
+
+  const int jobIdx = tId.z/MAX_BUILD_JOB_SIZE;
+  const BuildJob job = build_job_queue[jobIdx]; // TODO: Group shared memory might be faster
+  const int3 brickOffset = int3(tId.x, tId.y, tId.z%MAX_BUILD_JOB_SIZE);
+
+  if(any(brickOffset >= job.num_b.xyz)){
+    return;
+  }
+
+  const int3 brickIndex = brickOffset + job.min_b_Q_offset.xyz;
+  const int brickJobOffset = brickOffset.x + brickOffset.y*job.num_b.x + brickOffset.z*job.num_b.x*job.num_b.y;
+  const int brickJobIndex = brickJobOffset + job.min_b_Q_offset.w;
+
+  InterlockedOr(clipMap[brickIndex],DIRTY_BIT,prevClipPointer);
+  if((prevClipPointer & DIRTY_BIT) == 0){
+    brickJob.id_valid = int4(brickIndex,1);
+    float3 p = (float3(brickIndex)+0.5)*BRICK_AXIS_SIZE;
+    float centerSDF = map(p);
+    if(abs(centerSDF) > MAX_BRICK_CENTER_VALUE){
+      freePointer(prevClipPointer);
+      int newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
+      clipMap[brickIndex] = newPointer | DIRTY_BIT;
+    }else if(prevClipPointer >= BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
+      clipMap[brickIndex] = allocPointer() | DIRTY_BIT;
+    }
+  }
+
+  brick_job_queue[brickJobIndex] = brickJob; 
 }
