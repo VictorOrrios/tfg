@@ -76,6 +76,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   const BuildJob job = build_job_queue[jobIdx]; // TODO: Group shared memory might be faster
   const int3 brickOffset = int3(tId.x, tId.y, tId.z%MAX_BUILD_JOB_SIZE);
 
+  // Out of bounds thread for this build job => Discard
   if(any(brickOffset >= job.num_b.xyz)){
     return;
   }
@@ -91,6 +92,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     float centerSDF = map(p);
     if(abs(centerSDF) > MAX_BRICK_CENTER_VALUE){
       freePointer(prevClipPointer);
+      brickJob.id_valid.w=0;
       int newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
       clipMap[brickIndex] = newPointer | DIRTY_BIT;
     }else if(prevClipPointer >= BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){

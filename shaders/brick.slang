@@ -10,7 +10,13 @@
 
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 [[vk::binding(BindingPoints::objects)]] StructuredBuffer<SceneObject> objects;
-[[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
+
+[[vk::binding(BindingPoints::clipMap)]] RWTexture3D<uint32_t> clipMap;
+[[vk::binding(BindingPoints::brickAtlas)]] RWTexture3D<float> brickAtlas;
+
+[[vk::binding(BindingPoints::buildJobQ)]] StructuredBuffer<BuildJob> build_job_queue;
+[[vk::binding(BindingPoints::brickJobQ)]] RWStructuredBuffer<BrickJob> brick_job_queue;
+[[vk::binding(BindingPoints::freeListCounter)]] RWStructuredBuffer<uint32_t> free_list_counter;
 
 
 float map(float3 point){
@@ -48,8 +54,23 @@ float map(float3 point){
 [shader("compute")]
 [numthreads(BRICK_SIZE, BRICK_SIZE, BRICK_SIZE)]
 void computeMain(uint3 tId : SV_DispatchThreadID){
-  const float3 center = float3(0.5);
-  const float3 p = tId*VOXEL_SIZE - center;
-  float mapV = clamp(map(p)/MAX_VOXEL_VALUE,-1.0,1.0);
-  globalGrid[tId] = mapV;
+  const int brickJobIdx = tId.x/BRICK_SIZE + (tId.y/BRICK_SIZE)*BRICK_JOB_GROUP_X_DISPATCH_SIZE;
+  const BrickJob brickJob = brick_job_queue[brickJobIdx];
+
+  // Invalid job check
+  if(brickJob.id_valid.w == 0){
+    return;
+  }
+
+  int clipPointer = clipMap[brickJob.id_valid.xyz];
+  clipPointer = clipPointer & NOT_DIRTY_BIT;
+  clipMap[brickJob.id_valid.xyz] = clipPointer;
+
+  int3 brickPointer = int3(clipPointer%BRICK_PER_ATLAS_AXIS,clipPointer/BRICK_PER_ATLAS_AXIS,1);
+  int3 voxelId = int3(tId.x%BRICK_SIZE,tId.y%BRICK_SIZE,tId.z%BRICK_SIZE);
+  float3 brickPos = float3(brickJob.id_valid.xyz)*BRICK_AXIS_SIZE;
+  float3 p = brickPos + float3(voxelId)*VOXEL_SIZE;
+  float sdfValue = clamp(map(p)/MAX_VOXEL_VALUE,-1.0,1.0);
+
+  brickAtlas[brickPointer+voxelId] = sdfValue;
 }

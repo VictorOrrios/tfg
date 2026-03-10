@@ -507,7 +507,10 @@ public:
     vkCmdPushConstants(cmd, m_brickJobLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     
     // Dispatch
-    vkCmdDispatch(cmd, 256, glm::ceil(float(num_brick_jobs)/256.0f), 1);
+    vkCmdDispatch(cmd, 
+      BRICK_JOB_GROUP_X_DISPATCH_SIZE, 
+      glm::ceil(float(num_brick_jobs)/float(BRICK_JOB_GROUP_X_DISPATCH_SIZE)),
+      1);
   
     nvvk::cmdImageMemoryBarrier(cmd, {m_brickAtlas.image, VK_IMAGE_LAYOUT_GENERAL,
                                     VK_IMAGE_LAYOUT_GENERAL});
@@ -548,7 +551,7 @@ public:
     nvvk::cmdBufferMemoryBarrier(cmd, {m_brickJobQueue.buffer, VK_IMAGE_LAYOUT_GENERAL,
                                     VK_IMAGE_LAYOUT_GENERAL});
 
-    //executeBrickJobs(cmd, num_bricks);
+    executeBrickJobs(cmd, num_bricks);
   }
 
   // Apply post-processing
@@ -684,21 +687,22 @@ public:
     // Clipmap
     extent = {shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS};  // XYZ size
     format = VK_FORMAT_R32_UINT;  // Texel format
-    uint32_t clearValueUI = std::numeric_limits<uint32_t>::max();
-    clearColor = {.uint32={clearValueUI,clearValueUI,clearValueUI,clearValueUI}};
+    uint32_t clearValueClip = shaderio::UNIFORM_POSITIVE_BRICK_POINTER;
+    clearColor = {.uint32={clearValueClip,clearValueClip,clearValueClip,clearValueClip}};
     create3DStorageTexture(m_clipMap, extent, format, clearColor);
 
     // Brick atlas
     const int brick_size = BRICK_SIZE;
     const int atlas_axis_size = BRICK_PER_ATLAS_AXIS*BRICK_SIZE;
     extent = {atlas_axis_size,atlas_axis_size,brick_size};  // XYZ size
-    format = VK_FORMAT_R32_UINT;  // Texel format
+    format = VK_FORMAT_R16_SNORM;  // Texel format
     clearValueF = 1.0f;
     clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
     create3DStorageTexture(m_brickAtlas, extent, format, clearColor);
     
   }
 
+  // Warning: Deprecated
   void updateTextureDataCPU(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
 
@@ -870,34 +874,35 @@ public:
       // ------------------
       // Job queues
       // ------------------
+      VkDeviceSize b_size = MAX_NUM_BUILD_JOBS*sizeof(shaderio::BuildJob);
       NVVK_CHECK(allocator->createBuffer(m_buildJobQueue,
-                                     MAX_NUM_BUILD_JOBS*sizeof(shaderio::BuildJob),
+                                     b_size,
                                      VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
                                           | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
                                         ));
       NVVK_DBG_NAME(m_buildJobQueue.buffer);
 
-      VkDeviceSize b_size = shaderio::MAX_NUM_BRICK_JOBS*sizeof(shaderio::BrickJob);
-      std::vector<uint8_t> zeros(b_size, 0);
+      b_size = shaderio::MAX_NUM_BRICK_JOBS*sizeof(shaderio::BrickJob);
+      std::vector<uint8_t> zeros2(b_size, 0);
       NVVK_CHECK(allocator->createBuffer(m_brickJobQueue,
                                      b_size,
                                      VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
                                           | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
                                         )); // TODO: Is it necesary the transfer bit?
       NVVK_DBG_NAME(m_brickJobQueue.buffer);
-      NVVK_CHECK(m_stagingUploader.appendBuffer(m_brickJobQueue, 0,std::span(zeros)));  
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_brickJobQueue, 0,std::span(zeros2)));  
 
       // ------------------
       // Free list
       // ------------------
-      std::vector<glm::uint32_t> zeros2(1, 0);
+      std::vector<glm::uint32_t> zeros3(1, 0);
       NVVK_CHECK(allocator->createBuffer(m_freeListCounter,
                                      sizeof(glm::uint32_t),
                                      VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
                                           | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
                                         )); // TODO: Is it necesary the transfer bit?
       NVVK_DBG_NAME(m_freeListCounter.buffer);
-      NVVK_CHECK(m_stagingUploader.appendBuffer(m_freeListCounter, 0,std::span(zeros2)));
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_freeListCounter, 0,std::span(zeros3)));
 
       m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
 
