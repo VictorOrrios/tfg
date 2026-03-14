@@ -2,7 +2,9 @@
 #include "scene.hpp"
 #include "basisu_enc.h"
 #include "glm/common.hpp"
+#include "glm/ext/vector_int3.hpp"
 #include "nvutils/bounding_box.hpp"
+#include "nvutils/logger.hpp"
 #include "sdf.hpp"
 #include <cstdlib>
 #include <glm/ext/vector_float3.hpp>
@@ -304,8 +306,8 @@ void Scene::generateBBox(Node *n) {
   nvutils::Bbox bboxt(min, max);
   bboxt = bboxt.transform(glm::inverse(n->p.tInv));
 
-  min = glm::max(bboxt.min(), -0.5f);
-  max = glm::min(bboxt.max(), 0.5f);
+  min = glm::max(bboxt.min(), -1000.0f);
+  max = glm::min(bboxt.max(), 1000.0f);
 
   n->bbox = nvutils::Bbox(min, max);
 }
@@ -431,31 +433,71 @@ std::vector<float> Scene::generateDenseGrid() {
   return data;
 }
 
+std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox){
+  const glm::ivec3 zeros(0);
+  const glm::ivec3 max_index(NUM_BRICKS_PER_AXIS-1);
+  const glm::ivec3 hole_min(NUM_BRICKS_PER_AXIS/4-1);
+  const glm::ivec3 hole_max(NUM_BRICKS_PER_AXIS*3/4-1);
+  
+  std::vector<shaderio::BuildJob> jobs;
+  
+  for(int level=0; level<CLIPMAP_LEVELS; level++){
+    float axis_size = L0_AXIS_WORLD_SIZE * (1<<level);
+    glm::vec3 centerOffset = glm::vec3(0.5f*axis_size);
+    glm::ivec3 min_b = (bbox.min()+centerOffset)*(NUM_BRICKS_PER_AXIS/axis_size);
+    glm::ivec3 max_b = (bbox.max()+centerOffset)*(NUM_BRICKS_PER_AXIS/axis_size);
+
+    // Completly out of range check
+    if(glm::all(glm::lessThan(max_b,zeros)) || glm::all(glm::greaterThan(min_b,max_index)))
+      continue;
+
+    // Completly inside the hole in levels > 0
+    if(
+      level > 0 &&
+      glm::all(glm::greaterThanEqual(min_b,hole_min)) &&
+      glm::all(glm::lessThanEqual(max_b,hole_max))
+    )
+      continue;
+
+    min_b = glm::clamp(min_b, glm::ivec3(0), glm::ivec3(NUM_BRICKS_PER_AXIS-1));
+    max_b = glm::clamp(max_b, glm::ivec3(0), glm::ivec3(NUM_BRICKS_PER_AXIS-1));
+
+    glm::ivec3 num_b = max_b - min_b + glm::ivec3(1);
+
+    jobs.push_back({
+      .min_b_Q_offset=glm::ivec4(min_b,0),
+      .num_b_level=glm::ivec4(num_b,level)
+    });
+  }
+
+  return jobs;
+}
+
 // Splits BuildJobs into chunks that have a max size of MAX_BUILD_JOB_SIZE³
 std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
   const glm::ivec3 base_min_b = glm::ivec3(buildJ.min_b_Q_offset.x,buildJ.min_b_Q_offset.y,buildJ.min_b_Q_offset.z);
-  const glm::ivec3 base_num_b = glm::ivec3(buildJ.num_b.x,buildJ.num_b.y,buildJ.num_b.z);
+  const glm::ivec3 base_num_b = glm::ivec3(buildJ.num_b_level.x,buildJ.num_b_level.y,buildJ.num_b_level.z);
   const glm::ivec3 max_chunk = glm::ivec3(MAX_BUILD_JOB_SIZE);
 
   std::vector<shaderio::BuildJob> out;
 
-  for(int z = 0; z<buildJ.num_b.z; z+= MAX_BUILD_JOB_SIZE)
-  for(int y = 0; y<buildJ.num_b.y; y+= MAX_BUILD_JOB_SIZE)
-  for(int x = 0; x<buildJ.num_b.x; x+= MAX_BUILD_JOB_SIZE)
+  for(int z = 0; z<buildJ.num_b_level.z; z+= MAX_BUILD_JOB_SIZE)
+  for(int y = 0; y<buildJ.num_b_level.y; y+= MAX_BUILD_JOB_SIZE)
+  for(int x = 0; x<buildJ.num_b_level.x; x+= MAX_BUILD_JOB_SIZE)
   {
     glm::ivec3 offset = glm::ivec3(x,y,z);
     glm::ivec3 num_b = glm::min(base_num_b-offset,max_chunk);
     glm::ivec3 min_b = base_min_b+offset;
     out.push_back({
       .min_b_Q_offset=glm::ivec4(min_b,0),
-      .num_b=glm::ivec4(num_b,0)
+      .num_b_level=glm::ivec4(num_b,buildJ.num_b_level.w)
     });
   };
 
   int q_offset = buildJ.min_b_Q_offset.w;
   for(auto& job: out){
     job.min_b_Q_offset.w = q_offset;
-    const glm::ivec3 s = glm::ivec3(job.num_b);
+    const glm::ivec3 s = glm::ivec3(job.num_b_level);
     q_offset += s.x * s.y * s.z;
   }
 
@@ -464,32 +506,25 @@ std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
 
 // TODO: Implement with multiple levels
 std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> aabbs, int& num_bricks){
-  const glm::vec3 centerOffset = glm::vec3(0.5f);
-  std::vector<shaderio::BuildJob> out, baseJobs;
+  std::vector<shaderio::BuildJob> out, baseJobs, levelSplitted;
   num_bricks = 0;
 
   out.reserve(aabbs.size()*4);
   baseJobs.reserve(aabbs.size());
   
   for(auto& bbox: aabbs){
-
-    glm::ivec3 min_b = (bbox.min()+centerOffset)*float(NUM_BRICKS_PER_AXIS);
-    glm::ivec3 max_b = (bbox.max()+centerOffset)*float(NUM_BRICKS_PER_AXIS);
-    min_b = glm::clamp(min_b, glm::ivec3(0), glm::ivec3(NUM_BRICKS_PER_AXIS-1));
-    max_b = glm::clamp(max_b, glm::ivec3(0), glm::ivec3(NUM_BRICKS_PER_AXIS-1));
-
     // Negative volume build job check
-    if(glm::any(glm::lessThan(max_b,min_b)))
+    if(glm::any(glm::lessThan(bbox.max(),bbox.min())))
       continue;
 
-    glm::ivec3 num_b = max_b - min_b + glm::ivec3(1);
+    levelSplitted = createBaseBuildJobs(bbox);
 
-    baseJobs.push_back({
-      .min_b_Q_offset=glm::ivec4(min_b,num_bricks),
-      .num_b=glm::ivec4(num_b,0)
-    });
+    for(auto& job: levelSplitted){
+      job.min_b_Q_offset.w = num_bricks;
+      num_bricks += job.num_b_level.x * job.num_b_level.y * job.num_b_level.z;
+    }
+    baseJobs.insert(baseJobs.end(),levelSplitted.begin(),levelSplitted.end());
 
-    num_bricks += num_b.x * num_b.y * num_b.z;
   }
 
   for(auto& buildJob: baseJobs){
@@ -543,5 +578,11 @@ Scene::Scene() {
   torus->p.rotation = glm::vec3(0.75, 0, 0);
   updateNodeData(torus);
   addNode(torus);
+
+  Node *sphere2 = createNode(NodeType::Sphere);
+  sphere2->p.scale = 0.4;
+  sphere2->p.position = glm::vec3(1.35, -0.1, -0.2);
+  updateNodeData(sphere2);
+  addNode(sphere2);
 
 }

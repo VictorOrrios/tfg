@@ -117,10 +117,11 @@ float sphereTraceMap(Ray ray){
 // sTop:    r=s010 g=110 b=111 a=011
 // Left hand coordinate system (x=right, y=up, z=forwards)
 // TODO: This looks slow, might be interesting to make more efficient
-void sampleVoxel2(int3 index, out float4 sBottom, out float4 sTop){
+void sampleVoxel2(int3 index, int level, out float4 sBottom, out float4 sTop){
   const int NUM_VOXELS_PER_BRICK = BRICK_SIZE-1;
 
   int3 brickIndex = index/NUM_VOXELS_PER_BRICK;
+  brickIndex.z += NUM_BRICKS_PER_AXIS*level;
   uint pointer = clipMap[brickIndex] & NOT_DIRTY_BIT;
 
   if(pointer == UNIFORM_POSITIVE_BRICK_POINTER){
@@ -174,7 +175,7 @@ void getkConstants(float4 sBottom, float4 sTop, out float4 k0123, out float4 k45
 
 void getkConstants(int3 index, out float4 k0123, out float4 k4567){
   float4 sBottom, sTop;
-  sampleVoxel2(index, sBottom,sTop);
+  sampleVoxel2(index,0, sBottom,sTop);
   getkConstants(sBottom,sTop,k0123,k4567);
 }
 
@@ -303,7 +304,7 @@ float evalCubic(float t, float4 c){
 }
 
 float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
-  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS;
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * 10;
 
   // Debug visualizers
   const bool drawSilhouette = debugColor && true;  // Draw the silhouette of the grid
@@ -326,23 +327,36 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   const float3 gridSize = bbox.bMax - bbox.bMin;            // World space grid size
   const float3 voxelSize = float3(VOXEL_SIZE);                      // Size of a voxel
   const float3 voxelDensity = NUM_VOXELS_PER_AXIS/gridSize; // How many voxels per unit of world space
+  const float maxLevelExtent = 0.5*L0_AXIS_WORLD_SIZE*(1<<CLIPMAP_LEVELS);
   
   float3 hitCoor, voxelCoor;
   int3 currentIndex, lastIndex;
   float4 coeff, sBottom, sTop;
+  int level;
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
-    hitCoor = (p-bbox.bMin)*voxelDensity; // P coordinates relative to grid, in [0,1]³
+    //hitCoor = (p-bbox.bMin)*voxelDensity; // P coordinates relative to grid, in [0,1]³
+    float3 absP = abs(p);
+    float maxPComponent = max(absP.x,max(absP.y,absP.z));
+    level = max(0,1+int(
+      log2(maxPComponent/(L0_AXIS_WORLD_SIZE))
+    ));
+    float axis_size = L0_AXIS_WORLD_SIZE * (1<<level);
+    float3 center_offset = float3(0.5*axis_size);
+    float3 voxelDensity = NUM_VOXELS_PER_AXIS/float3(axis_size);
+    hitCoor = (p+center_offset)*voxelDensity; // P coordinates relative to grid, in [0,1]³
+
 
     // TODO: Check if it needs clamping
     currentIndex = max(int3(0),min(int3(NUM_VOXELS_PER_AXIS-1),
-      int3(trunc(hitCoor))));     // Grid index of p
+      int3(trunc(hitCoor))));      // Grid index of p
     voxelCoor = frac(hitCoor);    // P Coordinates relative to voxel, in [0,1]³
 
     // If this voxel hasn't been visited yet
-    if(steps == 1 || any(currentIndex != lastIndex)){
+    //if(steps == 1 || any(currentIndex != lastIndex)){
+    if(true){
       // Update current voxel data and index
-      sampleVoxel2(currentIndex,sBottom,sTop);
+      sampleVoxel2(currentIndex,level,sBottom,sTop);
       //getkConstants(sBottom,sTop,k0123,k4567);
       lastIndex = currentIndex;
     }
@@ -356,7 +370,9 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
     if(t < voxelSize.x/10){
 
       // Debug visualizer of step count
-      if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
+      //if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
+      if(drawSteps) debug = scalarToColor(float(level)/float(CLIPMAP_LEVELS-1));
+
       // Debug visualizer of hit grid index
       if(drawHitIndex) debug = float3(currentIndex)/float3(NUM_VOXELS_PER_AXIS);
       
@@ -537,7 +553,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   float3 p1, p2;
   float3 hitPoint;
   // Scene bounding box
-  float bboxSize = L0_AXIS_WORLD_SIZE;
+  float bboxSize = L0_AXIS_WORLD_SIZE*(1<<(CLIPMAP_LEVELS-1));
   float3 bboxPos = float3(0.0,0.0,0.0);
   Bbox bbox = unitBBox;
   bbox.bMin = bbox.bMin*bboxSize+bboxPos;
@@ -560,10 +576,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
     for(int i = 0; i<pushConst.numObjects; i++){
       const float eps = 0.05;
       float3 near, far, dir = r.dir;
-      Bbox bbox = aabbs[i];
-      bbox.bMin *= bboxSize;
-      bbox.bMax *= bboxSize;
-      bool hit = intersectCube(r, bbox, near, far);
+      Bbox bboxObj = aabbs[i];
+      bool hit = intersectCube(r, bboxObj, near, far);
       if(!hit) continue;
       float nearD = length(near-r.orig);
       if((depth < 0 || depth+eps > nearD) && length(near-far) < eps){
@@ -573,7 +587,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
     }
   }
 
-  normalImage[int2(fragCoord)] = float4(normal, 0.0F);
   albedoImage[int2(fragCoord)] = float4(albedo,1.0F);
+  normalImage[int2(fragCoord)] = float4(normal, 0.0F);
   depthImage[int2(fragCoord)] = depth;
 }

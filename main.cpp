@@ -295,7 +295,7 @@ public:
         m_testSize = jobs.size();
         m_testMed = glm::ivec3(0);
         for(auto& job: jobs){
-          auto num_b = glm::ivec3(job.num_b);
+          auto num_b = glm::ivec3(job.num_b_level);
           if(glm::any(glm::greaterThan(num_b, glm::ivec3(MAX_BUILD_JOB_SIZE)))){
             LOGI("OH NO! %i,%i,%i\n",num_b.x,num_b.y,num_b.z);
           }
@@ -688,7 +688,7 @@ public:
     create3DStorageTexture(m_globalGrid, extent, format, clearColor);
 
     // Clipmap
-    extent = {NUM_BRICKS_PER_AXIS,NUM_BRICKS_PER_AXIS,NUM_BRICKS_PER_AXIS};  // XYZ size
+    extent = {NUM_BRICKS_PER_AXIS,NUM_BRICKS_PER_AXIS,NUM_BRICKS_PER_AXIS*CLIPMAP_LEVELS};  // XYZ size
     format = VK_FORMAT_R32_UINT;  // Texel format
     uint32_t clearValueClip = shaderio::UNIFORM_POSITIVE_BRICK_POINTER;
     clearColor = {.uint32={clearValueClip,clearValueClip,clearValueClip,clearValueClip}};

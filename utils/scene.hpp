@@ -67,6 +67,7 @@ private:
   void generateBBox(Node *n);
   float map(glm::vec3 p);
 
+  std::vector<shaderio::BuildJob> createBaseBuildJobs(nvutils::Bbox aabb);
   std::vector<shaderio::BuildJob> splitBuildJob(shaderio::BuildJob);
 
   std::vector<Node> m_root;

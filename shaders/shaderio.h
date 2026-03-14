@@ -42,11 +42,11 @@ NAMESPACE_SHADERIO_BEGIN()
 
 #define NUM_BRICKS_PER_AXIS  64
 CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS)
-#define CLIPMAP_LEVELS 5
+#define CLIPMAP_LEVELS 2
 const static int UNIFORM_POSITIVE_BRICK_POINTER = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS+1;
 const static int UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTER+1;
 
-#define L0_AXIS_WORLD_SIZE 3.0
+#define L0_AXIS_WORLD_SIZE 2.0
 
 #define BRICK_SIZE  8
 const static float BRICK_AXIS_SIZE = L0_AXIS_WORLD_SIZE/NUM_BRICKS_PER_AXIS;
@@ -136,12 +136,13 @@ CHECK_STRUCT_ALIGNMENT(SceneObject)
 
 struct BuildJob{
   int4 min_b_Q_offset;
-  int4 num_b;
+  int4 num_b_level;
 };
 CHECK_STRUCT_ALIGNMENT(BuildJob)
 
 struct BrickJob{
-  int4 id_valid;
+  int4 id;
+  int2 valid_level;
 };
 CHECK_STRUCT_ALIGNMENT(BrickJob)
 

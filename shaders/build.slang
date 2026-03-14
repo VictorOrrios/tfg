@@ -68,35 +68,49 @@ void freePointer(int pointer){
 [shader("compute")]
 [numthreads(MAX_BUILD_JOB_SIZE, MAX_BUILD_JOB_SIZE, MAX_BUILD_JOB_SIZE)]
 void computeMain(uint3 tId : SV_DispatchThreadID){
-
-  BrickJob brickJob = BrickJob(int4(0));
-  int prevClipPointer;
+  const int3 hole_min = int3(NUM_BRICKS_PER_AXIS/4-1);
+  const int3 hole_max = int3(NUM_BRICKS_PER_AXIS*3/4-1);
 
   const int jobIdx = tId.z/MAX_BUILD_JOB_SIZE;
   const BuildJob job = build_job_queue[jobIdx]; // TODO: Group shared memory might be faster
   const int3 brickOffset = int3(tId.x, tId.y, tId.z%MAX_BUILD_JOB_SIZE);
 
   // Out of bounds thread for this build job => Discard
-  if(any(brickOffset >= job.num_b.xyz)){
+  if(any(brickOffset >= job.num_b_level.xyz)){
     return;
   }
 
-  const int3 brickIndex = brickOffset + job.min_b_Q_offset.xyz;
-  const int brickJobOffset = brickOffset.x + brickOffset.y*job.num_b.x + brickOffset.z*job.num_b.x*job.num_b.y;
+  const int level = job.num_b_level.w;
+  const int brickJobOffset = brickOffset.x + brickOffset.y*job.num_b_level.x + brickOffset.z*job.num_b_level.x*job.num_b_level.y;
   const int brickJobIndex = brickJobOffset + job.min_b_Q_offset.w;
 
-  InterlockedOr(clipMap[brickIndex],DIRTY_BIT,prevClipPointer);
+  int3 brickIndex = brickOffset + job.min_b_Q_offset.xyz;
+  int3 clipIndex = brickIndex;
+  clipIndex.z += level*NUM_BRICKS_PER_AXIS;
+  
+  int prevClipPointer, newPointer;
+  BrickJob brickJob = BrickJob(int4(0),int2(0)); // Initialize as non valid job
+
+  InterlockedOr(clipMap[clipIndex],DIRTY_BIT,prevClipPointer);
   if((prevClipPointer & DIRTY_BIT) == 0){
-    brickJob.id_valid = int4(brickIndex,1);
-    float3 p = (float3(brickIndex)+0.5)*BRICK_AXIS_SIZE-float3(0.5*L0_AXIS_WORLD_SIZE);
-    float centerSDF = map(p);
-    if(abs(centerSDF) > MAX_BRICK_CENTER_VALUE){
-      freePointer(prevClipPointer);
-      int newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
-      clipMap[brickIndex] = newPointer | DIRTY_BIT;
-    }else if(prevClipPointer >= BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
-      clipMap[brickIndex] = allocPointer() | DIRTY_BIT;
+    // Brick outside hole in levels > 0 check
+    if(level == 0 || any(brickIndex < hole_min) || any(brickIndex > hole_max)){
+      brickJob.id = int4(brickIndex,0);
+      brickJob.valid_level = int2(1,level);
+      float axis_size = L0_AXIS_WORLD_SIZE * (1<<level);
+      float brick_axis_size = BRICK_AXIS_SIZE * (1<<level);
+      float3 center_offset = float3(0.5*axis_size);
+      float3 p = (float3(brickIndex)+0.5)*brick_axis_size-center_offset;
+      float centerSDF = map(p);
+      if(abs(centerSDF) > MAX_BRICK_CENTER_VALUE){
+        freePointer(prevClipPointer);
+        newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
+      }else if(prevClipPointer >= BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
+        newPointer = allocPointer();
+      }
+      clipMap[clipIndex] = newPointer | DIRTY_BIT;
     }
+    
   }
 
   brick_job_queue[brickJobIndex] = brickJob; 
