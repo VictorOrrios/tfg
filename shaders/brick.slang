@@ -74,7 +74,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   if(clipPointer < BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
     int3 brickPointer = int3(clipPointer%BRICK_PER_ATLAS_AXIS,clipPointer/BRICK_PER_ATLAS_AXIS,0)*BRICK_SIZE;
     int3 voxelId = int3(tId.x%BRICK_SIZE,tId.y%BRICK_SIZE,tId.z%BRICK_SIZE);
-    float3 brickPos = float3(brickJob.id_valid.xyz)*BRICK_AXIS_SIZE-float3(0.5);
+    float3 brickPos = float3(brickJob.id_valid.xyz)*BRICK_AXIS_SIZE-float3(0.5*L0_AXIS_WORLD_SIZE);
     float3 p = brickPos + float3(voxelId)*VOXEL_SIZE;
     float sdfValue = clamp(map(p)/MAX_VOXEL_VALUE,-1.0,1.0);
 

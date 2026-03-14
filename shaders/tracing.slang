@@ -537,7 +537,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   float3 p1, p2;
   float3 hitPoint;
   // Scene bounding box
-  float bboxSize = 1.0;
+  float bboxSize = L0_AXIS_WORLD_SIZE;
   float3 bboxPos = float3(0.0,0.0,0.0);
   Bbox bbox = unitBBox;
   bbox.bMin = bbox.bMin*bboxSize+bboxPos;
