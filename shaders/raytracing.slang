@@ -44,14 +44,14 @@ void sampleVoxel2(int3 index, out float4 sBottom, out float4 sTop){
     globalGrid[index + int3(1,0,0)],  // s100
     globalGrid[index + int3(1,0,1)],  // s101
     globalGrid[index + int3(0,0,1)]   // s001
-  )  * MAX_VOXEL_VALUE;
+  )  * MAX_VOXEL_VALUES[0];
 
   sTop = float4(
     globalGrid[index + int3(0,1,0)],  // s010
     globalGrid[index + int3(1,1,0)],  // s110
     globalGrid[index + int3(1,1,1)],  // s111
     globalGrid[index + int3(0,1,1)]   // s011
-  )  * MAX_VOXEL_VALUE;
+  )  * MAX_VOXEL_VALUES[0];
 }
 
 float triLerp(float3 p, float4 sBottom, float4 sTop){

@@ -86,31 +86,34 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
 
   int3 brickIndex = brickOffset + job.min_b_Q_offset.xyz;
   int3 clipIndex = brickIndex;
-  clipIndex.z += level*NUM_BRICKS_PER_AXIS;
+  clipIndex.z += NUM_BRICKS_PER_AXIS * level;
   
-  int prevClipPointer, newPointer;
-  BrickJob brickJob = BrickJob(int4(0),int2(0)); // Initialize as non valid job
+  int prevClipPointer;
+  BrickJob brickJob = BrickJob(int4(0),int4(0)); // Initialize as non valid job
 
   InterlockedOr(clipMap[clipIndex],DIRTY_BIT,prevClipPointer);
   if((prevClipPointer & DIRTY_BIT) == 0){
     // Brick outside hole in levels > 0 check
-    if(level == 0 || any(brickIndex < hole_min) || any(brickIndex > hole_max)){
+    if(level == 0 || any(brickIndex <= hole_min) ||  any(brickIndex >= hole_max)){
       brickJob.id = int4(brickIndex,0);
-      brickJob.valid_level = int2(1,level);
-      float axis_size = L0_AXIS_WORLD_SIZE * (1<<level);
-      float brick_axis_size = BRICK_AXIS_SIZE * (1<<level);
+      brickJob.valid_level = int4(1,level,0,0);
+
+      const float axis_size = AXIS_SIZES[level];
+      const float brick_size = BRICK_SIZES[level];
+      const float max_brick_value = MAX_BRICK_VALUES[level];
+
       float3 center_offset = float3(0.5*axis_size);
-      float3 p = (float3(brickIndex)+0.5)*brick_axis_size-center_offset;
+      float3 p = (float3(brickIndex)+0.5)*brick_size-center_offset;
       float centerSDF = map(p);
-      if(abs(centerSDF) > MAX_BRICK_CENTER_VALUE){
+      
+      if(abs(centerSDF) > max_brick_value){
         freePointer(prevClipPointer);
-        newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
+        int newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
+        clipMap[clipIndex] = newPointer | DIRTY_BIT;
       }else if(prevClipPointer >= BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
-        newPointer = allocPointer();
+        clipMap[clipIndex] = allocPointer() | DIRTY_BIT;
       }
-      clipMap[clipIndex] = newPointer | DIRTY_BIT;
     }
-    
   }
 
   brick_job_queue[brickJobIndex] = brickJob; 

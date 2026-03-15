@@ -23,9 +23,11 @@
 #ifdef __cplusplus
 #define CHECK_STRUCT_ALIGNMENT(_s) static_assert(sizeof(_s) % 8 == 0);
 #define CHECK_GRID_ALIGNMENT(_s) static_assert((_s) % 8 == 0);
+#define CHECK_ARRAY_SIZE(_a) static_assert(int(sizeof(_a) / sizeof((_a)[0])) == CLIPMAP_LEVELS)
 #elif defined(__SLANG__)
 #define CHECK_STRUCT_ALIGNMENT(_s)
-#define CHECK_GRID_ALIGNMENT(_s);
+#define CHECK_GRID_ALIGNMENT(_s)
+#define CHECK_ARRAY_SIZE(_a)
 #endif
 
 #include "nvshaders/slang_types.h"
@@ -40,31 +42,48 @@ NAMESPACE_SHADERIO_BEGIN()
 #define MAX_SCENE_OBJECTS  1024
 #define BRICK_PER_ATLAS_AXIS 1024
 
-#define NUM_BRICKS_PER_AXIS  64
-CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS)
-#define CLIPMAP_LEVELS 2
-const static int UNIFORM_POSITIVE_BRICK_POINTER = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS+1;
-const static int UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTER+1;
+// Global grid parameters
+#define NUM_BRICKS_PER_AXIS 64  // How many bricks per axis per level in clip map
+#define L0_AXIS_WORLD_SIZE  2.0 // Axis size of the first clip map level
+#define CLIPMAP_LEVELS      5   // How many levels are in the clip map
+#define BRICK_SIZE          8   // How many values per axis does a brick store
+CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS) // Power of two needed for faster calculations
 
-#define L0_AXIS_WORLD_SIZE 2.0
-
-#define BRICK_SIZE  8
-const static float BRICK_AXIS_SIZE = L0_AXIS_WORLD_SIZE/NUM_BRICKS_PER_AXIS;
+// Extent calculations
 const static int NUM_VOXELS_PER_AXIS = NUM_BRICKS_PER_AXIS*(BRICK_SIZE-1);
 const static int NUM_VALUES_PER_AXIS = NUM_BRICKS_PER_AXIS*BRICK_SIZE;
-const static float VOXEL_SIZE = BRICK_AXIS_SIZE/(BRICK_SIZE-1);
-const static float MAX_VOXEL_VALUE = 2.5*sqrt(3.0*VOXEL_SIZE*VOXEL_SIZE);
-const static float MAX_BRICK_CENTER_VALUE = sqrt(3.0*BRICK_AXIS_SIZE*BRICK_AXIS_SIZE)/2.0+MAX_VOXEL_VALUE;
 
+// Sizes definition
+#define S_AXIS(level) (L0_AXIS_WORLD_SIZE * (1<<level))
+#define S_BRICK(level) (S_AXIS(level) / NUM_BRICKS_PER_AXIS)
+#define S_VOXEL(level) (S_BRICK(level) / (BRICK_SIZE - 1))
+#define MAX_VOXEL_V(level) (float(2.5 * sqrt(3.0 * S_VOXEL(level) * S_VOXEL(level))))
+#define MAX_BRICK_V(level) (float(sqrt(3.0 * S_BRICK(level) * S_BRICK(level)) / 2.0 + MAX_VOXEL_V(level)))
+const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
+  S_AXIS(0),S_AXIS(1),S_AXIS(2),S_AXIS(3),S_AXIS(4)};
+const static float BRICK_SIZES[CLIPMAP_LEVELS] = {
+  S_BRICK(0),S_BRICK(1),S_BRICK(2),S_BRICK(3),S_BRICK(4)};
+const static float VOXEL_SIZES[CLIPMAP_LEVELS] = {
+  S_VOXEL(0),S_VOXEL(1),S_VOXEL(2),S_VOXEL(3),S_VOXEL(4)};
+const static float MAX_VOXEL_VALUES[CLIPMAP_LEVELS] = {
+  MAX_VOXEL_V(0),MAX_VOXEL_V(1),MAX_VOXEL_V(2),MAX_VOXEL_V(3),MAX_VOXEL_V(4)};
+const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
+  MAX_BRICK_V(0),MAX_BRICK_V(1),MAX_BRICK_V(2),MAX_BRICK_V(3),MAX_BRICK_V(4)};
+
+// Build & Brick jobs constants
 #define MAX_BUILD_JOB_SIZE 8
 #define MAX_NUM_BUILD_JOBS 2048
 #define BRICK_JOB_GROUP_X_DISPATCH_SIZE 256
 const static int MAX_NUM_BRICK_JOBS = MAX_NUM_BUILD_JOBS*MAX_BUILD_JOB_SIZE*MAX_BUILD_JOB_SIZE*MAX_BUILD_JOB_SIZE;
 
-#define DIRTY_BIT 0x80000000 // Most significant bit of a 32 bit variable
+// Dirty bit definitions for mutual exclusion
+#define DIRTY_BIT 0x80000000        // Most significant bit of a 32 bit variable
 #define NOT_DIRTY_BIT (~DIRTY_BIT) 
 
-// TODO: Clean this file and iclude de std packing used per buffer
+// Magic pointer indicating unirform values in brick (not stored in atlas)
+const static int UNIFORM_POSITIVE_BRICK_POINTER = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS+1;
+const static int UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTER+1;
+
 
 // Shared between Host and Device
 enum BindingPoints
@@ -142,7 +161,7 @@ CHECK_STRUCT_ALIGNMENT(BuildJob)
 
 struct BrickJob{
   int4 id;
-  int2 valid_level;
+  int4 valid_level;
 };
 CHECK_STRUCT_ALIGNMENT(BrickJob)
 

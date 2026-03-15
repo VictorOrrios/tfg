@@ -442,10 +442,10 @@ std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox){
   std::vector<shaderio::BuildJob> jobs;
   
   for(int level=0; level<CLIPMAP_LEVELS; level++){
-    float axis_size = L0_AXIS_WORLD_SIZE * (1<<level);
+    float axis_size = shaderio::AXIS_SIZES[level];
     glm::vec3 centerOffset = glm::vec3(0.5f*axis_size);
-    glm::ivec3 min_b = (bbox.min()+centerOffset)*(NUM_BRICKS_PER_AXIS/axis_size);
-    glm::ivec3 max_b = (bbox.max()+centerOffset)*(NUM_BRICKS_PER_AXIS/axis_size);
+    glm::ivec3 min_b = (bbox.min()+centerOffset)/shaderio::BRICK_SIZES[level];
+    glm::ivec3 max_b = (bbox.max()+centerOffset)/shaderio::BRICK_SIZES[level];
 
     // Completly out of range check
     if(glm::all(glm::lessThan(max_b,zeros)) || glm::all(glm::greaterThan(min_b,max_index)))
@@ -454,8 +454,8 @@ std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox){
     // Completly inside the hole in levels > 0
     if(
       level > 0 &&
-      glm::all(glm::greaterThanEqual(min_b,hole_min)) &&
-      glm::all(glm::lessThanEqual(max_b,hole_max))
+      glm::all(glm::greaterThan(min_b,hole_min)) &&
+      glm::all(glm::lessThan(max_b,hole_max))
     )
       continue;
 
@@ -567,8 +567,9 @@ Scene::Scene() {
   sphereGrid->p.position = glm::vec3(0, 0, -0.4);
   sphereGrid->p.rotation = glm::vec3(0);
   sphereGrid->p.scale = 0.1;
-  sphereGrid->p.repOp = (int)RepetitionOp::IlimRepetition;
+  sphereGrid->p.repOp = (int)RepetitionOp::LimRepetition;
   sphereGrid->p.spacing = glm::vec3(0.14,0.14,0);
+  sphereGrid->p.limit = glm::ivec3(13,13,1);
   updateNodeData(sphereGrid);
   addNode(sphereGrid);
 
@@ -582,7 +583,16 @@ Scene::Scene() {
   Node *sphere2 = createNode(NodeType::Sphere);
   sphere2->p.scale = 0.4;
   sphere2->p.position = glm::vec3(1.35, -0.1, -0.2);
+  sphere2->p.rotation = glm::vec3(0.0);
   updateNodeData(sphere2);
   addNode(sphere2);
 
+  for(int level=1; level<CLIPMAP_LEVELS; level++){
+    Node *snowManL = createNode(NodeType::Snowman);
+    snowManL->p.scale = 0.5*(1<<level);
+    snowManL->p.position = glm::vec3(-((L0_AXIS_WORLD_SIZE*0.5)*(1<<level))*3/4, 0.0, 0.0);
+    snowManL->p.rotation = glm::vec3(0.0,0.4*level,0.0);
+    updateNodeData(snowManL);
+    addNode(snowManL);
+  }
 }

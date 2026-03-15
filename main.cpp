@@ -182,6 +182,9 @@ public:
     // Init profiler with a single queue
     m_profilerTimeline = m_info.profilerManager->createTimeline({"graphics"});
     m_profilerGpuTimer.init(m_profilerTimeline, app->getDevice(), app->getPhysicalDevice(), app->getQueue(0).familyIndex, true);
+  
+    // Initial camera params
+    m_cameraManip->setMode(nvutils::CameraManipulator::Modes::Fly);
   }
 
   //-------------------------------------------------------------------------------
@@ -990,6 +993,7 @@ public:
   }
 
   VkShaderModuleCreateInfo createShaderModule(VkShaderModule* shaderModule, const std::filesystem::path& filename, const std::span<const uint32_t> spirv){
+    vkDestroyShaderModule(m_app->getDevice(), *shaderModule, nullptr);
 
     // Use pre-compiled shaders by default
     VkShaderModuleCreateInfo shaderCode = nvsamples::getShaderModuleCreateInfo(spirv);
@@ -1016,12 +1020,6 @@ public:
   }
 
   void compileAndCreateShaders(){
-    // Destroy the previous shader module, if it exist
-    vkDestroyShaderModule(m_app->getDevice(), m_tracingModule, nullptr);
-    vkDestroyShaderModule(m_app->getDevice(), m_lightingModule, nullptr);
-    vkDestroyShaderModule(m_app->getDevice(), m_rtModule, nullptr);
-    vkDestroyShaderModule(m_app->getDevice(), m_brickJobModule, nullptr);
-    vkDestroyShaderModule(m_app->getDevice(), m_buildJobModule, nullptr);
 
     createShaderModule(&m_tracingModule,"tracing.slang",tracing_slang);
     createShaderModule(&m_lightingModule,"lighting.slang",lighting_slang);
@@ -1040,6 +1038,8 @@ public:
   }
 
   void createComputePipeline(VkPipeline* pipeline, VkPipelineLayout* pipelineLayout, VkShaderModule* shaderModule){
+    vkDestroyPipeline(m_app->getDevice(),*pipeline,nullptr);
+
     VkPipelineShaderStageCreateInfo stage{};
     stage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stage.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -1062,6 +1062,8 @@ public:
   }
 
   void createRTPipeline(VkPipeline* pipeline, VkPipelineLayout* pipelineLayout){
+    vkDestroyPipeline(m_app->getDevice(),*pipeline,nullptr);
+
     // Creating all shaders
     enum StageIndices
     {
@@ -1152,11 +1154,6 @@ public:
   void reloadShaders(){
     compileAndCreateShaders();
     vkDeviceWaitIdle(m_app->getDevice());
-    vkDestroyPipeline(m_app->getDevice(),m_tracingPipeline,nullptr);
-    vkDestroyPipeline(m_app->getDevice(),m_lightingPipeline,nullptr);
-    vkDestroyPipeline(m_app->getDevice(),m_rtPipeline,nullptr);
-    vkDestroyPipeline(m_app->getDevice(),m_brickJobPipeline,nullptr);
-    vkDestroyPipeline(m_app->getDevice(),m_buildJobPipeline,nullptr);
     createPipelines();
   }
 

@@ -80,13 +80,16 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     int3 brickPointer = int3(clipPointer%BRICK_PER_ATLAS_AXIS,clipPointer/BRICK_PER_ATLAS_AXIS,0)*BRICK_SIZE;
     int3 voxelId = int3(tId.x%BRICK_SIZE,tId.y%BRICK_SIZE,tId.z%BRICK_SIZE);
 
-    float axis_size = L0_AXIS_WORLD_SIZE * (1<<level);
-    float brick_axis_size = BRICK_AXIS_SIZE * (1<<level);
-    float3 center_offset = float3(0.5*axis_size);
-    float3 brickPos = float3(id)*brick_axis_size - center_offset;
-    float3 p = brickPos + float3(voxelId)*VOXEL_SIZE;
+    const float axis_size = AXIS_SIZES[level];
+    const float brick_size = BRICK_SIZES[level];
+    const float voxel_size = VOXEL_SIZES[level];
+    const float max_voxel_value = MAX_VOXEL_VALUES[level];
 
-    float sdfValue = clamp(map(p)/MAX_VOXEL_VALUE,-1.0,1.0);
+    float3 center_offset = float3(0.5*axis_size);
+    float3 brickPos = float3(id)*brick_size - center_offset;
+    float3 p = brickPos + float3(voxelId)*voxel_size;
+
+    float sdfValue = clamp(map(p)/max_voxel_value,-1.0,1.0);
 
     brickAtlas[brickPointer+voxelId] = sdfValue;
   }

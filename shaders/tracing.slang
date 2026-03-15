@@ -119,17 +119,18 @@ float sphereTraceMap(Ray ray){
 // TODO: This looks slow, might be interesting to make more efficient
 void sampleVoxel2(int3 index, int level, out float4 sBottom, out float4 sTop){
   const int NUM_VOXELS_PER_BRICK = BRICK_SIZE-1;
+  const float max_voxel_value = MAX_VOXEL_VALUES[level];
 
   int3 brickIndex = index/NUM_VOXELS_PER_BRICK;
   brickIndex.z += NUM_BRICKS_PER_AXIS*level;
   uint pointer = clipMap[brickIndex] & NOT_DIRTY_BIT;
 
   if(pointer == UNIFORM_POSITIVE_BRICK_POINTER){
-    sBottom = float4(MAX_VOXEL_VALUE);
-    sTop    = float4(MAX_VOXEL_VALUE);
+    sBottom = float4(max_voxel_value);
+    sTop    = float4(max_voxel_value);
   }else if(pointer == UNIFORM_NEGATIVE_BRICK_POINTER){
-    sBottom = float4(-MAX_VOXEL_VALUE);
-    sTop    = float4(-MAX_VOXEL_VALUE);
+    sBottom = float4(-max_voxel_value);
+    sTop    = float4(-max_voxel_value);
   }else{
 
     int3 brickAtlasIndex = int3(pointer%BRICK_PER_ATLAS_AXIS,pointer/BRICK_PER_ATLAS_AXIS,0);
@@ -141,14 +142,14 @@ void sampleVoxel2(int3 index, int level, out float4 sBottom, out float4 sTop){
       brickAtlas[voxelIndex + int3(1,0,0)],  // s100
       brickAtlas[voxelIndex + int3(1,0,1)],  // s101
       brickAtlas[voxelIndex + int3(0,0,1)]   // s001
-    ) * MAX_VOXEL_VALUE;
+    ) * max_voxel_value;
 
     sTop = float4(
       brickAtlas[voxelIndex + int3(0,1,0)],  // s010
       brickAtlas[voxelIndex + int3(1,1,0)],  // s110
       brickAtlas[voxelIndex + int3(1,1,1)],  // s111
       brickAtlas[voxelIndex + int3(0,1,1)]   // s011
-    ) * MAX_VOXEL_VALUE;
+    ) * max_voxel_value;
   }
 }
 
@@ -304,12 +305,13 @@ float evalCubic(float t, float4 c){
 }
 
 float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
-  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * 10;
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
 
   // Debug visualizers
-  const bool drawSilhouette = debugColor && true;  // Draw the silhouette of the grid
-  const bool drawSteps      = debugColor && true;   // Draw the numer of steps taken
-  const bool drawHitIndex   = debugColor && false;  // Draw the grid voxel index at the hit point
+  const bool drawSilhouette = debugColor && true;   // Draw the silhouette of the grid
+  const bool drawSteps      = debugColor && true;  // Draw the numer of steps taken
+  const bool drawLevel      = debugColor && false;   // Draw the clip map level at hit point
+  const bool drawHitIndex   = debugColor && false;  // Draw the grid brick index at the hit point
 
   normal = float3(0);
 
@@ -323,38 +325,33 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
     debug = scalarToColor(-1);
     return 1;
   }
-
-  const float3 gridSize = bbox.bMax - bbox.bMin;            // World space grid size
-  const float3 voxelSize = float3(VOXEL_SIZE);                      // Size of a voxel
-  const float3 voxelDensity = NUM_VOXELS_PER_AXIS/gridSize; // How many voxels per unit of world space
-  const float maxLevelExtent = 0.5*L0_AXIS_WORLD_SIZE*(1<<CLIPMAP_LEVELS);
   
   float3 hitCoor, voxelCoor;
   int3 currentIndex, lastIndex;
-  float4 coeff, sBottom, sTop;
+  float4 sBottom, sTop;
   int level;
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
-    //hitCoor = (p-bbox.bMin)*voxelDensity; // P coordinates relative to grid, in [0,1]³
+    // Current level caluclation
     float3 absP = abs(p);
     float maxPComponent = max(absP.x,max(absP.y,absP.z));
-    level = max(0,1+int(
-      log2(maxPComponent/(L0_AXIS_WORLD_SIZE))
-    ));
-    float axis_size = L0_AXIS_WORLD_SIZE * (1<<level);
+    level = max(0,int(trunc(
+      log2(maxPComponent/(0.25f*float(L0_AXIS_WORLD_SIZE)))
+    )));
+
+    // Hit coordinates calculation
+    const float axis_size = AXIS_SIZES[level];
+    const float voxel_size = VOXEL_SIZES[level];
     float3 center_offset = float3(0.5*axis_size);
     float3 voxelDensity = NUM_VOXELS_PER_AXIS/float3(axis_size);
     hitCoor = (p+center_offset)*voxelDensity; // P coordinates relative to grid, in [0,1]³
 
-
-    // TODO: Check if it needs clamping
     currentIndex = max(int3(0),min(int3(NUM_VOXELS_PER_AXIS-1),
       int3(trunc(hitCoor))));      // Grid index of p
     voxelCoor = frac(hitCoor);    // P Coordinates relative to voxel, in [0,1]³
 
     // If this voxel hasn't been visited yet
-    //if(steps == 1 || any(currentIndex != lastIndex)){
-    if(true){
+    if(steps == 1 || any(currentIndex != lastIndex)){
       // Update current voxel data and index
       sampleVoxel2(currentIndex,level,sBottom,sTop);
       //getkConstants(sBottom,sTop,k0123,k4567);
@@ -367,15 +364,17 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
 
     // Cutoff condition: A distance of 1/10 voxels
     // TODO: Fine tune to better performance/quality
-    if(t < voxelSize.x/10){
+    if(t < voxel_size/10){
 
       // Debug visualizer of step count
-      //if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
-      if(drawSteps) debug = scalarToColor(float(level)/float(CLIPMAP_LEVELS-1));
+      if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
 
-      // Debug visualizer of hit grid index
-      if(drawHitIndex) debug = float3(currentIndex)/float3(NUM_VOXELS_PER_AXIS);
-      
+      // Level indicator
+      if(drawLevel) debug = scalarToColor(float(level)/float(CLIPMAP_LEVELS-1));
+
+      // Debug visualizer of hit brick index
+      if(drawHitIndex) debug = float3(currentIndex/(BRICK_SIZE-1))/float3(NUM_BRICKS_PER_AXIS);
+
       normal = calcNormalAnalytic(voxelCoor,sBottom,sTop);
       // Returns depth of hit
       return length(p - r.orig);
@@ -465,7 +464,14 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal){
     int pointer = clipMap[index];
     if(pointer < BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
       // Debug visualizer of step count
-      if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
+      //if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
+      if(drawSteps){
+        if((pointer & DIRTY_BIT) != 0){
+          debug = float3(1,1,0);
+        }else{
+          debug = scalarToColor(float(pointer)/float(BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS*0.2));
+        }
+      }
 
       // Calculate normal based on last step
       normal = -step*lastTraversal;
@@ -553,7 +559,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   float3 p1, p2;
   float3 hitPoint;
   // Scene bounding box
-  float bboxSize = L0_AXIS_WORLD_SIZE*(1<<(CLIPMAP_LEVELS-1));
+  float bboxSize = AXIS_SIZES[CLIPMAP_LEVELS-1];
   float3 bboxPos = float3(0.0,0.0,0.0);
   Bbox bbox = unitBBox;
   bbox.bMin = bbox.bMin*bboxSize+bboxPos;
