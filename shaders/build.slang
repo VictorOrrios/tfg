@@ -15,7 +15,8 @@
 
 [[vk::binding(BindingPoints::buildJobQ)]] StructuredBuffer<BuildJob> build_job_queue;
 [[vk::binding(BindingPoints::brickJobQ)]] RWStructuredBuffer<BrickJob> brick_job_queue;
-[[vk::binding(BindingPoints::freeListCounter)]] RWStructuredBuffer<uint32_t> free_list_counter;
+[[vk::binding(BindingPoints::counters)]] RWStructuredBuffer<uint32_t> counters;
+[[vk::binding(BindingPoints::indirectCommands)]] RWStructuredBuffer<DispatchIndirectCommand> indirect_commands;
 
 
 float map(float3 point){
@@ -52,7 +53,7 @@ float map(float3 point){
 
 int allocPointer(){
   int prevValue;
-  InterlockedAdd(free_list_counter[0],1,prevValue);
+  InterlockedAdd(counters[int(Counters::allocCounter)],1,prevValue);
   // TODO: Maybe add a max value check
   return prevValue;
 }
@@ -76,27 +77,23 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   const int3 brickOffset = int3(tId.x, tId.y, tId.z%MAX_BUILD_JOB_SIZE);
 
   // Out of bounds thread for this build job => Discard
-  if(any(brickOffset >= job.num_b_level.xyz)){
+  if(any(brickOffset >= job.num_b.xyz)){
     return;
   }
 
-  const int level = job.num_b_level.w;
-  const int brickJobOffset = brickOffset.x + brickOffset.y*job.num_b_level.x + brickOffset.z*job.num_b_level.x*job.num_b_level.y;
-  const int brickJobIndex = brickJobOffset + job.min_b_Q_offset.w;
+  const int level = job.min_b_level.w;
 
-  int3 brickIndex = brickOffset + job.min_b_Q_offset.xyz;
+  int3 brickIndex = brickOffset + job.min_b_level.xyz;
   int3 clipIndex = brickIndex;
   clipIndex.z += NUM_BRICKS_PER_AXIS * level;
   
   int prevClipPointer;
-  BrickJob brickJob = BrickJob(int4(0),int4(0)); // Initialize as non valid job
-
   InterlockedOr(clipMap[clipIndex],DIRTY_BIT,prevClipPointer);
+
   if((prevClipPointer & DIRTY_BIT) == 0){
     // Brick outside hole in levels > 0 check
     if(level == 0 || any(brickIndex <= hole_min) ||  any(brickIndex >= hole_max)){
-      brickJob.id = int4(brickIndex,0);
-      brickJob.valid_level = int4(1,level,0,0);
+      BrickJob brickJob = BrickJob(int4(brickIndex,level));
 
       const float axis_size = AXIS_SIZES[level];
       const float brick_size = BRICK_SIZES[level];
@@ -113,8 +110,15 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
       }else if(prevClipPointer >= BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
         clipMap[clipIndex] = allocPointer() | DIRTY_BIT;
       }
+
+      uint brickJobIndex;
+      InterlockedAdd(counters[int(Counters::nextBrickJob)],1,brickJobIndex);
+      brick_job_queue[brickJobIndex] = brickJob; 
+
+      if(brickJobIndex % BRICK_JOB_GROUP_X_DISPATCH_SIZE == 0){
+        InterlockedAdd(indirect_commands[0].y,1);
+      }
     }
   }
 
-  brick_job_queue[brickJobIndex] = brickJob; 
 }

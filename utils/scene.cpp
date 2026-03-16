@@ -465,8 +465,8 @@ std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox){
     glm::ivec3 num_b = max_b - min_b + glm::ivec3(1);
 
     jobs.push_back({
-      .min_b_Q_offset=glm::ivec4(min_b,0),
-      .num_b_level=glm::ivec4(num_b,level)
+      .min_b_level=glm::ivec4(min_b,level),
+      .num_b=glm::ivec4(num_b,0)
     });
   }
 
@@ -475,39 +475,31 @@ std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox){
 
 // Splits BuildJobs into chunks that have a max size of MAX_BUILD_JOB_SIZE³
 std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
-  const glm::ivec3 base_min_b = glm::ivec3(buildJ.min_b_Q_offset.x,buildJ.min_b_Q_offset.y,buildJ.min_b_Q_offset.z);
-  const glm::ivec3 base_num_b = glm::ivec3(buildJ.num_b_level.x,buildJ.num_b_level.y,buildJ.num_b_level.z);
+  const glm::ivec3 base_min_b = glm::ivec3(buildJ.min_b_level.x,buildJ.min_b_level.y,buildJ.min_b_level.z);
+  const glm::ivec3 base_num_b = glm::ivec3(buildJ.num_b.x,buildJ.num_b.y,buildJ.num_b.z);
   const glm::ivec3 max_chunk = glm::ivec3(MAX_BUILD_JOB_SIZE);
 
   std::vector<shaderio::BuildJob> out;
 
-  for(int z = 0; z<buildJ.num_b_level.z; z+= MAX_BUILD_JOB_SIZE)
-  for(int y = 0; y<buildJ.num_b_level.y; y+= MAX_BUILD_JOB_SIZE)
-  for(int x = 0; x<buildJ.num_b_level.x; x+= MAX_BUILD_JOB_SIZE)
+  for(int z = 0; z<buildJ.num_b.z; z+= MAX_BUILD_JOB_SIZE)
+  for(int y = 0; y<buildJ.num_b.y; y+= MAX_BUILD_JOB_SIZE)
+  for(int x = 0; x<buildJ.num_b.x; x+= MAX_BUILD_JOB_SIZE)
   {
     glm::ivec3 offset = glm::ivec3(x,y,z);
     glm::ivec3 num_b = glm::min(base_num_b-offset,max_chunk);
     glm::ivec3 min_b = base_min_b+offset;
     out.push_back({
-      .min_b_Q_offset=glm::ivec4(min_b,0),
-      .num_b_level=glm::ivec4(num_b,buildJ.num_b_level.w)
+      .min_b_level = glm::ivec4(min_b,buildJ.min_b_level.w),
+      .num_b = glm::ivec4(num_b,0)
     });
   };
-
-  int q_offset = buildJ.min_b_Q_offset.w;
-  for(auto& job: out){
-    job.min_b_Q_offset.w = q_offset;
-    const glm::ivec3 s = glm::ivec3(job.num_b_level);
-    q_offset += s.x * s.y * s.z;
-  }
 
   return out;
 }
 
 // TODO: Implement with multiple levels
-std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> aabbs, int& num_bricks){
+std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> aabbs){
   std::vector<shaderio::BuildJob> out, baseJobs, levelSplitted;
-  num_bricks = 0;
 
   out.reserve(aabbs.size()*4);
   baseJobs.reserve(aabbs.size());
@@ -518,13 +510,7 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> a
       continue;
 
     levelSplitted = createBaseBuildJobs(bbox);
-
-    for(auto& job: levelSplitted){
-      job.min_b_Q_offset.w = num_bricks;
-      num_bricks += job.num_b_level.x * job.num_b_level.y * job.num_b_level.z;
-    }
     baseJobs.insert(baseJobs.end(),levelSplitted.begin(),levelSplitted.end());
-
   }
 
   for(auto& buildJob: baseJobs){

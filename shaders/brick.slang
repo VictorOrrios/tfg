@@ -16,7 +16,7 @@
 
 [[vk::binding(BindingPoints::buildJobQ)]] StructuredBuffer<BuildJob> build_job_queue;
 [[vk::binding(BindingPoints::brickJobQ)]] RWStructuredBuffer<BrickJob> brick_job_queue;
-[[vk::binding(BindingPoints::freeListCounter)]] RWStructuredBuffer<uint32_t> free_list_counter;
+[[vk::binding(BindingPoints::counters)]] StructuredBuffer<uint32_t> counters;
 
 
 float map(float3 point){
@@ -56,19 +56,14 @@ float map(float3 point){
 void computeMain(uint3 tId : SV_DispatchThreadID){
   const int brickJobIdx = tId.x/BRICK_SIZE + (tId.y/BRICK_SIZE)*BRICK_JOB_GROUP_X_DISPATCH_SIZE;
 
-  if(brickJobIdx>=pushConst.numBrickJobs){
+  if(brickJobIdx>=counters[int(Counters::nextBrickJob)]){
     return;
   }
 
   const BrickJob brickJob = brick_job_queue[brickJobIdx];
 
-  // Invalid job check
-  if(brickJob.valid_level.x == 0){
-    return;
-  }
-
-  int3 id = brickJob.id.xyz;
-  int level = brickJob.valid_level.y;
+  int3 id = brickJob.id_level.xyz;
+  int level = brickJob.id_level.w;
   int3 clipId = id;
   clipId.z += NUM_BRICKS_PER_AXIS * level;
 

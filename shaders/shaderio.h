@@ -72,9 +72,9 @@ const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
 
 // Build & Brick jobs constants
 #define MAX_BUILD_JOB_SIZE 8
-#define MAX_NUM_BUILD_JOBS 2048
 #define BRICK_JOB_GROUP_X_DISPATCH_SIZE 256
-const static int MAX_NUM_BRICK_JOBS = MAX_NUM_BUILD_JOBS*MAX_BUILD_JOB_SIZE*MAX_BUILD_JOB_SIZE*MAX_BUILD_JOB_SIZE;
+const static int MAX_NUM_BUILD_JOBS = 512*512;
+const static int MAX_NUM_BRICK_JOBS = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS;
 
 // Dirty bit definitions for mutual exclusion
 #define DIRTY_BIT 0x80000000        // Most significant bit of a 32 bit variable
@@ -101,7 +101,15 @@ enum BindingPoints
   brickAtlas = 10,
   buildJobQ = 11,
   brickJobQ = 12,
-  freeListCounter = 13,
+  counters = 13,
+  indirectCommands = 14,
+};
+
+enum Counters
+{
+  nextBrickJob = 0,
+  freeCounter = 1,
+  allocCounter = 2
 };
 
 struct LightinParams{
@@ -123,7 +131,6 @@ struct PushConstant{
   DebugParams debug;
   LightinParams lp;
   int numObjects;
-  int numBrickJobs;
 };
 
 struct SceneInfo{
@@ -154,16 +161,23 @@ struct SceneObject{
 CHECK_STRUCT_ALIGNMENT(SceneObject)
 
 struct BuildJob{
-  int4 min_b_Q_offset;
-  int4 num_b_level;
+  int4 min_b_level;
+  int4 num_b;
 };
 CHECK_STRUCT_ALIGNMENT(BuildJob)
 
 struct BrickJob{
-  int4 id;
-  int4 valid_level;
+  int4 id_level;
 };
 CHECK_STRUCT_ALIGNMENT(BrickJob)
+
+struct DispatchIndirectCommand {
+  uint x;
+  uint y;
+  uint z;
+  uint _pad;
+};
+CHECK_STRUCT_ALIGNMENT(DispatchIndirectCommand)
 
 
 NAMESPACE_SHADERIO_END()
