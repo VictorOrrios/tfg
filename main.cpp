@@ -87,6 +87,7 @@
 #include <vector>
 #include <glm/vector_relational.hpp>
 #include <nvvk/resources.hpp>
+#include <numeric>
 
 const char* DebugModes[] = {
     "Debug color",
@@ -219,6 +220,7 @@ public:
     m_alloc.destroyBuffer(m_brickJobQueue);
     m_alloc.destroyBuffer(m_countersB);
     m_alloc.destroyBuffer(m_indirectB);
+    m_alloc.destroyBuffer(m_freeListB);
     m_alloc.destroyImage(m_globalGrid);
     m_alloc.destroyImage(m_clipMap);
     m_alloc.destroyImage(m_brickAtlas);
@@ -508,13 +510,7 @@ public:
     // Push constants
     vkCmdPushConstants(cmd, m_brickJobLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     
-    // Dispatch
-    /* 
-    vkCmdDispatch(cmd, 
-      BRICK_JOB_GROUP_X_DISPATCH_SIZE, 
-      glm::ceil(float(num_brick_jobs)/float(BRICK_JOB_GROUP_X_DISPATCH_SIZE)),
-      1);
-     */
+    // Dispatch using buffer
     vkCmdDispatchIndirect(
       cmd,
       m_indirectB.buffer,
@@ -879,7 +875,7 @@ public:
       // ------------------
       NVVK_CHECK(allocator->createBuffer(m_sceneInfoB,
                                      std::span<const shaderio::SceneInfo>(&m_sceneInfo, 1).size_bytes(),
-                                     VK_BUFFER_USAGE_2_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT));
+                                     VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT));
       NVVK_DBG_NAME(m_sceneInfoB.buffer);
 
       // ------------------
@@ -887,16 +883,16 @@ public:
       // ------------------
       NVVK_CHECK(allocator->createBuffer(m_sceneAabbB,
                                      MAX_SCENE_OBJECTS*sizeof(nvutils::Bbox),
-                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
-                                          | VK_BUFFER_USAGE_2_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                          | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
                                         ));
       NVVK_DBG_NAME(m_sceneAabbB.buffer);
       
       NVVK_CHECK(allocator->createBuffer(m_sceneObjectsB,
                                      MAX_SCENE_OBJECTS*sizeof(shaderio::SceneObject),
-                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
                                         ));
       NVVK_DBG_NAME(m_sceneObjectsB.buffer);
 
@@ -906,8 +902,8 @@ public:
       VkDeviceSize b_size = shaderio::MAX_NUM_BUILD_JOBS*sizeof(shaderio::BuildJob);
       NVVK_CHECK(allocator->createBuffer(m_buildJobQueue,
                                      b_size,
-                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
                                         ));
       NVVK_DBG_NAME(m_buildJobQueue.buffer);
 
@@ -915,7 +911,7 @@ public:
       std::vector<uint8_t> zeros2(b_size, 0);
       NVVK_CHECK(allocator->createBuffer(m_brickJobQueue,
                                      b_size,
-                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
                                         ));
       NVVK_DBG_NAME(m_brickJobQueue.buffer);
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_brickJobQueue, 0,std::span(zeros2)));  
@@ -926,8 +922,8 @@ public:
       std::vector<glm::uint32_t> zeros3(3, 0);
       NVVK_CHECK(allocator->createBuffer(m_countersB,
                                      zeros3.size()*sizeof(glm::uint32_t),
-                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
                                         )); // TODO: Is it necesary the transfer bit?
       NVVK_DBG_NAME(m_countersB.buffer);
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_countersB, 0,std::span(zeros3)));
@@ -938,12 +934,25 @@ public:
       std::vector<shaderio::DispatchIndirectCommand> zerosIndirect(1);
       NVVK_CHECK(allocator->createBuffer(m_indirectB,
                                      zerosIndirect.size()*sizeof(shaderio::DispatchIndirectCommand),
-                                     VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT 
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
                                           | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT 
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
                                         ));
       NVVK_DBG_NAME(m_indirectB.buffer);
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_indirectB, 0,std::span(zerosIndirect)));
+
+      // ------------------
+      // Free list buffer
+      // ------------------
+      std::vector<uint32_t> freeList(shaderio::NUM_BRICKS_IN_ATLAS);
+      std::iota(freeList.begin(), freeList.end(), 0);
+      NVVK_CHECK(allocator->createBuffer(m_freeListB,
+                                     freeList.size()*sizeof(uint32_t),
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                        ));
+      NVVK_DBG_NAME(m_freeListB.buffer);
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_freeListB, 0,std::span(freeList)));
 
       m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
 
@@ -959,8 +968,8 @@ public:
   // The Vulkan descriptor set defines the resources that are used by the shaders.
   // Here we add the bindings for the textures.
   void createDescriptorSetLayout(){
+    // TODO: OH GOD, clean this mess!!!!!1!1!!
     nvvk::DescriptorBindings bindings;
-    // Add bindings here, if needed
     bindings.addBinding(shaderio::BindingPoints::sceneInfo, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::renderTarget, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::normalBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
@@ -976,6 +985,7 @@ public:
     bindings.addBinding(shaderio::BindingPoints::brickJobQ, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::counters, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::indirectCommands, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::freeList, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
     // Creating the descriptor set and set layout from the bindings
     // TODO: You can put flags here, maybe this is important
@@ -996,6 +1006,7 @@ public:
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::brickJobQ), m_brickJobQueue.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::counters), m_countersB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::indirectCommands), m_indirectB.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::freeList), m_freeListB.buffer);
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
                         writeContainer.data(), 0, nullptr);
@@ -1278,6 +1289,7 @@ private:
   nvvk::Buffer m_brickJobQueue{};   // Queue for the Brick jobs
   nvvk::Buffer m_countersB{};       // Diferent counters used by the shaders
   nvvk::Buffer m_indirectB{};       // Indirect dispatch group counts buffer
+  nvvk::Buffer m_freeListB{};       // List of free pointers to the brick atlas
 
   // 3D textures
   nvvk::Image m_globalGrid;   // Dense value grid

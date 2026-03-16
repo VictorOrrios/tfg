@@ -308,10 +308,11 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
 
   // Debug visualizers
-  const bool drawSilhouette = debugColor && true;   // Draw the silhouette of the grid
-  const bool drawSteps      = debugColor && true;  // Draw the numer of steps taken
-  const bool drawLevel      = debugColor && false;   // Draw the clip map level at hit point
-  const bool drawHitIndex   = debugColor && false;  // Draw the grid brick index at the hit point
+  const bool drawSilhouette   = debugColor && true;   // Draw the silhouette of the grid
+  const bool drawSteps        = debugColor && false;  // Draw the numer of steps taken
+  const bool drawLevel        = debugColor && false;  // Draw the clip map level at hit point
+  const bool drawHitIndex     = debugColor && false;  // Draw the grid brick index at the hit point
+  const bool drawBrickPointer = debugColor && true;   // Draw the pointer value of the brick at hit point
 
   normal = float3(0);
 
@@ -374,6 +375,18 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
 
       // Debug visualizer of hit brick index
       if(drawHitIndex) debug = float3(currentIndex/(BRICK_SIZE-1))/float3(NUM_BRICKS_PER_AXIS);
+
+      // Brick pointer visualizer
+      if(drawBrickPointer){
+        int3 brickIndex = currentIndex/(BRICK_SIZE-1);
+        brickIndex.z += NUM_BRICKS_PER_AXIS*level;
+        uint pointer = clipMap[brickIndex] & NOT_DIRTY_BIT;
+        if((pointer & DIRTY_BIT) != 0){
+          debug = scalarToColor(-1);
+        }else{
+          debug = scalarToColor(float(pointer)/float(NUM_BRICKS_IN_ATLAS));
+        }
+      }
 
       normal = calcNormalAnalytic(voxelCoor,sBottom,sTop);
       // Returns depth of hit
@@ -462,14 +475,14 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal){
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
     // Check current voxel for hit
     int pointer = clipMap[index];
-    if(pointer < BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
+    if(pointer < NUM_BRICKS_IN_ATLAS){
       // Debug visualizer of step count
       //if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
       if(drawSteps){
         if((pointer & DIRTY_BIT) != 0){
           debug = float3(1,1,0);
         }else{
-          debug = scalarToColor(float(pointer)/float(BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS*0.2));
+          debug = scalarToColor(float(pointer)/float(NUM_BRICKS_IN_ATLAS*0.2));
         }
       }
 

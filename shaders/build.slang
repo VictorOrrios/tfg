@@ -17,6 +17,7 @@
 [[vk::binding(BindingPoints::brickJobQ)]] RWStructuredBuffer<BrickJob> brick_job_queue;
 [[vk::binding(BindingPoints::counters)]] RWStructuredBuffer<uint32_t> counters;
 [[vk::binding(BindingPoints::indirectCommands)]] RWStructuredBuffer<DispatchIndirectCommand> indirect_commands;
+[[vk::binding(BindingPoints::freeList)]] RWStructuredBuffer<uint32_t> free_list;
 
 
 float map(float3 point){
@@ -52,18 +53,22 @@ float map(float3 point){
 }
 
 int allocPointer(){
-  int prevValue;
-  InterlockedAdd(counters[int(Counters::allocCounter)],1,prevValue);
   // TODO: Maybe add a max value check
-  return prevValue;
+  int index;
+  InterlockedAdd(counters[int(Counters::allocCounter)],1,index);
+  index = index%NUM_BRICKS_IN_ATLAS;
+  return free_list[index];
 }
 
 void freePointer(int pointer){
   // Out of range pointer
-  if(pointer >= BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS)
+  if(pointer >= NUM_BRICKS_IN_ATLAS)
     return;
 
-  // DO NOTHING. TODO FOR LATER
+  int index;
+  InterlockedAdd(counters[int(Counters::freeCounter)],1,index);
+  index = index%NUM_BRICKS_IN_ATLAS;
+  free_list[index] = pointer;
 }
 
 [shader("compute")]
@@ -107,7 +112,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
         freePointer(prevClipPointer);
         int newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
         clipMap[clipIndex] = newPointer | DIRTY_BIT;
-      }else if(prevClipPointer >= BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
+      }else if(prevClipPointer >= NUM_BRICKS_IN_ATLAS){
         clipMap[clipIndex] = allocPointer() | DIRTY_BIT;
       }
 

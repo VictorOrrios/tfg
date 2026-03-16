@@ -71,7 +71,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   clipPointer = clipPointer & NOT_DIRTY_BIT;
   clipMap[clipId] = clipPointer;
 
-  if(clipPointer < BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS){
+  if(clipPointer < NUM_BRICKS_IN_ATLAS){
     int3 brickPointer = int3(clipPointer%BRICK_PER_ATLAS_AXIS,clipPointer/BRICK_PER_ATLAS_AXIS,0)*BRICK_SIZE;
     int3 voxelId = int3(tId.x%BRICK_SIZE,tId.y%BRICK_SIZE,tId.z%BRICK_SIZE);
 

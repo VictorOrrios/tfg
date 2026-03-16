@@ -41,11 +41,12 @@ NAMESPACE_SHADERIO_BEGIN()
 // Buffers static max limit
 #define MAX_SCENE_OBJECTS  1024
 #define BRICK_PER_ATLAS_AXIS 1024
+const static int NUM_BRICKS_IN_ATLAS = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS;
 
 // Global grid parameters
 #define NUM_BRICKS_PER_AXIS 64  // How many bricks per axis per level in clip map
 #define L0_AXIS_WORLD_SIZE  2.0 // Axis size of the first clip map level
-#define CLIPMAP_LEVELS      5   // How many levels are in the clip map
+#define CLIPMAP_LEVELS      5   // How many levels are in the clip map | WARNING: If updated then all sizes MUST BE UPDATED TO
 #define BRICK_SIZE          8   // How many values per axis does a brick store
 CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS) // Power of two needed for faster calculations
 
@@ -74,14 +75,14 @@ const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
 #define MAX_BUILD_JOB_SIZE 8
 #define BRICK_JOB_GROUP_X_DISPATCH_SIZE 256
 const static int MAX_NUM_BUILD_JOBS = 512*512;
-const static int MAX_NUM_BRICK_JOBS = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS;
+const static int MAX_NUM_BRICK_JOBS = NUM_BRICKS_IN_ATLAS;
 
 // Dirty bit definitions for mutual exclusion
 #define DIRTY_BIT 0x80000000        // Most significant bit of a 32 bit variable
 #define NOT_DIRTY_BIT (~DIRTY_BIT) 
 
 // Magic pointer indicating unirform values in brick (not stored in atlas)
-const static int UNIFORM_POSITIVE_BRICK_POINTER = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS+1;
+const static int UNIFORM_POSITIVE_BRICK_POINTER = NUM_BRICKS_IN_ATLAS+1;
 const static int UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTER+1;
 
 
@@ -103,6 +104,7 @@ enum BindingPoints
   brickJobQ = 12,
   counters = 13,
   indirectCommands = 14,
+  freeList = 15,
 };
 
 enum Counters
