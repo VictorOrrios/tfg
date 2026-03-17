@@ -433,7 +433,7 @@ std::vector<float> Scene::generateDenseGrid() {
   return data;
 }
 
-std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox){
+std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox, glm::ivec3 camId0){
   const glm::ivec3 zeros(0);
   const glm::ivec3 max_index(NUM_BRICKS_PER_AXIS-1);
   const glm::ivec3 hole_min(NUM_BRICKS_PER_AXIS/4-1);
@@ -442,30 +442,38 @@ std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox){
   std::vector<shaderio::BuildJob> jobs;
   
   for(int level=0; level<CLIPMAP_LEVELS; level++){
-    float axis_size = shaderio::AXIS_SIZES[level];
-    glm::vec3 centerOffset = glm::vec3(0.5f*axis_size);
-    glm::ivec3 min_b = (bbox.min()+centerOffset)/shaderio::BRICK_SIZES[level];
-    glm::ivec3 max_b = (bbox.max()+centerOffset)/shaderio::BRICK_SIZES[level];
+    glm::ivec3 camId = camId0>>level;
+
+    glm::ivec3 min_id = glm::floor(bbox.min()/shaderio::BRICK_SIZES[level]);
+    glm::ivec3 max_id = glm::floor(bbox.max()/shaderio::BRICK_SIZES[level]);
+
+    glm::ivec3 min_rel_id = min_id - camId + (NUM_BRICKS_PER_AXIS/2);
+    glm::ivec3 max_rel_id = max_id - camId + (NUM_BRICKS_PER_AXIS/2);
 
     // Completly out of range check
-    if(glm::all(glm::lessThan(max_b,zeros)) || glm::all(glm::greaterThan(min_b,max_index)))
+    if(glm::any(glm::lessThan(max_rel_id,zeros)) || glm::any(glm::greaterThan(min_rel_id,max_index)))
       continue;
 
     // Completly inside the hole in levels > 0
     if(
       level > 0 &&
-      glm::all(glm::greaterThan(min_b,hole_min)) &&
-      glm::all(glm::lessThan(max_b,hole_max))
+      glm::all(glm::greaterThan(min_rel_id,hole_min)) &&
+      glm::all(glm::lessThan(max_rel_id,hole_max))
     )
       continue;
 
-    min_b = glm::clamp(min_b, glm::ivec3(0), glm::ivec3(NUM_BRICKS_PER_AXIS-1));
-    max_b = glm::clamp(max_b, glm::ivec3(0), glm::ivec3(NUM_BRICKS_PER_AXIS-1));
+    // Clamp min and max to relative ids bounds
+    min_rel_id = glm::max(min_rel_id,zeros);
+    max_rel_id = glm::min(max_rel_id,max_index);
 
-    glm::ivec3 num_b = max_b - min_b + glm::ivec3(1);
+    // Calculate number of bricks
+    glm::ivec3 num_b = glm::abs(min_rel_id - max_rel_id) + glm::ivec3(1);
+
+    // Convert back to global id
+    min_id = min_rel_id + camId - (NUM_BRICKS_PER_AXIS/2);
 
     jobs.push_back({
-      .min_b_level=glm::ivec4(min_b,level),
+      .min_id_level=glm::ivec4(min_id,level),
       .num_b=glm::ivec4(num_b,0)
     });
   }
@@ -475,7 +483,7 @@ std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox){
 
 // Splits BuildJobs into chunks that have a max size of MAX_BUILD_JOB_SIZE³
 std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
-  const glm::ivec3 base_min_b = glm::ivec3(buildJ.min_b_level.x,buildJ.min_b_level.y,buildJ.min_b_level.z);
+  const glm::ivec3 base_min_id = glm::ivec3(buildJ.min_id_level.x,buildJ.min_id_level.y,buildJ.min_id_level.z);
   const glm::ivec3 base_num_b = glm::ivec3(buildJ.num_b.x,buildJ.num_b.y,buildJ.num_b.z);
   const glm::ivec3 max_chunk = glm::ivec3(MAX_BUILD_JOB_SIZE);
 
@@ -487,9 +495,9 @@ std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
   {
     glm::ivec3 offset = glm::ivec3(x,y,z);
     glm::ivec3 num_b = glm::min(base_num_b-offset,max_chunk);
-    glm::ivec3 min_b = base_min_b+offset;
+    glm::ivec3 min_id = base_min_id+offset;
     out.push_back({
-      .min_b_level = glm::ivec4(min_b,buildJ.min_b_level.w),
+      .min_id_level = glm::ivec4(min_id,buildJ.min_id_level.w),
       .num_b = glm::ivec4(num_b,0)
     });
   };
@@ -497,8 +505,7 @@ std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
   return out;
 }
 
-// TODO: Implement with multiple levels
-std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> aabbs){
+std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> aabbs, glm::ivec3 camId0){
   std::vector<shaderio::BuildJob> out, baseJobs, levelSplitted;
 
   out.reserve(aabbs.size()*4);
@@ -509,7 +516,7 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> a
     if(glm::any(glm::lessThan(bbox.max(),bbox.min())))
       continue;
 
-    levelSplitted = createBaseBuildJobs(bbox);
+    levelSplitted = createBaseBuildJobs(bbox, camId0);
     baseJobs.insert(baseJobs.end(),levelSplitted.begin(),levelSplitted.end());
   }
 
@@ -521,6 +528,13 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> a
   return out;
 }
 
+std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 camId0){
+  const float extent = shaderio::AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
+  std::vector<nvutils::Bbox> aabbs(1,nvutils::Bbox(glm::vec3(-extent),glm::vec3(extent)));
+  return getBuildJobs(aabbs,camId0);
+}
+
+
 //------------------
 // Constructor
 //------------------
@@ -529,12 +543,13 @@ Scene::Scene() {
   // Create the scene
   Node *snowMan = createNode(NodeType::Snowman);
   snowMan->p.scale = 0.8;
+  snowMan->p.position = glm::vec3(0.0,0.0,-1.0);
   updateNodeData(snowMan);
   addNode(snowMan);
 
   Node *box = createNode(NodeType::Box);
   box->p.scale = 0.2;
-  box->p.position = glm::vec3(-0.2, -0.15, 0.25);
+  box->p.position = glm::vec3(-0.2, -0.15, -0.75);
   box->p.rotation = glm::vec3(0.2, 0.4, 0.4);
   box->p.combOp = (int)CombinationOp::Union + 3;
   box->p.smoothness = 0.02;
@@ -543,14 +558,14 @@ Scene::Scene() {
 
   Node *sphere = createNode(NodeType::Sphere);
   sphere->p.scale = 0.2;
-  sphere->p.position = glm::vec3(0.1, 0.3, 0.1);
+  sphere->p.position = glm::vec3(0.1, 0.3, -0.9);
   sphere->p.rotation = glm::vec3(0);
   sphere->p.combOp = (int)CombinationOp::Substraction;
   updateNodeData(sphere);
   addNode(sphere);
-
+/* 
   Node *sphereGrid = createNode(NodeType::Sphere);
-  sphereGrid->p.position = glm::vec3(0, 0, -0.4);
+  sphereGrid->p.position = glm::vec3(0, 0, -1.4);
   sphereGrid->p.rotation = glm::vec3(0);
   sphereGrid->p.scale = 0.1;
   sphereGrid->p.repOp = (int)RepetitionOp::LimRepetition;
@@ -558,22 +573,22 @@ Scene::Scene() {
   sphereGrid->p.limit = glm::ivec3(13,13,1);
   updateNodeData(sphereGrid);
   addNode(sphereGrid);
-
+ */
   Node *torus = createNode(NodeType::Torus);
   torus->p.scale = 0.2;
-  torus->p.position = glm::vec3(0.35, 0.1, -0.2);
+  torus->p.position = glm::vec3(0.35, 0.1, -1.2);
   torus->p.rotation = glm::vec3(0.75, 0, 0);
   updateNodeData(torus);
   addNode(torus);
 
   Node *sphere2 = createNode(NodeType::Sphere);
   sphere2->p.scale = 0.4;
-  sphere2->p.position = glm::vec3(1.35, -0.1, -0.2);
+  sphere2->p.position = glm::vec3(1.35, -0.1, -1.2);
   sphere2->p.rotation = glm::vec3(0.0);
   updateNodeData(sphere2);
   addNode(sphere2);
 
-  for(int level=1; level<CLIPMAP_LEVELS; level++){
+  for(int level=1; level<3; level++){
     Node *snowManL = createNode(NodeType::Snowman);
     snowManL->p.scale = 0.5*(1<<level);
     snowManL->p.position = glm::vec3(-((L0_AXIS_WORLD_SIZE*0.5)*(1<<level))*3/4, 0.0, 0.0);

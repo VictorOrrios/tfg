@@ -25,6 +25,7 @@
 
 
 
+#include "glm/common.hpp"
 #define VMA_IMPLEMENTATION
 // TODO: Organize and label imports
 
@@ -182,9 +183,6 @@ public:
     // Init profiler with a single queue
     m_profilerTimeline = m_info.profilerManager->createTimeline({"graphics"});
     m_profilerGpuTimer.init(m_profilerTimeline, app->getDevice(), app->getPhysicalDevice(), app->getQueue(0).familyIndex, true);
-  
-    // Initial camera params
-    m_cameraManip->setMode(nvutils::CameraManipulator::Modes::Fly);
   }
 
   //-------------------------------------------------------------------------------
@@ -290,12 +288,15 @@ public:
       if(ImGui::Button("Refresh grid")){
         m_scene.m_needsRefresh = true;
       }
+      // REFRESH EVERY FRAME: URGENT TODO DONUT DO THISSSS!!!!!!!!!!!!!!!!!!!!!
+      m_scene.m_needsRefresh = true;
+
 
       //auto aabbs = m_scene.getBboxes();
       //auto jobs = m_scene.getBuildJobs(aabbs);
       if(ImGui::Button("Test")){
         auto aabbs = m_scene.getBboxes();
-        auto jobs = m_scene.getBuildJobs(aabbs);
+        auto jobs = m_scene.getBuildJobs(aabbs,m_sceneInfo.cameraId0);
         m_testSize = jobs.size();
         m_testMed = glm::ivec3(0);
         for(auto& job: jobs){
@@ -309,6 +310,7 @@ public:
       }
       ImGui::Text("Test size: %i",m_testSize);
       ImGui::Text("Test Median: %f,%f,%f",m_testMed.x,m_testMed.y,m_testMed.z);
+      ImGui::Text("Camera id0: %i,%i,%i",m_sceneInfo.cameraId0.x,m_sceneInfo.cameraId0.y,m_sceneInfo.cameraId0.z);
     }
 
     ImGui::End();
@@ -543,7 +545,8 @@ public:
 
     int num_bricks;
     std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
-    std::vector<shaderio::BuildJob> buildJobs = m_scene.getBuildJobs(aabbVector);
+    //std::vector<shaderio::BuildJob> buildJobs = m_scene.getBuildJobs(aabbVector,m_sceneInfo.cameraId0);
+    std::vector<shaderio::BuildJob> buildJobs = m_scene.getDenseBuildJobs(m_sceneInfo.cameraId0);
 
     if(buildJobs.size() > shaderio::MAX_NUM_BUILD_JOBS)
       LOGE("Not enough space in build job queue to allocale %zu jobs\n",buildJobs.size());
@@ -1215,7 +1218,8 @@ public:
     m_sceneInfo.viewMatrix = glm::inverse(viewMatrix);
     m_sceneInfo.projMatrix = glm::inverse(projMatrix);
     m_sceneInfo.viewProjMatrix = glm::inverse(projMatrix * viewMatrix);
-    m_sceneInfo.cameraPosition = m_cameraManip->getEye();  // Get the camera position
+    m_sceneInfo.cameraPosition = glm::vec4(m_cameraManip->getEye(),0.0);
+    m_sceneInfo.cameraId0 = glm::ivec4(glm::trunc(m_cameraManip->getEye()/shaderio::BRICK_SIZES[0]),0);
 
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneInfoB.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_PIPELINE_STAGE_2_TRANSFER_BIT});
@@ -1420,6 +1424,18 @@ int main(int argc, char** argv)
   // add logger element
   app.addElement(elementLogger);
   
+  // Initial camera params
+  // Set camera to start at position (0,0,0) looking along -Z axis with Y up  
+  nvutils::CameraManipulator::Camera camera;  
+  camera.eye = glm::vec3(0.0f, 0.0f, 0.0f);  // Camera position  
+  camera.ctr = glm::vec3(0.0f, 0.0f, -1.0f); // Look at point (forward)  
+  camera.up  = glm::vec3(0.0f, 1.0f, 0.0f);  // Up vector  
+  camera.fov = 60.0f;                         // Field of view in degrees  
+    
+  // Set this as the home camera  
+  nvgui::SetHomeCamera(camera);  
+  camManip->setCamera(camera, true);  // Apply immediately
+  camManip->setMode(nvutils::CameraManipulator::Modes::Fly);
 
   // enter the main loop
   app.run();

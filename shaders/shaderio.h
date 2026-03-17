@@ -60,6 +60,7 @@ const static int NUM_VALUES_PER_AXIS = NUM_BRICKS_PER_AXIS*BRICK_SIZE;
 #define S_VOXEL(level) (S_BRICK(level) / (BRICK_SIZE - 1))
 #define MAX_VOXEL_V(level) (float(2.5 * sqrt(3.0 * S_VOXEL(level) * S_VOXEL(level))))
 #define MAX_BRICK_V(level) (float(sqrt(3.0 * S_BRICK(level) * S_BRICK(level)) / 2.0 + MAX_VOXEL_V(level)))
+
 const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
   S_AXIS(0),S_AXIS(1),S_AXIS(2),S_AXIS(3),S_AXIS(4)};
 const static float BRICK_SIZES[CLIPMAP_LEVELS] = {
@@ -70,7 +71,20 @@ const static float MAX_VOXEL_VALUES[CLIPMAP_LEVELS] = {
   MAX_VOXEL_V(0),MAX_VOXEL_V(1),MAX_VOXEL_V(2),MAX_VOXEL_V(3),MAX_VOXEL_V(4)};
 const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
   MAX_BRICK_V(0),MAX_BRICK_V(1),MAX_BRICK_V(2),MAX_BRICK_V(3),MAX_BRICK_V(4)};
-
+  
+/*    
+   const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
+  S_AXIS(0)};
+const static float BRICK_SIZES[CLIPMAP_LEVELS] = {
+  S_BRICK(0)};
+const static float VOXEL_SIZES[CLIPMAP_LEVELS] = {
+  S_VOXEL(0)};
+const static float MAX_VOXEL_VALUES[CLIPMAP_LEVELS] = {
+  MAX_VOXEL_V(0)};
+const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
+  MAX_BRICK_V(0)};
+  
+ */
 // Build & Brick jobs constants
 #define MAX_BUILD_JOB_SIZE 8
 #define BRICK_JOB_GROUP_X_DISPATCH_SIZE 256
@@ -139,8 +153,8 @@ struct SceneInfo{
   float4x4  viewProjMatrix;
   float4x4  viewMatrix;
   float4x4  projMatrix;
-  float3    cameraPosition;
-  float     _pad;
+  float4    cameraPosition;
+  int4      cameraId0;
 };
 CHECK_STRUCT_ALIGNMENT(SceneInfo)
 
@@ -163,7 +177,7 @@ struct SceneObject{
 CHECK_STRUCT_ALIGNMENT(SceneObject)
 
 struct BuildJob{
-  int4 min_b_level;
+  int4 min_id_level;
   int4 num_b;
 };
 CHECK_STRUCT_ALIGNMENT(BuildJob)

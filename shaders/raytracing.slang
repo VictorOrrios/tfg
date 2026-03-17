@@ -216,7 +216,7 @@ Ray get_ray(float2 uv){
   float3 dir = normalize(world);
 
   Ray ray;
-  ray.orig = sceneInfo.cameraPosition;
+  ray.orig = sceneInfo.cameraPosition.xyz;
   ray.dir = dir;
 
   return ray;
@@ -264,10 +264,10 @@ void rgenMain()
 
     bool hit = depth >= 0.0;
     if(hit){
-        albedo = float3(1.0);
+      albedo = float3(1.0);
     }else{
-        albedo = float3(0);
-        debug = r.dir;
+      albedo = float3(0);
+      debug = r.dir;
     }
 
     if(debugColor || bboxColor){

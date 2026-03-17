@@ -10,6 +10,7 @@
 
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 [[vk::binding(BindingPoints::objects)]] StructuredBuffer<SceneObject> objects;
+[[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 
 [[vk::binding(BindingPoints::clipMap)]] RWTexture3D<uint32_t> clipMap;
 
@@ -82,47 +83,62 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   const int3 brickOffset = int3(tId.x, tId.y, tId.z%MAX_BUILD_JOB_SIZE);
 
   // Out of bounds thread for this build job => Discard
-  if(any(brickOffset >= job.num_b.xyz)){
+  if(any(brickOffset >= job.num_b.xyz))
     return;
-  }
 
-  const int level = job.min_b_level.w;
+  const int level = job.min_id_level.w;
+  const int3 brickId = job.min_id_level.xyz + brickOffset;  
 
-  int3 brickIndex = brickOffset + job.min_b_level.xyz;
+  // Transform global id to a relative id to the camera id
+  const int3 camId = sceneInfo.cameraId0.xyz>>level;
+  const int3 relBrickId = brickId - camId + (NUM_BRICKS_PER_AXIS/2);
+
+  // Might not be necesary
+  // Out of bounds brick for this level
+  if(any(relBrickId < 0) || any(relBrickId > NUM_BRICKS_PER_AXIS-1))
+    return;
+
+ 
+  // Brick inside hole in levels > 0 check
+  if(level > 0 && all(relBrickId > hole_min) && all(relBrickId < hole_max))
+    return;
+
+  int3 brickIndex = id2index(brickId);
   int3 clipIndex = brickIndex;
   clipIndex.z += NUM_BRICKS_PER_AXIS * level;
   
+  // Atomic OR of dirty bit into clip pointer. To prevent repeted brick jobs
   int prevClipPointer;
   InterlockedOr(clipMap[clipIndex],DIRTY_BIT,prevClipPointer);
 
   if((prevClipPointer & DIRTY_BIT) == 0){
-    // Brick outside hole in levels > 0 check
-    if(level == 0 || any(brickIndex <= hole_min) ||  any(brickIndex >= hole_max)){
-      BrickJob brickJob = BrickJob(int4(brickIndex,level));
+    // Brickjob will be executed and the dirty bit cleaned
+    BrickJob brickJob = BrickJob(int4(brickId,level));
 
-      const float axis_size = AXIS_SIZES[level];
-      const float brick_size = BRICK_SIZES[level];
-      const float max_brick_value = MAX_BRICK_VALUES[level];
+    const float brick_size = BRICK_SIZES[level];
+    const float max_brick_value = MAX_BRICK_VALUES[level];
 
-      float3 center_offset = float3(0.5*axis_size);
-      float3 p = (float3(brickIndex)+0.5)*brick_size-center_offset;
-      float centerSDF = map(p);
-      
-      if(abs(centerSDF) > max_brick_value){
-        freePointer(prevClipPointer);
-        int newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
-        clipMap[clipIndex] = newPointer | DIRTY_BIT;
-      }else if(prevClipPointer >= NUM_BRICKS_IN_ATLAS){
-        clipMap[clipIndex] = allocPointer() | DIRTY_BIT;
-      }
+    // Evaluate scene at brick center
+    float3 p = (float3(brickId)+0.5)*brick_size;
+    float centerSDF = map(p);
+    
+    // Uniform value brick check
+    if(abs(centerSDF) > max_brick_value){
+      freePointer(prevClipPointer);
+      int newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
+      clipMap[clipIndex] = newPointer | DIRTY_BIT;
+    }else if(prevClipPointer >= NUM_BRICKS_IN_ATLAS){
+      clipMap[clipIndex] = allocPointer() | DIRTY_BIT;
+    }
 
-      uint brickJobIndex;
-      InterlockedAdd(counters[int(Counters::nextBrickJob)],1,brickJobIndex);
-      brick_job_queue[brickJobIndex] = brickJob; 
+    // Add to brick job queue with the nextBrickJob counter
+    uint brickJobIndex;
+    InterlockedAdd(counters[int(Counters::nextBrickJob)],1,brickJobIndex);
+    brick_job_queue[brickJobIndex] = brickJob; 
 
-      if(brickJobIndex % BRICK_JOB_GROUP_X_DISPATCH_SIZE == 0){
-        InterlockedAdd(indirect_commands[0].y,1);
-      }
+    // Add +1 to brick job groups.y if necesary
+    if(brickJobIndex % BRICK_JOB_GROUP_X_DISPATCH_SIZE == 0){
+      InterlockedAdd(indirect_commands[0].y,1);
     }
   }
 

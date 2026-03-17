@@ -153,6 +153,40 @@ void sampleVoxel2(int3 index, int level, out float4 sBottom, out float4 sTop){
   }
 }
 
+void sampleVoxel2New(int3 voxelOffset, int3 brickIndex, int level, out float4 sBottom, out float4 sTop){
+  const float max_voxel_value = MAX_VOXEL_VALUES[level];
+
+  int3 clipIndex = brickIndex;
+  clipIndex.z += NUM_BRICKS_PER_AXIS*level;
+  uint pointer = clipMap[clipIndex] & NOT_DIRTY_BIT;
+
+  if(pointer == UNIFORM_POSITIVE_BRICK_POINTER){
+    sBottom = float4(max_voxel_value);
+    sTop    = float4(max_voxel_value);
+  }else if(pointer == UNIFORM_NEGATIVE_BRICK_POINTER){
+    sBottom = float4(-max_voxel_value);
+    sTop    = float4(-max_voxel_value);
+  }else{
+
+    int3 brickAtlasIndex = int3(pointer%BRICK_PER_ATLAS_AXIS,pointer/BRICK_PER_ATLAS_AXIS,0);
+    int3 voxelIndex = brickAtlasIndex*BRICK_SIZE + voxelOffset;
+
+    sBottom = float4(
+      brickAtlas[voxelIndex + int3(0,0,0)],  // s000
+      brickAtlas[voxelIndex + int3(1,0,0)],  // s100
+      brickAtlas[voxelIndex + int3(1,0,1)],  // s101
+      brickAtlas[voxelIndex + int3(0,0,1)]   // s001
+    ) * max_voxel_value;
+
+    sTop = float4(
+      brickAtlas[voxelIndex + int3(0,1,0)],  // s010
+      brickAtlas[voxelIndex + int3(1,1,0)],  // s110
+      brickAtlas[voxelIndex + int3(1,1,1)],  // s111
+      brickAtlas[voxelIndex + int3(0,1,1)]   // s011
+    ) * max_voxel_value;
+  }
+}
+
 void getkConstants(float4 sBottom, float4 sTop, out float4 k0123, out float4 k4567){
   float aux1 = sBottom.a - sBottom.r; // s001 - s000
   float aux2 = sTop.a - sTop.r;       // s011 - s010
@@ -310,51 +344,53 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   // Debug visualizers
   const bool drawSilhouette   = debugColor && true;   // Draw the silhouette of the grid
   const bool drawSteps        = debugColor && false;  // Draw the numer of steps taken
-  const bool drawLevel        = debugColor && false;  // Draw the clip map level at hit point
+  const bool drawLevel        = debugColor && true;  // Draw the clip map level at hit point
   const bool drawHitIndex     = debugColor && false;  // Draw the grid brick index at the hit point
-  const bool drawBrickPointer = debugColor && true;   // Draw the pointer value of the brick at hit point
+  const bool drawBrickPointer = debugColor && false;   // Draw the pointer value of the brick at hit point
 
   normal = float3(0);
 
   // Initial boundig box hit test
-  float3 p, far, dir = r.dir;
-  bool hit = intersectCube(r, bbox, p, far);
-  if(!hit) return -1;
+  float3 p = r.orig, dir = r.dir;
 
-  // Silhouette highlighter
-  if(drawSilhouette && length(far-p)<0.02){
-    debug = scalarToColor(-1);
-    return 1;
-  }
-  
-  float3 hitCoor, voxelCoor;
+
   int3 currentIndex, lastIndex;
   float4 sBottom, sTop;
   int level;
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
-    // Current level caluclation
-    float3 absP = abs(p);
-    float maxPComponent = max(absP.x,max(absP.y,absP.z));
-    level = max(0,int(trunc(
-      log2(maxPComponent/(0.25f*float(L0_AXIS_WORLD_SIZE)))
-    )));
+    // Get the camera position using the current ocupied level 0 id of the camera
+    // Warning: Using sceneInfo.cameraPosition is incorrect
+    int3 camId0 = sceneInfo.cameraId0.xyz;
+    float3 camNormPos = camId0 * BRICK_SIZES[0];
+    // Get the max axis distance from p to the camera brick  
+    float3 target = p - camNormPos;
+    float3 absT = abs(target);
+    float maxTComponent = max(absT.x,max(absT.y,absT.z));
+    // Normalize it to match level 0 size
+    float normDistance = maxTComponent/L0_AXIS_WORLD_SIZE;
+    // Transfer function from normalized distance to level
+    level = max(0,int(trunc(log2(4.0*normDistance))));
 
-    // Hit coordinates calculation
-    const float axis_size = AXIS_SIZES[level];
     const float voxel_size = VOXEL_SIZES[level];
-    float3 center_offset = float3(0.5*axis_size);
-    float3 voxelDensity = NUM_VOXELS_PER_AXIS/float3(axis_size);
-    hitCoor = (p+center_offset)*voxelDensity; // P coordinates relative to grid, in [0,1]³
 
+    // Scale normalization
+    float3 pVoxelNorm = p/voxel_size;
+    // Truncate normalized coordinates to get the id
+    int3 voxelId = int3(floor(pVoxelNorm));
+    // Get the grid indices with floor division modulus (WARNING: Normal modulus % will not give correct result)
+    int3 voxelIndex = id2voxelIndex(voxelId);
+    // Get grid index and coordinates inside the voxel
     currentIndex = max(int3(0),min(int3(NUM_VOXELS_PER_AXIS-1),
-      int3(trunc(hitCoor))));      // Grid index of p
-    voxelCoor = frac(hitCoor);    // P Coordinates relative to voxel, in [0,1]³
+      voxelIndex));
+    float3 voxelCoor = frac(pVoxelNorm);
 
     // If this voxel hasn't been visited yet
-    if(steps == 1 || any(currentIndex != lastIndex)){
+    //if(steps == 1 || any(currentIndex != lastIndex)){
+    if(true){
       // Update current voxel data and index
       sampleVoxel2(currentIndex,level,sBottom,sTop);
+      //sampleVoxel2New(voxelOffset,currentIndex,level,sBottom,sTop);
       //getkConstants(sBottom,sTop,k0123,k4567);
       lastIndex = currentIndex;
     }
@@ -551,7 +587,7 @@ Ray get_ray(float2 uv){
   float3 dir = normalize(world);
 
   Ray ray;
-  ray.orig = sceneInfo.cameraPosition;
+  ray.orig = sceneInfo.cameraPosition.xyz;
   ray.dir = dir;
 
   return ray;
