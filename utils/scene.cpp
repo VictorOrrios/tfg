@@ -1,19 +1,16 @@
 // TODO: Clean imports
 #include "scene.hpp"
-#include "basisu_enc.h"
 #include "glm/common.hpp"
 #include "glm/ext/vector_int3.hpp"
 #include "nvutils/bounding_box.hpp"
 #include "nvutils/logger.hpp"
 #include "sdf.hpp"
-#include <cstdlib>
 #include <glm/ext/vector_float3.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/matrix.hpp>
 #include <imgui.h>
 #include <omp.h>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -436,8 +433,8 @@ std::vector<float> Scene::generateDenseGrid() {
 std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox, glm::ivec3 camId0){
   const glm::ivec3 zeros(0);
   const glm::ivec3 max_index(NUM_BRICKS_PER_AXIS-1);
-  const glm::ivec3 hole_min(NUM_BRICKS_PER_AXIS/4-1);
-  const glm::ivec3 hole_max(NUM_BRICKS_PER_AXIS*3/4-1);
+  const glm::ivec3 hole_min(NUM_BRICKS_PER_AXIS/4);
+  const glm::ivec3 hole_max(NUM_BRICKS_PER_AXIS*3/4-2);
   
   std::vector<shaderio::BuildJob> jobs;
   

@@ -1214,12 +1214,15 @@ public:
 
     const glm::mat4& viewMatrix = m_cameraManip->getViewMatrix();
     const glm::mat4& projMatrix = m_cameraManip->getPerspectiveMatrix();
+    const glm::vec3& id0 = glm::floor(m_cameraManip->getEye()/shaderio::BRICK_SIZES[0]);
+    const glm::vec3& id0Pos = id0*shaderio::BRICK_SIZES[0];
 
     m_sceneInfo.viewMatrix = glm::inverse(viewMatrix);
     m_sceneInfo.projMatrix = glm::inverse(projMatrix);
     m_sceneInfo.viewProjMatrix = glm::inverse(projMatrix * viewMatrix);
     m_sceneInfo.cameraPosition = glm::vec4(m_cameraManip->getEye(),0.0);
-    m_sceneInfo.cameraId0 = glm::ivec4(glm::trunc(m_cameraManip->getEye()/shaderio::BRICK_SIZES[0]),0);
+    m_sceneInfo.cameraId0 = glm::ivec4(id0,0);
+    m_sceneInfo.cameraId0Pos = glm::vec4(id0Pos,0);
 
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneInfoB.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_PIPELINE_STAGE_2_TRANSFER_BIT});

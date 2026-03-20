@@ -187,6 +187,24 @@ void sampleVoxel2New(int3 voxelOffset, int3 brickIndex, int level, out float4 sB
   }
 }
 
+void fetchBrickValue(int pointer, int3 voxel_offset, out float4 sBottom, out float4 sTop){
+  int3 brickAtlasIndex = int3(pointer%BRICK_PER_ATLAS_AXIS,pointer/BRICK_PER_ATLAS_AXIS,0);
+  int3 voxelIndex = brickAtlasIndex*BRICK_SIZE + voxel_offset;
+  sBottom = float4(
+    brickAtlas[voxelIndex + int3(0,0,0)],  // s000
+    brickAtlas[voxelIndex + int3(1,0,0)],  // s100
+    brickAtlas[voxelIndex + int3(1,0,1)],  // s101
+    brickAtlas[voxelIndex + int3(0,0,1)]   // s001
+  );
+
+  sTop = float4(
+    brickAtlas[voxelIndex + int3(0,1,0)],  // s010
+    brickAtlas[voxelIndex + int3(1,1,0)],  // s110
+    brickAtlas[voxelIndex + int3(1,1,1)],  // s111
+    brickAtlas[voxelIndex + int3(0,1,1)]   // s011
+  );
+}
+
 void getkConstants(float4 sBottom, float4 sTop, out float4 k0123, out float4 k4567){
   float aux1 = sBottom.a - sBottom.r; // s001 - s000
   float aux2 = sTop.a - sTop.r;       // s011 - s010
@@ -338,14 +356,106 @@ float evalCubic(float t, float4 c){
   return fma(t, fma(t, fma(t, c.w, c.z), c.y), c.x);
 }
 
+int getLevelOfPoint(float3 p){
+  const int scale_correction = 1-int(log2(NUM_BRICKS_PER_AXIS));
+  float3 pBrickNorm = p/BRICK_SIZES[0];
+  int3 pId0 = int3(floor(pBrickNorm));
+  int3 diff = pId0 - sceneInfo.cameraId0.xyz;
+  diff = select(diff>=0, max(0,diff+1),-diff);
+  int maxDiff = max(diff.x,max(diff.y,diff.z));
+  return max(0,int(ceil(log2(maxDiff)))) + scale_correction;
+}
+
+bool sphereTraceBrick(Ray r, int3 id, int level, out float depth){
+  const int MAX_ITERATIONS = BRICK_SIZE * 5;
+  depth = 0.0;
+
+  int3 clipId = id;
+  clipId.z += NUM_BRICKS_PER_AXIS * level;
+  const int pointer = clipMap[clipId] & NOT_DIRTY_BIT;
+  if(pointer > NUM_BRICKS_IN_ATLAS)
+    return pointer == UNIFORM_NEGATIVE_BRICK_POINTER;
+
+  const float brick_size = BRICK_SIZES[level];
+  const float voxel_size = VOXEL_SIZES[level];
+  const float3 brickPos = id*brick_size;
+  float3 p = r.orig;
+  float3 diff = p - brickPos;
+  float4 sBottom,sTop;
+  int3 prev_voxel_offset;
+
+  for(int step = 0; step<MAX_ITERATIONS; step++){
+    if(any(diff<0.0) || any(diff>brick_size))
+      break;
+
+    float3 diffNorm = diff/voxel_size;
+    int3 voxel_offset = int3(floor(diffNorm));
+    float3 voxel_coor = frac(diffNorm);
+    if(step == 0 || any(prev_voxel_offset != voxel_offset)){
+      fetchBrickValue(pointer,voxel_offset,sBottom,sTop);
+      prev_voxel_offset = voxel_offset;
+    }
+
+    float t = triLerp(voxel_coor,sBottom,sTop);
+
+    if(t < voxel_size/10){
+      depth = length(r.orig - p);
+      return true;
+    }
+
+    p += r.dir*t;
+
+    diff = p - brickPos;
+  }
+
+  return false;
+}
+
+float sphereTraceBbox(Ray r, Bbox bbox){
+  const int MAX_ITERATIONS = NUM_BRICKS_PER_AXIS*10;
+  const int3 hole_min = int3(NUM_BRICKS_PER_AXIS/4);
+  const int3 hole_max = int3(NUM_BRICKS_PER_AXIS*3/4-2);
+
+  // Initial intersection test
+  float3 p, far, dir = r.dir;
+  bool hit = intersectCube(r, bbox, p, far);
+  if(!hit) return -1;
+
+  const int3 step = sign(dir);
+
+  const float3 delta0 = BRICK_SIZES[0]/fabs(dir);
+  
+  float depth;
+  for(int steps = 0; steps < MAX_ITERATIONS; steps++){
+    int level = getLevelOfPoint(r.orig);
+    float3 pVoxelNorm = p/VOXEL_SIZES[level];
+    int3 voxelId = int3(floor(pVoxelNorm));
+    int3 voxelIndex = id2voxelIndex(voxelId);
+    int3 brickIndex = voxelIndex/(BRICK_SIZE-1); 
+    int3 voxelOffset = voxelIndex%(BRICK_SIZE-1); 
+
+    int3 clipIndex = brickIndex;
+    clipIndex.z = NUM_BRICKS_PER_AXIS * level;
+    int pointer = clipMap[clipIndex] & NOT_DIRTY_BIT;
+
+
+    float3 pBrickNorm = p/BRICK_SIZES[level];
+    float3 brickCoor = frac(pBrickNorm);
+    brickCoor = select(step == 1, 1.0 - brickCoor, brickCoor);
+
+    // Unfinished
+  }
+
+}
+
 float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
 
   // Debug visualizers
   const bool drawSilhouette   = debugColor && true;   // Draw the silhouette of the grid
   const bool drawSteps        = debugColor && false;  // Draw the numer of steps taken
-  const bool drawLevel        = debugColor && true;  // Draw the clip map level at hit point
-  const bool drawHitIndex     = debugColor && false;  // Draw the grid brick index at the hit point
+  const bool drawLevel        = debugColor && false;  // Draw the clip map level at hit point
+  const bool drawHitIndex     = debugColor && true;  // Draw the grid brick index at the hit point
   const bool drawBrickPointer = debugColor && false;   // Draw the pointer value of the brick at hit point
 
   normal = float3(0);
@@ -359,6 +469,7 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   int level;
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
+    /* 
     // Get the camera position using the current ocupied level 0 id of the camera
     // Warning: Using sceneInfo.cameraPosition is incorrect
     int3 camId0 = sceneInfo.cameraId0.xyz;
@@ -371,6 +482,8 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
     float normDistance = maxTComponent/L0_AXIS_WORLD_SIZE;
     // Transfer function from normalized distance to level
     level = max(0,int(trunc(log2(4.0*normDistance))));
+ */
+    level = getLevelOfPoint(p);
 
     const float voxel_size = VOXEL_SIZES[level];
 
@@ -386,8 +499,8 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
     float3 voxelCoor = frac(pVoxelNorm);
 
     // If this voxel hasn't been visited yet
-    //if(steps == 1 || any(currentIndex != lastIndex)){
-    if(true){
+    if(steps == 1 || any(currentIndex != lastIndex)){
+    //if(true){
       // Update current voxel data and index
       sampleVoxel2(currentIndex,level,sBottom,sTop);
       //sampleVoxel2New(voxelOffset,currentIndex,level,sBottom,sTop);

@@ -155,6 +155,7 @@ struct SceneInfo{
   float4x4  projMatrix;
   float4    cameraPosition;
   int4      cameraId0;
+  float4    cameraId0Pos;
 };
 CHECK_STRUCT_ALIGNMENT(SceneInfo)
 
