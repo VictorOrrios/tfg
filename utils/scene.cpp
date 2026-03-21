@@ -503,9 +503,9 @@ std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0,
       glm::ivec3 maxId = currMaxId;
 
       if(prevCamId[axis] <= currCamId[axis]){
-        minId[axis] = prevMaxId[axis]-1;
+        minId[axis] = prevMaxId[axis];
       }else{
-        maxId[axis] = prevMinId[axis]+1;
+        maxId[axis] = prevMinId[axis];
       }
 
       glm::ivec3 num_b = glm::abs(minId - maxId) + glm::ivec3(1);
