@@ -288,15 +288,13 @@ public:
       if(ImGui::Button("Refresh grid")){
         m_scene.m_needsRefresh = true;
       }
-      // REFRESH EVERY FRAME: URGENT TODO DONUT DO THISSSS!!!!!!!!!!!!!!!!!!!!!
-      m_scene.m_needsRefresh = true;
 
 
       //auto aabbs = m_scene.getBboxes();
       //auto jobs = m_scene.getBuildJobs(aabbs);
       if(ImGui::Button("Test")){
         auto aabbs = m_scene.getBboxes();
-        auto jobs = m_scene.getBuildJobs(aabbs,m_sceneInfo.cameraId0);
+        auto jobs = m_scene.getBuildJobs(aabbs,m_currCamId0,m_prevCamId0);
         m_testSize = jobs.size();
         m_testMed = glm::ivec3(0);
         for(auto& job: jobs){
@@ -424,10 +422,11 @@ public:
     m_pushConst.lp.lightDir = glm::normalize(m_pushConst.lp.lightDir);
     updateSceneBuffer(cmd);
 
-    if(m_scene.m_needsRefresh){
+    if(m_scene.m_needsRefresh || m_currCamId0 != m_prevCamId0){
       updateSceneObjects(cmd);
       updateTextureData(cmd);
       m_scene.m_needsRefresh = false;
+      m_prevCamId0 = m_currCamId0;
     }
 
     if(m_RTX_ON){
@@ -545,8 +544,8 @@ public:
 
     int num_bricks;
     std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
-    //std::vector<shaderio::BuildJob> buildJobs = m_scene.getBuildJobs(aabbVector,m_sceneInfo.cameraId0);
-    std::vector<shaderio::BuildJob> buildJobs = m_scene.getDenseBuildJobs(m_sceneInfo.cameraId0);
+    std::vector<shaderio::BuildJob> buildJobs = m_scene.getBuildJobs(aabbVector,m_currCamId0,m_prevCamId0);
+    //std::vector<shaderio::BuildJob> buildJobs = m_scene.getDenseBuildJobs(m_sceneInfo.cameraId0);
 
     if(buildJobs.size() > shaderio::MAX_NUM_BUILD_JOBS)
       LOGE("Not enough space in build job queue to allocale %zu jobs\n",buildJobs.size());
@@ -1214,14 +1213,14 @@ public:
 
     const glm::mat4& viewMatrix = m_cameraManip->getViewMatrix();
     const glm::mat4& projMatrix = m_cameraManip->getPerspectiveMatrix();
-    const glm::vec3& id0 = glm::floor(m_cameraManip->getEye()/shaderio::BRICK_SIZES[0]);
-    const glm::vec3& id0Pos = id0*shaderio::BRICK_SIZES[0];
+    m_currCamId0 = glm::floor(m_cameraManip->getEye()/shaderio::BRICK_SIZES[0]);
+    const glm::vec3& id0Pos = glm::vec3(m_currCamId0)*shaderio::BRICK_SIZES[0];
 
     m_sceneInfo.viewMatrix = glm::inverse(viewMatrix);
     m_sceneInfo.projMatrix = glm::inverse(projMatrix);
     m_sceneInfo.viewProjMatrix = glm::inverse(projMatrix * viewMatrix);
     m_sceneInfo.cameraPosition = glm::vec4(m_cameraManip->getEye(),0.0);
-    m_sceneInfo.cameraId0 = glm::ivec4(id0,0);
+    m_sceneInfo.cameraId0 = glm::ivec4(m_currCamId0,0);
     m_sceneInfo.cameraId0Pos = glm::vec4(id0Pos,0);
 
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneInfoB.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -1315,6 +1314,8 @@ private:
 
   // Scene
   Scene m_scene;
+  glm::ivec3 m_currCamId0 = glm::ivec3(0);
+  glm::ivec3 m_prevCamId0 = glm::ivec3(0);
 
   // Test variables TODO: Remove after debugging
   int m_testSize = 0;

@@ -1,6 +1,7 @@
 // TODO: Clean imports
 #include "scene.hpp"
 #include "glm/common.hpp"
+#include "glm/ext/vector_bool3.hpp"
 #include "glm/ext/vector_int3.hpp"
 #include "nvutils/bounding_box.hpp"
 #include "nvutils/logger.hpp"
@@ -430,6 +431,10 @@ std::vector<float> Scene::generateDenseGrid() {
   return data;
 }
 
+inline glm::ivec3 id0LevelTransform(glm::ivec3 id0, int level){
+  return glm::floor(glm::vec3(id0)/float(1<<level));
+}
+
 std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox, glm::ivec3 camId0){
   const glm::ivec3 zeros(0);
   const glm::ivec3 max_index(NUM_BRICKS_PER_AXIS-1);
@@ -439,7 +444,7 @@ std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox, g
   std::vector<shaderio::BuildJob> jobs;
   
   for(int level=0; level<CLIPMAP_LEVELS; level++){
-    glm::ivec3 camId = camId0>>level;
+    glm::ivec3 camId = id0LevelTransform(camId0, level);
 
     glm::ivec3 min_id = glm::floor(bbox.min()/shaderio::BRICK_SIZES[level]);
     glm::ivec3 max_id = glm::floor(bbox.max()/shaderio::BRICK_SIZES[level]);
@@ -478,6 +483,44 @@ std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox, g
   return jobs;
 }
 
+std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0){
+  std::vector<shaderio::BuildJob> out;
+
+  for(int level=0; level<CLIPMAP_LEVELS; level++){
+    glm::ivec3 currCamId = id0LevelTransform(currCamId0,level);
+    glm::ivec3 currMinId = currCamId - NUM_BRICKS_PER_AXIS/2;
+    glm::ivec3 currMaxId = currCamId + NUM_BRICKS_PER_AXIS/2 - 1;
+
+    glm::ivec3 prevCamId = id0LevelTransform(prevCamId0,level);
+    glm::ivec3 prevMinId = prevCamId - NUM_BRICKS_PER_AXIS/2;
+    glm::ivec3 prevMaxId = prevCamId + NUM_BRICKS_PER_AXIS/2 - 1;
+
+    for(int axis = 0; axis < 3; ++axis){
+      if(prevCamId[axis] == currCamId[axis])
+        continue;
+
+      glm::ivec3 minId = currMinId;
+      glm::ivec3 maxId = currMaxId;
+
+      if(prevCamId[axis] <= currCamId[axis]){
+        minId[axis] = prevMaxId[axis]-1;
+      }else{
+        maxId[axis] = prevMinId[axis]+1;
+      }
+
+      glm::ivec3 num_b = glm::abs(minId - maxId) + glm::ivec3(1);
+
+      out.push_back({
+        .min_id_level=glm::ivec4(minId,level),
+        .num_b=glm::ivec4(num_b,0)
+      });
+    }
+  }
+
+  return out;
+}
+
+
 // Splits BuildJobs into chunks that have a max size of MAX_BUILD_JOB_SIZE³
 std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
   const glm::ivec3 base_min_id = glm::ivec3(buildJ.min_id_level.x,buildJ.min_id_level.y,buildJ.min_id_level.z);
@@ -502,18 +545,18 @@ std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
   return out;
 }
 
-std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> aabbs, glm::ivec3 camId0){
+std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> aabbs, glm::ivec3 currCamId0, glm::ivec3 prevCamId0){
   std::vector<shaderio::BuildJob> out, baseJobs, levelSplitted;
 
-  out.reserve(aabbs.size()*4);
-  baseJobs.reserve(aabbs.size());
+  out.reserve(aabbs.size()*4+3);
+  baseJobs = createCamBuildJobs(currCamId0,prevCamId0);
   
   for(auto& bbox: aabbs){
     // Negative volume build job check
     if(glm::any(glm::lessThan(bbox.max(),bbox.min())))
       continue;
 
-    levelSplitted = createBaseBuildJobs(bbox, camId0);
+    levelSplitted = createBaseBuildJobs(bbox, currCamId0);
     baseJobs.insert(baseJobs.end(),levelSplitted.begin(),levelSplitted.end());
   }
 
@@ -528,7 +571,7 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> a
 std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 camId0){
   const float extent = shaderio::AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
   std::vector<nvutils::Bbox> aabbs(1,nvutils::Bbox(glm::vec3(-extent),glm::vec3(extent)));
-  return getBuildJobs(aabbs,camId0);
+  return getBuildJobs(aabbs,camId0,camId0);
 }
 
 
@@ -560,7 +603,7 @@ Scene::Scene() {
   sphere->p.combOp = (int)CombinationOp::Substraction;
   updateNodeData(sphere);
   addNode(sphere);
-/* 
+
   Node *sphereGrid = createNode(NodeType::Sphere);
   sphereGrid->p.position = glm::vec3(0, 0, -1.4);
   sphereGrid->p.rotation = glm::vec3(0);
@@ -570,7 +613,7 @@ Scene::Scene() {
   sphereGrid->p.limit = glm::ivec3(13,13,1);
   updateNodeData(sphereGrid);
   addNode(sphereGrid);
- */
+
   Node *torus = createNode(NodeType::Torus);
   torus->p.scale = 0.2;
   torus->p.position = glm::vec3(0.35, 0.1, -1.2);
@@ -578,7 +621,7 @@ Scene::Scene() {
   updateNodeData(torus);
   addNode(torus);
 
-  Node *sphere2 = createNode(NodeType::Sphere);
+  Node *sphere2 = createNode(NodeType::Box);
   sphere2->p.scale = 0.4;
   sphere2->p.position = glm::vec3(1.35, -0.1, -1.2);
   sphere2->p.rotation = glm::vec3(0.0);

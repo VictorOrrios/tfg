@@ -367,8 +367,8 @@ int getLevelOfPoint(float3 p) {
   float logVal = log2((float)(maxAbsDiff + 1) / (float)HALF);
   int level = clamp((int)ceil(logVal),0,CLIPMAP_LEVELS - 1);
   
-  int3 camId = camId0 >> level;
-  int3 pId = pId0 >> level;
+  int3 camId = id0LevelTransform(camId0,level);
+  int3 pId = id0LevelTransform(pId0,level);
   int3 rel_id = pId - camId;
   if (all(rel_id < HALF)) {
     return level;
@@ -420,43 +420,6 @@ bool sphereTraceBrick(Ray r, int3 id, int level, out float depth){
   }
 
   return false;
-}
-
-float sphereTraceBbox(Ray r, Bbox bbox){
-  const int MAX_ITERATIONS = NUM_BRICKS_PER_AXIS*10;
-  const int3 hole_min = int3(NUM_BRICKS_PER_AXIS/4);
-  const int3 hole_max = int3(NUM_BRICKS_PER_AXIS*3/4-2);
-
-  // Initial intersection test
-  float3 p, far, dir = r.dir;
-  bool hit = intersectCube(r, bbox, p, far);
-  if(!hit) return -1;
-
-  const int3 step = sign(dir);
-
-  const float3 delta0 = BRICK_SIZES[0]/fabs(dir);
-  
-  float depth;
-  for(int steps = 0; steps < MAX_ITERATIONS; steps++){
-    int level = getLevelOfPoint(r.orig);
-    float3 pVoxelNorm = p/VOXEL_SIZES[level];
-    int3 voxelId = int3(floor(pVoxelNorm));
-    int3 voxelIndex = id2voxelIndex(voxelId);
-    int3 brickIndex = voxelIndex/(BRICK_SIZE-1); 
-    int3 voxelOffset = voxelIndex%(BRICK_SIZE-1); 
-
-    int3 clipIndex = brickIndex;
-    clipIndex.z = NUM_BRICKS_PER_AXIS * level;
-    int pointer = clipMap[clipIndex] & NOT_DIRTY_BIT;
-
-
-    float3 pBrickNorm = p/BRICK_SIZES[level];
-    float3 brickCoor = frac(pBrickNorm);
-    brickCoor = select(step == 1, 1.0 - brickCoor, brickCoor);
-
-    // Unfinished
-  }
-
 }
 
 float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){

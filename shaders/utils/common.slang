@@ -30,3 +30,8 @@ inline int3 id2voxelIndex(int3 x){
 inline int3 voxel2offset(int3 x){
   return ((x % (BRICK_SIZE-1)) + (BRICK_SIZE-1)) % (BRICK_SIZE-1);
 }
+
+// Use this instead of id0>>level vecause shift operator truncates and gets negative ids wrong
+inline int3 id0LevelTransform(int3 id0, int level){
+  return int3(floor(float3(id0)/(1<<level)));
+}

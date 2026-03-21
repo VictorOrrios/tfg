@@ -90,7 +90,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   const int3 brickId = job.min_id_level.xyz + brickOffset;  
 
   // Transform global id to a relative id to the camera id
-  const int3 camId = sceneInfo.cameraId0.xyz>>level;
+  const int3 camId = id0LevelTransform(sceneInfo.cameraId0.xyz,level);
   const int3 relBrickId = brickId - camId + (NUM_BRICKS_PER_AXIS/2);
 
   // Might not be necesary
