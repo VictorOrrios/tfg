@@ -356,14 +356,25 @@ float evalCubic(float t, float4 c){
   return fma(t, fma(t, fma(t, c.w, c.z), c.y), c.x);
 }
 
-int getLevelOfPoint(float3 p){
-  const int scale_correction = 1-int(log2(NUM_BRICKS_PER_AXIS));
-  float3 pBrickNorm = p/BRICK_SIZES[0];
-  int3 pId0 = int3(floor(pBrickNorm));
-  int3 diff = pId0 - sceneInfo.cameraId0.xyz;
-  diff = select(diff>=0, max(0,diff+1),-diff);
-  int maxDiff = max(diff.x,max(diff.y,diff.z));
-  return max(0,int(ceil(log2(maxDiff)))) + scale_correction;
+int getLevelOfPoint(float3 p) {
+  int3 camId0 = sceneInfo.cameraId0.xyz;
+  int3 pId0 = int3(floor(p / BRICK_SIZES[0]));
+  
+  int3 diff = pId0 - camId0;
+  int maxAbsDiff = max(abs(diff.x), max(abs(diff.y), abs(diff.z)));
+  
+  const int HALF = NUM_BRICKS_PER_AXIS / 2;
+  float logVal = log2((float)(maxAbsDiff + 1) / (float)HALF);
+  int level = clamp((int)ceil(logVal),0,CLIPMAP_LEVELS - 1);
+  
+  int3 camId = camId0 >> level;
+  int3 pId = pId0 >> level;
+  int3 rel_id = pId - camId;
+  if (all(rel_id < HALF)) {
+    return level;
+  }else{
+    return clamp(level+1,0,CLIPMAP_LEVELS - 1);
+  }
 }
 
 bool sphereTraceBrick(Ray r, int3 id, int level, out float depth){
@@ -454,8 +465,8 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   // Debug visualizers
   const bool drawSilhouette   = debugColor && true;   // Draw the silhouette of the grid
   const bool drawSteps        = debugColor && false;  // Draw the numer of steps taken
-  const bool drawLevel        = debugColor && false;  // Draw the clip map level at hit point
-  const bool drawHitIndex     = debugColor && true;  // Draw the grid brick index at the hit point
+  const bool drawLevel        = debugColor && true;  // Draw the clip map level at hit point
+  const bool drawHitIndex     = debugColor && false;  // Draw the grid brick index at the hit point
   const bool drawBrickPointer = debugColor && false;   // Draw the pointer value of the brick at hit point
 
   normal = float3(0);
@@ -469,20 +480,6 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   int level;
 
   for(int steps = 1; steps < MAX_ITERATIONS; steps++){
-    /* 
-    // Get the camera position using the current ocupied level 0 id of the camera
-    // Warning: Using sceneInfo.cameraPosition is incorrect
-    int3 camId0 = sceneInfo.cameraId0.xyz;
-    float3 camNormPos = camId0 * BRICK_SIZES[0];
-    // Get the max axis distance from p to the camera brick  
-    float3 target = p - camNormPos;
-    float3 absT = abs(target);
-    float maxTComponent = max(absT.x,max(absT.y,absT.z));
-    // Normalize it to match level 0 size
-    float normDistance = maxTComponent/L0_AXIS_WORLD_SIZE;
-    // Transfer function from normalized distance to level
-    level = max(0,int(trunc(log2(4.0*normDistance))));
- */
     level = getLevelOfPoint(p);
 
     const float voxel_size = VOXEL_SIZES[level];
