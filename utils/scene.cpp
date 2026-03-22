@@ -222,6 +222,8 @@ Scene::Node *Scene::createNode(NodeType t) {
   Node *node = new Node({
       .id = getNextId(),
       .p={.type = t},
+      .bbox=nvutils::Bbox(glm::vec3(0.0),glm::vec3(0.0)),
+      .needsRefresh=false,
   });
 
   if (m_selected != -1) {
@@ -252,8 +254,17 @@ void Scene::addNode(Node *node) {
 // Scene generation
 //------------------
 void Scene::updateNodeData(Node *n) {
+  markRefresh(n);
   generateMatrix(n);
   generateBBox(n);
+}
+
+void Scene::markRefresh(Node* n){
+  if(!n->needsRefresh){
+    n->prevBbox = nvutils::Bbox(n->bbox);
+    n->needsRefresh = true;
+    m_needsRefresh = true;
+  }
 }
 
 void Scene::generateMatrix(Node *n) {
@@ -310,7 +321,7 @@ void Scene::generateBBox(Node *n) {
   n->bbox = nvutils::Bbox(min, max);
 }
 
-std::vector<nvutils::Bbox> Scene::getBboxes() {
+std::vector<nvutils::Bbox> Scene::getAllBboxes() {
   std::vector<nvutils::Bbox> out;
 
   for (auto &node : m_root) {
@@ -490,10 +501,14 @@ std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0,
     glm::ivec3 currCamId = id0LevelTransform(currCamId0,level);
     glm::ivec3 currMinId = currCamId - NUM_BRICKS_PER_AXIS/2;
     glm::ivec3 currMaxId = currCamId + NUM_BRICKS_PER_AXIS/2 - 1;
+    glm::ivec3 currHMinId = currCamId - NUM_BRICKS_PER_AXIS/4;
+    glm::ivec3 currHMaxId = currCamId + NUM_BRICKS_PER_AXIS/4 - 1;
 
     glm::ivec3 prevCamId = id0LevelTransform(prevCamId0,level);
     glm::ivec3 prevMinId = prevCamId - NUM_BRICKS_PER_AXIS/2;
     glm::ivec3 prevMaxId = prevCamId + NUM_BRICKS_PER_AXIS/2 - 1;
+    glm::ivec3 prevHMinId = prevCamId - NUM_BRICKS_PER_AXIS/4;
+    glm::ivec3 prevHMaxId = prevCamId + NUM_BRICKS_PER_AXIS/4 - 1;
 
     for(int axis = 0; axis < 3; ++axis){
       if(prevCamId[axis] == currCamId[axis])
@@ -514,6 +529,24 @@ std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0,
         .min_id_level=glm::ivec4(minId,level),
         .num_b=glm::ivec4(num_b,0)
       });
+
+      if(level > 0){
+        minId = prevHMinId;
+        maxId = prevHMaxId;
+
+        if(prevCamId[axis] <= currCamId[axis]){
+          maxId[axis] = currHMinId[axis];
+        }else{
+          minId[axis] = currHMaxId[axis];
+        }
+
+        num_b = glm::abs(minId - maxId) + glm::ivec3(1);
+
+        out.push_back({
+          .min_id_level=glm::ivec4(minId,level),
+          .num_b=glm::ivec4(num_b,0)
+        });
+      }
     }
   }
 
@@ -545,8 +578,18 @@ std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
   return out;
 }
 
-std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> aabbs, glm::ivec3 currCamId0, glm::ivec3 prevCamId0){
+std::vector<shaderio::BuildJob> Scene::getBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0){
+  std::vector<nvutils::Bbox> aabbs;
   std::vector<shaderio::BuildJob> out, baseJobs, levelSplitted;
+
+  for (auto &node : m_root) {
+    if(node.needsRefresh){
+      aabbs.push_back(node.bbox);
+      aabbs.push_back(node.prevBbox);
+      node.prevBbox = nvutils::Bbox(node.bbox);
+      node.needsRefresh = false;
+    }
+  }
 
   out.reserve(aabbs.size()*4+3);
   baseJobs = createCamBuildJobs(currCamId0,prevCamId0);
@@ -567,13 +610,6 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(std::vector<nvutils::Bbox> a
 
   return out;
 }
-
-std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 camId0){
-  const float extent = shaderio::AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
-  std::vector<nvutils::Bbox> aabbs(1,nvutils::Bbox(glm::vec3(-extent),glm::vec3(extent)));
-  return getBuildJobs(aabbs,camId0,camId0);
-}
-
 
 //------------------
 // Constructor

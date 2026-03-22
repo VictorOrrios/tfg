@@ -36,6 +36,8 @@ public:
     uint32_t id;
     NodeParams p;
     nvutils::Bbox bbox;
+    nvutils::Bbox prevBbox;
+    bool needsRefresh;
   };
 
   Scene();
@@ -43,10 +45,9 @@ public:
   void draw();
 
   std::vector<float> generateDenseGrid();
-  std::vector<nvutils::Bbox> getBboxes();
+  std::vector<nvutils::Bbox> getAllBboxes();
   std::vector<shaderio::SceneObject> getObjects();
-  std::vector<shaderio::BuildJob> getBuildJobs(std::vector<nvutils::Bbox> aabbs, glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
-  std::vector<shaderio::BuildJob> getDenseBuildJobs(glm::ivec3 camId0);
+  std::vector<shaderio::BuildJob> getBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
 
   bool m_needsRefresh = true;
 
@@ -64,6 +65,7 @@ private:
   Node* createNode(NodeType t);
 
   void updateNodeData(Node *n);
+  void markRefresh(Node* n);
   void generateMatrix(Node *n);
   void generateBBox(Node *n);
   float map(glm::vec3 p);

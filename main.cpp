@@ -293,8 +293,7 @@ public:
       //auto aabbs = m_scene.getBboxes();
       //auto jobs = m_scene.getBuildJobs(aabbs);
       if(ImGui::Button("Test")){
-        auto aabbs = m_scene.getBboxes();
-        auto jobs = m_scene.getBuildJobs(aabbs,m_currCamId0,m_prevCamId0);
+        auto jobs = m_scene.getBuildJobs(m_currCamId0,m_prevCamId0);
         m_testSize = jobs.size();
         m_testMed = glm::ivec3(0);
         for(auto& job: jobs){
@@ -425,6 +424,8 @@ public:
     if(m_scene.m_needsRefresh || m_currCamId0 != m_prevCamId0){
       updateSceneObjects(cmd);
       updateTextureData(cmd);
+      if(m_scene.m_needsRefresh)
+        LOGI("Scene refresh\n");
       m_scene.m_needsRefresh = false;
       m_prevCamId0 = m_currCamId0;
     }
@@ -543,8 +544,7 @@ public:
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
 
     int num_bricks;
-    std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
-    std::vector<shaderio::BuildJob> buildJobs = m_scene.getBuildJobs(aabbVector,m_currCamId0,m_prevCamId0);
+    std::vector<shaderio::BuildJob> buildJobs = m_scene.getBuildJobs(m_currCamId0,m_prevCamId0);
     //std::vector<shaderio::BuildJob> buildJobs = m_scene.getDenseBuildJobs(m_sceneInfo.cameraId0);
 
     if(buildJobs.size() > shaderio::MAX_NUM_BUILD_JOBS)
@@ -802,7 +802,7 @@ public:
     updateSceneObjects(cmd);  // Call update scene after the initial reation of buffers
     m_app->submitAndWaitTempCmdBuffer(cmd); 
 
-    std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
+    std::vector<nvutils::Bbox> aabbVector = m_scene.getAllBboxes();
 
     std::vector<nvvk::AccelerationStructureGeometryInfo> geoInfos;
     VkDeviceSize stride = sizeof(VkAabbPositionsKHR);
@@ -840,7 +840,7 @@ public:
   void updateSceneObjects(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
 
-    std::vector<nvutils::Bbox> aabbVector = m_scene.getBboxes();
+    std::vector<nvutils::Bbox> aabbVector = m_scene.getAllBboxes();
     std::vector<shaderio::SceneObject> objectsVector = m_scene.getObjects();
     if(aabbVector.size() != objectsVector.size())
         LOGE("Aabb vector is diferent size from objects vector %zu != %zu\n",aabbVector.size(),objectsVector.size());
