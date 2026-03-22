@@ -1,7 +1,6 @@
 // TODO: Clean imports
 #include "scene.hpp"
 #include "glm/common.hpp"
-#include "glm/ext/vector_bool3.hpp"
 #include "glm/ext/vector_int3.hpp"
 #include "nvutils/bounding_box.hpp"
 #include "nvutils/logger.hpp"
@@ -195,8 +194,7 @@ void Scene::drawPrimitives() {
           m_root.insert(m_root.begin() + idx, std::move(movedItem));
 
           m_selected = idx;
-
-          m_needsRefresh = true;
+          updateNodeData(&m_root[m_selected]);
         }
       }
       ImGui::EndDragDropTarget();

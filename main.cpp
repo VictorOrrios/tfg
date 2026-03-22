@@ -424,8 +424,6 @@ public:
     if(m_scene.m_needsRefresh || m_currCamId0 != m_prevCamId0){
       updateSceneObjects(cmd);
       updateTextureData(cmd);
-      if(m_scene.m_needsRefresh)
-        LOGI("Scene refresh\n");
       m_scene.m_needsRefresh = false;
       m_prevCamId0 = m_currCamId0;
     }
@@ -545,13 +543,14 @@ public:
 
     int num_bricks;
     std::vector<shaderio::BuildJob> buildJobs = m_scene.getBuildJobs(m_currCamId0,m_prevCamId0);
-    //std::vector<shaderio::BuildJob> buildJobs = m_scene.getDenseBuildJobs(m_sceneInfo.cameraId0);
 
     if(buildJobs.size() > shaderio::MAX_NUM_BUILD_JOBS)
       LOGE("Not enough space in build job queue to allocale %zu jobs\n",buildJobs.size());
-    if(buildJobs.size() <= 0)
-      LOGE("Build job queue update size is 0\n");
-
+    
+    if(buildJobs.size() <= 0){
+      LOGW("Build job queue update size is 0, skipping generation pass\n");
+      return;
+    }
 
     size = buildJobs.size() * sizeof(shaderio::BuildJob);
     m_stagingUploader.appendBuffer(m_buildJobQueue,0,size,buildJobs.data());
