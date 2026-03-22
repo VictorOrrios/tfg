@@ -19,7 +19,7 @@
 [[vk::binding(BindingPoints::counters)]] StructuredBuffer<uint32_t> counters;
 
 
-float map(float3 point){
+float map(float3 point, float nearRange){
   const float iniD = 10000.0f;
   float result = iniD;
 
@@ -28,7 +28,7 @@ float map(float3 point){
     Bbox bbox = aabbs[obIdx];
 
     // If not inside bbox primitive continue with next 
-    if(!insideBbox(p,bbox))
+    if(!nearBbox(p,bbox,nearRange))
       continue;
 
     SceneObject params = objects[obIdx];
@@ -86,7 +86,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     float3 brickPos = float3(id)*brick_size;
     float3 p = brickPos + float3(voxelId)*voxel_size;
 
-    float sdfValue = clamp(map(p)/max_voxel_value,-1.0,1.0);
+    float sdfValue = clamp(map(p,MAX_BRICK_VALUES[level])/max_voxel_value,-1.0,1.0);
 
     brickAtlas[brickPointer+voxelId] = sdfValue;
   }

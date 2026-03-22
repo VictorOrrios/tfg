@@ -13,6 +13,11 @@ bool insideBbox(float3 p, Bbox bbox){
   return all(p >= bbox.bMin) && all(p <= bbox.bMax);
 }
 
+// Returns if a points is nearby a bbox
+bool nearBbox(float3 p, Bbox bbox, float nearRange){
+  return all(p >= bbox.bMin-nearRange) && all(p <= bbox.bMax+nearRange);
+}
+
 // Taken from vk_mini_samples texture_3d
 // Determines whether a ray intersects with a bounding box (bbox) representing a cube.
 // If an intersection occurs, it calculates the two points of intersection and returns

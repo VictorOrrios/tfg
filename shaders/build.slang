@@ -21,7 +21,7 @@
 [[vk::binding(BindingPoints::freeList)]] RWStructuredBuffer<uint32_t> free_list;
 
 
-float map(float3 point){
+float map(float3 point, float nearRange){
   const float iniD = 10000.0f;
   float result = iniD;
 
@@ -30,7 +30,7 @@ float map(float3 point){
     Bbox bbox = aabbs[obIdx];
 
     // If not inside bbox primitive continue with next 
-    if(!insideBbox(p,bbox))
+    if(!nearBbox(p,bbox,nearRange))
       continue;
 
     SceneObject params = objects[obIdx];
@@ -119,7 +119,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
 
     // Evaluate scene at brick center
     float3 p = (float3(brickId)+0.5)*brick_size;
-    float centerSDF = map(p);
+    float centerSDF = map(p,MAX_BRICK_VALUES[level]);
     
     // Uniform value brick check
     if(abs(centerSDF) > max_brick_value){
