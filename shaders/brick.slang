@@ -19,38 +19,6 @@
 [[vk::binding(BindingPoints::counters)]] StructuredBuffer<uint32_t> counters;
 
 
-float map(float3 point, float nearRange){
-  const float iniD = 10000.0f;
-  float result = iniD;
-
-  for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
-    float3 p = float3(point);
-    Bbox bbox = aabbs[obIdx];
-
-    // If not inside bbox primitive continue with next 
-    if(!nearBbox(p,bbox,nearRange))
-      continue;
-
-    SceneObject params = objects[obIdx];
-
-    p = mul(params.tInv, float4(p, 1.0)).xyz;
-
-    p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit.xyz);
-
-    p = applyDefOp(params.defOp, p, params.defP.xyz);
-
-    p /= params.scale;
-
-    float d = evalPrimitive(params.type, p) - params.roundness;
-
-    d *= params.scale;
-
-    result = evalCombOp(params.combOp, d, result, params.smoothness);
-  }
-
-  return result;
-}
-
 [shader("compute")]
 [numthreads(BRICK_SIZE, BRICK_SIZE, BRICK_SIZE)]
 void computeMain(uint3 tId : SV_DispatchThreadID){
@@ -86,7 +54,8 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     float3 brickPos = float3(id)*brick_size;
     float3 p = brickPos + float3(voxelId)*voxel_size;
 
-    float sdfValue = clamp(map(p,MAX_BRICK_VALUES[level])/max_voxel_value,-1.0,1.0);
+    float mapValue = map(p,MAX_BRICK_VALUES[level],pushConst.numObjects,aabbs,objects);
+    float sdfValue = clamp(mapValue/max_voxel_value,-1.0,1.0);
 
     brickAtlas[brickPointer+voxelId] = sdfValue;
   }

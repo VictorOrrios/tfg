@@ -1,4 +1,6 @@
 #pragma once
+#include "bbox.slang"
+
 //------------------------------------------
 // Signed distance functions and operations
 //------------------------------------------
@@ -153,4 +155,40 @@ float3 applyDefOp(int opIndex, float3 p, float3 defP){
     case 0: return p;
     case 1: return opElongate(p,defP);
   }
+}
+
+
+//---------------------------------------
+// Scene evaluation function
+//---------------------------------------
+float map(float3 point, float nearRange, int numObjects, StructuredBuffer<Bbox> aabbs, StructuredBuffer<SceneObject> objects){
+  const float iniD = 10000.0f;
+  float result = iniD;
+
+  for(int obIdx = 0; obIdx < numObjects; obIdx++) {
+    float3 p = float3(point);
+    Bbox bbox = aabbs[obIdx];
+
+    // If not inside bbox primitive continue with next 
+    if(!nearBbox(p,bbox,nearRange))
+      continue;
+
+    SceneObject params = objects[obIdx];
+
+    p = mul(params.tInv, float4(p, 1.0)).xyz;
+
+    p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit.xyz);
+
+    p = applyDefOp(params.defOp, p, params.defP.xyz);
+
+    p /= params.scale;
+
+    float d = evalPrimitive(params.type, p) - params.roundness;
+
+    d *= params.scale;
+
+    result = evalCombOp(params.combOp, d, result, params.smoothness);
+  }
+
+  return result;
 }

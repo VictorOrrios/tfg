@@ -58,11 +58,9 @@ float3 scalarToColor(float x){
 
 // Evaluates the whole sdf scene in a point in space
 float map(float3 p){
-  float t = sin(pushConst.time)*0.5+0.5;
-  float r = 100000.0;
-  r = min(r,lerp(sdSnowMan(p),sdSphere(p,1.0),t*t));
-  r = min(r,sdPlane(p,float3(0,1,0),1.0));
-  return r;
+  const float maxD = 100.0;
+  float mapValue = map(p,maxD,pushConst.numObjects,aabbs,objects);
+  return min(mapValue,maxD);
 }
 
 // True numerical
@@ -89,20 +87,25 @@ float3 calcNormalMap(float3 p){
 }
 
 // Sphere traces the scene evaluating the scene sdf at every step
-float sphereTraceMap(Ray ray){
+float sphereTraceMap(Ray ray, out float3 normal){
   const int MAX_ITERATIONS = 100;
   const float MAX_DIST = 100.0;
   const float MIN_DIST = 0.0001;
   
   float depth = 0.0;
+
+  normal = float3(0.0);
   
   for(int i = 0; i < MAX_ITERATIONS; i++){
     float3 p = ray.orig + ray.dir * depth;
     float dist = map(p);
     
-    if(abs(dist) < MIN_DIST) return depth;  // Hit
+    if(abs(dist) < MIN_DIST){
+      normal = calcNormalMap(p);
+      return depth;  // Hit
+    }
     
-    if(depth > MAX_DIST) return -1.0;  // No hit
+    if(depth >= MAX_DIST) return -1.0;  // No hit
 
     depth += dist;
   }
@@ -373,7 +376,7 @@ int getLevelOfPoint(float3 p) {
   if (all(rel_id < HALF)) {
     return level;
   }else{
-    return clamp(level+1,0,CLIPMAP_LEVELS - 1);
+    return min(level+1,CLIPMAP_LEVELS - 1);
   }
 }
 
@@ -422,7 +425,7 @@ bool sphereTraceBrick(Ray r, int3 id, int level, out float depth){
   return false;
 }
 
-float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
+float sphereTraceBbox(Ray r, Bbox bbox){
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
 
   // Debug visualizers
@@ -432,11 +435,10 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   const bool drawHitIndex     = debugColor && false;  // Draw the grid brick index at the hit point
   const bool drawBrickPointer = debugColor && false;   // Draw the pointer value of the brick at hit point
 
-  normal = float3(0);
-
   // Initial boundig box hit test
-  float3 p = r.orig, dir = r.dir;
-
+  float3 p = r.orig, far, dir = r.dir;
+  bool hit = intersectCube(r, bbox, p, far);
+  if(!hit) return -1;
 
   int3 currentIndex, lastIndex;
   float4 sBottom, sTop;
@@ -497,7 +499,6 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
         }
       }
 
-      normal = calcNormalAnalytic(voxelCoor,sBottom,sTop);
       // Returns depth of hit
       return length(p - r.orig);
     }
@@ -529,13 +530,133 @@ float sphereTraceGrid(Ray r, Bbox bbox, out float3 normal){
   }
 }
 
-// Intersects 
-// Pre: r.orig must be in canonical voxel space [0,1]³
-//      r.dir must be normalized
-//      index must be in range off grid
-bool intersectVoxel2(Ray r, int3 index){
-  // TODO
-  return false;
+// WARNING: Not working
+// Experiment of hybrid traversal
+float sphereTraceBbox2(Ray r, Bbox bbox){
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
+  const int3 hole_min = int3(NUM_BRICKS_PER_AXIS/4);
+  const int3 hole_max = int3(NUM_BRICKS_PER_AXIS*3/4-2);
+
+  float depth = -1;
+
+  // Initial boundig box hit test
+  float3 p, far, dir = r.dir;
+  bool hit = intersectCube(r, bbox, p, far);
+  if(!hit) return -1;
+
+  const int3 step = sign(dir);
+
+  int level = getLevelOfPoint(p);
+  float brickSize = BRICK_SIZES[level];
+
+  float3 pBrickNorm = p/brickSize;
+  int3 brickId = int3(floor(pBrickNorm));
+  int3 brickIndex = id2index(brickId);
+  float3 brickCoor = frac(pBrickNorm);
+  
+  float3 delta = brickSize/abs(dir);
+  float3 deltaOffset = select(step == 1,1.0-brickCoor,brickCoor);
+  float3 maxD = delta*deltaOffset;
+
+  Ray brickRay;
+  brickRay.dir = dir;
+  float3 origP = p;
+
+  for(int steps = 1; steps <= MAX_ITERATIONS; steps++){
+
+    if(any(brickIndex)<0 || any(brickIndex)>(NUM_BRICKS_PER_AXIS-1)){
+      // No more levels checks
+      if(level == CLIPMAP_LEVELS-1)
+        return -1;
+
+      level++;
+      delta *= 2;
+      brickId = id0LevelTransform(brickId,1);
+      brickIndex = id2index(brickId);
+    }else if(level>0 && all(brickIndex > hole_min) && all(brickIndex < hole_max)){
+      // -1 level
+      level--;
+      delta /= 2;
+      brickId *= 2;
+      brickIndex = id2index(brickId);
+      // In case the index is NUM_BRICKS_PER_AXIS-2 add 1 to it and the id
+      int3 holeIndexFix = select(brickIndex == NUM_BRICKS_PER_AXIS-2,1,0);
+      brickIndex += holeIndexFix;
+      brickId += holeIndexFix;
+    }
+    
+
+    // Brick hit check
+    brickRay.orig = p;
+    if(!intersectCube(brickRay, bbox, p, far))
+      return -1;
+    if(sphereTraceBrick(brickRay,brickId,level,depth)){
+      return length(brickRay.orig+(dir*depth) - r.orig);
+    }
+
+    // Add delta to lowest d
+    if (maxD.x < maxD.y && maxD.x < maxD.z) {
+      // X-axis traversal.
+      p.x = origP.x + maxD.x*step.x;
+      maxD.x += delta.x;
+      brickIndex.x += step.x;
+      brickId.x += step.x;
+    } else if (maxD.y < maxD.z) {
+      // Y-axis traversal.
+      p.y = origP.y + maxD.y*step.y;
+      maxD.y += delta.y;
+      brickIndex.y += step.y;
+      brickId.y += step.y;
+    } else {
+      // Z-axis traversal.
+      p.z = origP.z + maxD.z*step.z;
+      maxD.z += delta.z;
+      brickIndex.z += step.z;
+      brickId.z += step.z;
+    }
+  }
+
+  return -1;
+}
+
+float sphereTraceScene(Ray r, out float3 normal){
+  float depth = -1.0f;
+  normal = float3(0.0);
+  float3 lastDebug = debug;
+
+  for(int i = 0; i<pushConst.numObjects; i++){
+    Bbox bbox = aabbs[i];
+    float objDepth = sphereTraceBbox(r,bbox);
+    if(depth < 0 || (objDepth>=0 && objDepth<depth)){
+      depth = objDepth;
+      lastDebug = debug;
+    }
+  }
+
+  debug = lastDebug;
+
+  if(depth >= 0){
+    float3 p = r.orig + r.dir*depth;
+    int level = getLevelOfPoint(p);
+    float voxel_size = VOXEL_SIZES[level];
+    // Scale normalization
+    float3 pVoxelNorm = p/voxel_size;
+    // Truncate normalized coordinates to get the id
+    int3 voxelId = int3(floor(pVoxelNorm));
+    // Get the grid indices with floor division modulus (WARNING: Normal modulus % will not give correct result)
+    int3 voxelIndex = id2voxelIndex(voxelId);
+    // Get grid index and coordinates inside the voxel
+    int3 currentIndex = max(int3(0),min(int3(NUM_VOXELS_PER_AXIS-1),
+      voxelIndex));
+    float3 voxelCoor = frac(pVoxelNorm);
+    // Sample voxel
+    float4 sBottom,sTop;
+    sampleVoxel2(currentIndex,level,sBottom,sTop);
+    // Calc normal
+    normal = calcNormalAnalytic(voxelCoor,sBottom,sTop);
+  }
+
+  return depth;
 }
 
 // PRE: r.dir must be normalized
@@ -688,7 +809,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   bbox.bMax = bbox.bMax*bboxSize+bboxPos;
   
   //depth = rayMarchAmaWoo(r,bbox,normal);
-  depth = sphereTraceGrid(r,bbox,normal);
+  //depth = sphereTraceScene(r,normal);
+  depth = sphereTraceMap(r,normal);
 
   bool hit = depth >= 0.0;
   if(hit){

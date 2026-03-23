@@ -21,38 +21,6 @@
 [[vk::binding(BindingPoints::freeList)]] RWStructuredBuffer<uint32_t> free_list;
 
 
-float map(float3 point, float nearRange){
-  const float iniD = 10000.0f;
-  float result = iniD;
-
-  for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
-    float3 p = float3(point);
-    Bbox bbox = aabbs[obIdx];
-
-    // If not inside bbox primitive continue with next 
-    if(!nearBbox(p,bbox,nearRange))
-      continue;
-
-    SceneObject params = objects[obIdx];
-
-    p = mul(params.tInv, float4(p, 1.0)).xyz;
-
-    p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit.xyz);
-
-    p = applyDefOp(params.defOp, p, params.defP.xyz);
-
-    p /= params.scale;
-
-    float d = evalPrimitive(params.type, p) - params.roundness;
-
-    d *= params.scale;
-
-    result = evalCombOp(params.combOp, d, result, params.smoothness);
-  }
-
-  return result;
-}
-
 int allocPointer(){
   // TODO: Maybe add a max value check
   int index;
@@ -119,7 +87,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
 
     // Evaluate scene at brick center
     float3 p = (float3(brickId)+0.5)*brick_size;
-    float centerSDF = map(p,MAX_BRICK_VALUES[level]);
+    float centerSDF = map(p,MAX_BRICK_VALUES[level],pushConst.numObjects,aabbs,objects);
     
     // Uniform value brick check
     if(abs(centerSDF) > max_brick_value){
