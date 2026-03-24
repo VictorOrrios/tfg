@@ -809,8 +809,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   bbox.bMax = bbox.bMax*bboxSize+bboxPos;
   
   //depth = rayMarchAmaWoo(r,bbox,normal);
-  //depth = sphereTraceScene(r,normal);
-  depth = sphereTraceMap(r,normal);
+  depth = sphereTraceScene(r,normal);
+  //depth = sphereTraceMap(r,normal);
 
   bool hit = depth >= 0.0;
   if(hit){
