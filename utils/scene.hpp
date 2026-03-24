@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include "../shaders/shaderio.h"
+#include <nvvk/profiler_vk.hpp>
 
 class Scene {
 public:
@@ -48,6 +49,7 @@ public:
   std::vector<nvutils::Bbox> getAllBboxes();
   std::vector<shaderio::SceneObject> getObjects();
   std::vector<shaderio::BuildJob> getBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
+  std::vector<shaderio::BuildJob> getDenseBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
 
   bool m_needsRefresh = true;
 

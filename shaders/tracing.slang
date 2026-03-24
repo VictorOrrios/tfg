@@ -64,7 +64,7 @@ float map(float3 p){
 }
 
 // True numerical
-float3 calcNormalMapSlow(float3 p){
+float3 evalNormalTrue(float3 p){
   const float eps = 0.0001;
   const float2 h = float2(eps,0.0);
   return normalize(float3(
@@ -75,7 +75,7 @@ float3 calcNormalMapSlow(float3 p){
 }
 
 // Tetrahedron aproximation
-float3 calcNormalMap(float3 p){
+float3 evalNormal(float3 p){
   const float h = 0.0001;
   const float2 k = float2(1,-1);
   return normalize(
@@ -87,25 +87,22 @@ float3 calcNormalMap(float3 p){
 }
 
 // Sphere traces the scene evaluating the scene sdf at every step
-float sphereTraceMap(Ray ray, out float3 normal){
+// Pre: r.orig must be inside bbox
+float sphereTraceMap(Ray ray, float maxDepth){
   const int MAX_ITERATIONS = 100;
-  const float MAX_DIST = 100.0;
   const float MIN_DIST = 0.0001;
   
   float depth = 0.0;
 
-  normal = float3(0.0);
-  
   for(int i = 0; i < MAX_ITERATIONS; i++){
     float3 p = ray.orig + ray.dir * depth;
     float dist = map(p);
     
     if(abs(dist) < MIN_DIST){
-      normal = calcNormalMap(p);
       return depth;  // Hit
     }
     
-    if(depth >= MAX_DIST) return -1.0;  // No hit
+    if(depth >= maxDepth) return -1.0;  // No hit
 
     depth += dist;
   }
@@ -364,10 +361,12 @@ int getLevelOfPoint(float3 p) {
   int3 pId0 = int3(floor(p / BRICK_SIZES[0]));
   
   int3 diff = pId0 - camId0;
-  int maxAbsDiff = max(abs(diff.x), max(abs(diff.y), abs(diff.z)));
+  diff += max(0,sign(diff));
+  diff = abs(diff);
+  int maxDiff = max(diff.x,max(diff.y,diff.z));
   
   const int HALF = NUM_BRICKS_PER_AXIS / 2;
-  float logVal = log2((float)(maxAbsDiff + 1) / (float)HALF);
+  float logVal = log2((float)(maxDiff) / (float)HALF);
   int level = clamp((int)ceil(logVal),0,CLIPMAP_LEVELS - 1);
   
   int3 camId = id0LevelTransform(camId0,level);
@@ -425,6 +424,7 @@ bool sphereTraceBrick(Ray r, int3 id, int level, out float depth){
   return false;
 }
 
+// Pre: r.orig must be inside bbox
 float sphereTraceBbox(Ray r, Bbox bbox){
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
 
@@ -435,11 +435,7 @@ float sphereTraceBbox(Ray r, Bbox bbox){
   const bool drawHitIndex     = debugColor && false;  // Draw the grid brick index at the hit point
   const bool drawBrickPointer = debugColor && false;   // Draw the pointer value of the brick at hit point
 
-  // Initial boundig box hit test
-  float3 p = r.orig, far, dir = r.dir;
-  bool hit = intersectCube(r, bbox, p, far);
-  if(!hit) return -1;
-
+  float3 p = r.orig, dir = r.dir;
   int3 currentIndex, lastIndex;
   float4 sBottom, sTop;
   int level;
@@ -456,8 +452,7 @@ float sphereTraceBbox(Ray r, Bbox bbox){
     // Get the grid indices with floor division modulus (WARNING: Normal modulus % will not give correct result)
     int3 voxelIndex = id2voxelIndex(voxelId);
     // Get grid index and coordinates inside the voxel
-    currentIndex = max(int3(0),min(int3(NUM_VOXELS_PER_AXIS-1),
-      voxelIndex));
+    currentIndex = voxelIndex;
     float3 voxelCoor = frac(pVoxelNorm);
 
     // If this voxel hasn't been visited yet
@@ -619,41 +614,79 @@ float sphereTraceBbox2(Ray r, Bbox bbox){
   return -1;
 }
 
-float sphereTraceScene(Ray r, out float3 normal){
+float3 analyticNormal(float3 p){
+  int level = getLevelOfPoint(p);
+  float voxel_size = VOXEL_SIZES[level];
+  // Scale normalization
+  float3 pVoxelNorm = p/voxel_size;
+  // Truncate normalized coordinates to get the id
+  int3 voxelId = int3(floor(pVoxelNorm));
+  // Get the grid indices with floor division modulus (WARNING: Normal modulus % will not give correct result)
+  int3 voxelIndex = id2voxelIndex(voxelId);
+  // Get grid index and coordinates inside the voxel
+  int3 currentIndex = max(int3(0),min(int3(NUM_VOXELS_PER_AXIS-1),
+    voxelIndex));
+  float3 voxelCoor = frac(pVoxelNorm);
+  // Sample voxel
+  float4 sBottom,sTop;
+  sampleVoxel2(currentIndex,level,sBottom,sTop);
+  // Calc normal
+  return calcNormalAnalytic(voxelCoor,sBottom,sTop);
+}
+
+
+float traceScene(Ray r, out float3 normal){
   float depth = -1.0f;
   normal = float3(0.0);
   float3 lastDebug = debug;
 
-  for(int i = 0; i<pushConst.numObjects; i++){
+  // Iterated in reverse order because user placed objects are usually nearest to screen and at the bottom of the stack
+  for(int i = pushConst.numObjects; i>=0; i--){
     Bbox bbox = aabbs[i];
-    float objDepth = sphereTraceBbox(r,bbox);
-    if(depth < 0 || (objDepth>=0 && objDepth<depth)){
-      depth = objDepth;
-      lastDebug = debug;
+
+    // Peprare the ray that will trace the object
+    Ray bboxRay = r;
+    float3 far, dir = r.dir;
+    if(!intersectCube(r, bbox, bboxRay.orig, far)) continue;
+
+    // Cull if bbox is too far
+    float orig2P = length(bboxRay.orig - r.orig);
+    if(depth>0 && depth<orig2P)
+      continue;
+
+    // Trace bbox using the method defined by user
+    float objDepth;
+    switch(pushConst.tracingMode){
+      default:
+      case TracingMode::compute:
+        objDepth = sphereTraceBbox(bboxRay,bbox); break;
+      case TracingMode::map:
+        objDepth = sphereTraceMap(bboxRay,length(far - bboxRay.orig)); break;
+    }
+
+    // Update min depth
+    if(objDepth >= 0){
+      objDepth += orig2P;
+      if(depth < 0 || (objDepth>=0 && objDepth<depth)){
+        depth = objDepth;
+        lastDebug = debug;
+      }
     }
   }
 
+  // Use the nearest debug value that counted as the hit
   debug = lastDebug;
 
+  // Calc normal using user defined method
   if(depth >= 0){
     float3 p = r.orig + r.dir*depth;
-    int level = getLevelOfPoint(p);
-    float voxel_size = VOXEL_SIZES[level];
-    // Scale normalization
-    float3 pVoxelNorm = p/voxel_size;
-    // Truncate normalized coordinates to get the id
-    int3 voxelId = int3(floor(pVoxelNorm));
-    // Get the grid indices with floor division modulus (WARNING: Normal modulus % will not give correct result)
-    int3 voxelIndex = id2voxelIndex(voxelId);
-    // Get grid index and coordinates inside the voxel
-    int3 currentIndex = max(int3(0),min(int3(NUM_VOXELS_PER_AXIS-1),
-      voxelIndex));
-    float3 voxelCoor = frac(pVoxelNorm);
-    // Sample voxel
-    float4 sBottom,sTop;
-    sampleVoxel2(currentIndex,level,sBottom,sTop);
-    // Calc normal
-    normal = calcNormalAnalytic(voxelCoor,sBottom,sTop);
+    switch(pushConst.normalMode){
+      default:
+      case NormalMode::analytic:
+        normal = analyticNormal(p); break;
+      case NormalMode::tetrahedron:
+        normal = evalNormal(p); break;
+    }
   }
 
   return depth;
@@ -809,8 +842,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   bbox.bMax = bbox.bMax*bboxSize+bboxPos;
   
   //depth = rayMarchAmaWoo(r,bbox,normal);
-  depth = sphereTraceScene(r,normal);
-  //depth = sphereTraceMap(r,normal);
+  depth = traceScene(r,normal);
 
   bool hit = depth >= 0.0;
   if(hit){

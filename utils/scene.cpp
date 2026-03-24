@@ -448,7 +448,7 @@ std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox, g
   const glm::ivec3 zeros(0);
   const glm::ivec3 max_index(NUM_BRICKS_PER_AXIS-1);
   const glm::ivec3 hole_min(NUM_BRICKS_PER_AXIS/4);
-  const glm::ivec3 hole_max(NUM_BRICKS_PER_AXIS*3/4-2);
+  const glm::ivec3 hole_max(NUM_BRICKS_PER_AXIS*3/4-1);
   
   std::vector<shaderio::BuildJob> jobs;
   
@@ -468,8 +468,8 @@ std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox, g
     // Completly inside the hole in levels > 0
     if(
       level > 0 &&
-      glm::all(glm::greaterThan(min_rel_id,hole_min)) &&
-      glm::all(glm::lessThan(max_rel_id,hole_max))
+      glm::all(glm::greaterThanEqual(min_rel_id,hole_min)) &&
+      glm::all(glm::lessThanEqual(max_rel_id,hole_max))
     )
       continue;
 
@@ -609,6 +609,21 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(glm::ivec3 currCamId0, glm::
   return out;
 }
 
+std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0){
+  std::vector<shaderio::BuildJob> out, baseJobs;
+
+  nvutils::Bbox bbox(glm::vec3(-100000.0),glm::vec3(100000.0));
+  baseJobs = createBaseBuildJobs(bbox,currCamId0);
+
+  for(auto& buildJob: baseJobs){
+    auto splited = splitBuildJob(buildJob);
+    out.insert(out.end(),splited.begin(),splited.end());
+  }
+
+  return out;
+}
+
+
 //------------------
 // Constructor
 //------------------
@@ -655,12 +670,12 @@ Scene::Scene() {
   updateNodeData(torus);
   addNode(torus);
 
-  Node *sphere2 = createNode(NodeType::Box);
-  sphere2->p.scale = 0.4;
-  sphere2->p.position = glm::vec3(1.35, -0.1, -1.2);
-  sphere2->p.rotation = glm::vec3(0.0);
-  updateNodeData(sphere2);
-  addNode(sphere2);
+  Node *test = createNode(NodeType::Snowman);
+  test->p.scale = 0.4;
+  test->p.position = glm::vec3(1.5,1.5,1.5);
+  test->p.rotation = glm::vec3(0.0);
+  updateNodeData(test);
+  addNode(test);
 
   for(int level=1; level<3; level++){
     Node *snowManL = createNode(NodeType::Snowman);

@@ -26,6 +26,7 @@
 
 
 #include "glm/common.hpp"
+#include <string>
 #define VMA_IMPLEMENTATION
 // TODO: Organize and label imports
 
@@ -107,6 +108,17 @@ const char* DebugPalettes[] = {
     "Inferno",
 };
 
+const char* TracingModes[] = {
+    "Compute",
+    "RTX",
+    "Map",
+};
+
+const char* NormalModes[] = {
+    "Analytic",
+    "Tethrahedron",
+};
+
 class AppElement : public nvapp::IAppElement
 {
   enum
@@ -135,6 +147,8 @@ public:
   ~AppElement() override = default;
 
   void onAttach(nvapp::Application* app) override{
+    SCOPED_TIMER(__FUNCTION__);
+
     m_app                                = app;
 
     // Get ray tracing properties
@@ -179,11 +193,10 @@ public:
     // Initialize the tonemapper with proe-compiled shader
     m_tonemapper.init(&m_alloc, std::span<const uint32_t>(tonemapper_slang));
 
-    // TODO: Figure out how to use the profiler tool
     // Init profiler with a single queue
-    m_profilerTimeline = m_info.profilerManager->createTimeline({"graphics"});
-    m_profilerGpuTimer.init(m_profilerTimeline, app->getDevice(), app->getPhysicalDevice(), app->getQueue(0).familyIndex, true);
-  }
+    m_graphicsTimeline = m_info.profilerManager->createTimeline({"Graphics"});
+    m_profilerGpuTimer.init(m_graphicsTimeline, app->getDevice(), app->getPhysicalDevice(), app->getQueue(0).familyIndex, true);
+    }
 
   //-------------------------------------------------------------------------------
   // Destroy all elements that were created
@@ -234,7 +247,7 @@ public:
     m_samplerPool.deinit();
     m_alloc.deinit();
     m_profilerGpuTimer.deinit();
-    m_info.profilerManager->destroyTimeline(m_profilerTimeline);
+    m_info.profilerManager->destroyTimeline(m_graphicsTimeline);
   }
 
   //---------------------------------------------------------------------------------------------------------------
@@ -256,7 +269,8 @@ public:
         nvgui::tonemapperWidget(m_tonemapperData);
 
     if(!ImGui::CollapsingHeader("Tracing")){
-      ImGui::Checkbox("Hardware RTX", &m_RTX_ON);
+      ImGui::Combo("Tracing mode", &m_pushConst.tracingMode, TracingModes, IM_ARRAYSIZE(TracingModes));
+      ImGui::Combo("Normal mode", &m_pushConst.normalMode, NormalModes, IM_ARRAYSIZE(NormalModes));
     }
 
     if(ImGui::CollapsingHeader("Lighting data")){
@@ -369,7 +383,7 @@ public:
 
   }
 
-  void onPreRender() override { m_profilerTimeline->frameAdvance(); }
+  void onPreRender() override { m_graphicsTimeline->frameAdvance(); }
 
   //---------------------------------------------------------------------------------------------------------------
   // When the viewport is resized, the GBuffer must be resized
@@ -421,14 +435,17 @@ public:
     m_pushConst.lp.lightDir = glm::normalize(m_pushConst.lp.lightDir);
     updateSceneBuffer(cmd);
 
-    if(m_scene.m_needsRefresh || m_currCamId0 != m_prevCamId0){
-      updateSceneObjects(cmd);
-      updateTextureData(cmd);
-      m_scene.m_needsRefresh = false;
-      m_prevCamId0 = m_currCamId0;
+    {
+      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Generation");
+      if(m_scene.m_needsRefresh || m_currCamId0 != m_prevCamId0){
+        updateSceneObjects(cmd);
+        generationPass(cmd);
+        m_scene.m_needsRefresh = false;
+        m_prevCamId0 = m_currCamId0;
+      }
     }
 
-    if(m_RTX_ON){
+    if(m_pushConst.tracingMode == shaderio::TracingMode::rtx){
       raytracingPass(cmd);
     }else{
       tracingPass(cmd);
@@ -441,6 +458,7 @@ public:
 
   void tracingPass(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Tracing");
 
     // Bind pipeline
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_tracingPipeline);  
@@ -452,15 +470,14 @@ public:
     // Dispatch
     VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE_2D);
     vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
+    // Wait for tracing to be done
+    nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgAlbedo), VK_IMAGE_LAYOUT_GENERAL,
+                                      VK_IMAGE_LAYOUT_GENERAL});
   }
 
   void lightingPass(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
-
-    // Update data TODO: Encapsulate
-    shaderio::PushConstant pc{};
-    pc.time = static_cast<float>(ImGui::GetTime());
-    updateSceneBuffer(cmd);
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Lighting");
 
     // Bind pipeline
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_lightingPipeline);  
@@ -500,6 +517,8 @@ public:
 
   void executeBrickJobs(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
+    const auto profiledSection = m_profilerGpuTimer.cmdAsyncSection(cmd, "Brick job execution");
+
 
     // Bind pipeline
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_brickJobPipeline);  
@@ -521,8 +540,9 @@ public:
                                     VK_IMAGE_LAYOUT_GENERAL});
   }
 
-  void generationPass(VkCommandBuffer cmd){
+  void executeBuildJobs(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
+    const auto profiledSection = m_profilerGpuTimer.cmdAsyncSection(cmd, "Build job execution");
 
     // Update the next brick job index
     std::vector<uint32_t> counters(1,0);
@@ -542,7 +562,9 @@ public:
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
 
     int num_bricks;
-    std::vector<shaderio::BuildJob> buildJobs = m_scene.getBuildJobs(m_currCamId0,m_prevCamId0);
+    std::vector<shaderio::BuildJob> buildJobs;
+    buildJobs = m_scene.getBuildJobs(m_currCamId0,m_prevCamId0);
+    //buildJobs = m_scene.getDenseBuildJobs(m_currCamId0,m_prevCamId0);
 
     if(buildJobs.size() > shaderio::MAX_NUM_BUILD_JOBS)
       LOGE("Not enough space in build job queue to allocale %zu jobs\n",buildJobs.size());
@@ -576,13 +598,19 @@ public:
                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                VK_ACCESS_SHADER_WRITE_BIT,
                                VK_ACCESS_SHADER_READ_BIT}); 
+  }
 
+  void generationPass(VkCommandBuffer cmd){
+    NVVK_DBG_SCOPE(cmd);
+
+    executeBuildJobs(cmd);
     executeBrickJobs(cmd);
   }
 
   // Apply post-processing
   void postProcess(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Post process");
 
     // Wait for render target to be done
     nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgRendered), VK_IMAGE_LAYOUT_GENERAL,
@@ -595,11 +623,16 @@ public:
   }
 
   void setupSlangCompiler(){
+#ifdef NDEBUG
+    SCOPED_TIMER(std::string(__FUNCTION__)+": RELEASE configuration");
+#else
+    SCOPED_TIMER(std::string(__FUNCTION__)+": DEBUG configuration");
+#endif
+
     m_slangCompiler.addSearchPaths(nvsamples::getShaderDirs());
     m_slangCompiler.defaultTarget();
     m_slangCompiler.defaultOptions();
 #ifdef NDEBUG
-    LOGI("Slang compiler: RELEASE configuration\n");
     m_slangCompiler.addOption({slang::CompilerOptionName::Optimization,
         { slang::CompilerOptionValueKind::Int, SLANG_OPTIMIZATION_LEVEL_MAXIMAL }
     });
@@ -611,7 +644,6 @@ public:
     });
     m_slangCompiler.addMacro({"NDEBUGSHADER","1"});
 #else
-    LOGI("Slang compiler: DEBUG configuration\n");
     m_slangCompiler.addOption({slang::CompilerOptionName::Optimization,
         { slang::CompilerOptionValueKind::Int, SLANG_OPTIMIZATION_LEVEL_DEFAULT }
     });
@@ -740,10 +772,6 @@ public:
     m_stagingUploader.cmdUploadAppended(cmd);
   }
 
-  void updateTextureData(VkCommandBuffer cmd){
-    //updateTextureDataCPU(cmd);
-    generationPass(cmd);
-  }
 
   nvvk::AccelerationStructureGeometryInfo primitiveToGeometry(const uint32_t aabbCount){
     nvvk::AccelerationStructureGeometryInfo result = {};
@@ -797,6 +825,8 @@ public:
   }
 
   void createAccelerationStructures(){
+    SCOPED_TIMER(__FUNCTION__);
+
     VkCommandBuffer cmd = m_app->createTempCmdBuffer();
     updateSceneObjects(cmd);  // Call update scene after the initial reation of buffers
     m_app->submitAndWaitTempCmdBuffer(cmd); 
@@ -969,6 +999,8 @@ public:
   // The Vulkan descriptor set defines the resources that are used by the shaders.
   // Here we add the bindings for the textures.
   void createDescriptorSetLayout(){
+    SCOPED_TIMER(__FUNCTION__);
+
     // TODO: OH GOD, clean this mess!!!!!1!1!!
     nvvk::DescriptorBindings bindings;
     bindings.addBinding(shaderio::BindingPoints::sceneInfo, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_ALL);
@@ -1014,6 +1046,8 @@ public:
   }
 
   void createPipelineLayouts(){
+    SCOPED_TIMER(__FUNCTION__);
+
     createPipelineLayout(&m_tracingLayout);
     createPipelineLayout(&m_lightingLayout);
     createPipelineLayout(&m_rtPipelineLayout);
@@ -1069,6 +1103,7 @@ public:
   }
 
   void compileAndCreateShaders(){
+    SCOPED_TIMER(__FUNCTION__);
 
     createShaderModule(&m_tracingModule,"tracing.slang",tracing_slang);
     createShaderModule(&m_lightingModule,"lighting.slang",lighting_slang);
@@ -1079,6 +1114,8 @@ public:
   }
 
   void createPipelines(){
+    SCOPED_TIMER(__FUNCTION__);
+
     createComputePipeline(&m_tracingPipeline,&m_tracingLayout,&m_tracingModule);
     createComputePipeline(&m_lightingPipeline,&m_lightingLayout,&m_lightingModule);
     createRTPipeline(&m_rtPipeline,&m_rtPipelineLayout);
@@ -1183,6 +1220,7 @@ public:
 
   void createShaderBindingTable(const VkRayTracingPipelineCreateInfoKHR& rtPipelineInfo){
     SCOPED_TIMER(__FUNCTION__);
+
     m_alloc.destroyBuffer(m_sbtBuffer);
     // Calculate required SBT buffer size
     size_t bufferSize = m_sbtGen.calculateSBTBufferSize(m_rtPipeline, rtPipelineInfo);
@@ -1201,6 +1239,7 @@ public:
 
   // Recompiles and waits for idle time to swap it into the pipeline
   void reloadShaders(){
+    SCOPED_TIMER(__FUNCTION__);
     compileAndCreateShaders();
     vkDeviceWaitIdle(m_app->getDevice());
     createPipelines();
@@ -1306,15 +1345,14 @@ private:
   nvshaders::Tonemapper    m_tonemapper{};      // Tonemapper for post-processing effects
   shaderio::TonemapperData m_tonemapperData{};  // Tonemapper data used to pass parameters to the tonemapper shader
 
-  // UI params
-  bool m_debugActive = false;
-  int m_debugMode = 0;
-  bool m_RTX_ON = false;
-
   // Scene
   Scene m_scene;
   glm::ivec3 m_currCamId0 = glm::ivec3(0);
   glm::ivec3 m_prevCamId0 = glm::ivec3(0);
+
+  // UI params
+  bool m_debugActive = false;
+  int m_debugMode = 0;
 
   // Test variables TODO: Remove after debugging
   int m_testSize = 0;
@@ -1323,8 +1361,8 @@ private:
   // Startup managers for profiler and paramter registry
   Info m_info;
 
-  // TODO: Figure out how to use the profiler tool
-  nvutils::ProfilerTimeline* m_profilerTimeline{};
+  // Profiler
+  nvutils::ProfilerTimeline* m_graphicsTimeline{};
   nvvk::ProfilerGpuTimer     m_profilerGpuTimer;
 };
 

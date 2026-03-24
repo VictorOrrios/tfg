@@ -44,7 +44,7 @@ void freePointer(int pointer){
 [numthreads(MAX_BUILD_JOB_SIZE, MAX_BUILD_JOB_SIZE, MAX_BUILD_JOB_SIZE)]
 void computeMain(uint3 tId : SV_DispatchThreadID){
   const int3 hole_min = int3(NUM_BRICKS_PER_AXIS/4);
-  const int3 hole_max = int3(NUM_BRICKS_PER_AXIS*3/4-2);
+  const int3 hole_max = int3(NUM_BRICKS_PER_AXIS*3/4-1);
 
   const int jobIdx = tId.z/MAX_BUILD_JOB_SIZE;
   const BuildJob job = build_job_queue[jobIdx]; // TODO: Group shared memory might be faster
@@ -60,14 +60,16 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   // Transform global id to a relative id to the camera id
   const int3 camId = id0LevelTransform(sceneInfo.cameraId0.xyz,level);
   const int3 relBrickId = brickId - camId + (NUM_BRICKS_PER_AXIS/2);
-
+  
   // Might not be necesary
   // Out of bounds brick for this level
+  /* 
   if(any(relBrickId < 0) || any(relBrickId > NUM_BRICKS_PER_AXIS-1))
-    return;
+    return; 
+  */
  
   // Brick inside hole in levels > 0 check
-  if(level > 0 && all(relBrickId > hole_min) && all(relBrickId < hole_max))
+  if(level > 0 && all(relBrickId > hole_min) && all(relBrickId <= hole_max))
     return;
 
   int3 brickIndex = id2index(brickId);
