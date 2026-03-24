@@ -128,20 +128,6 @@ enum Counters
   allocCounter = 2
 };
 
-enum TracingMode
-{
-  compute = 0,
-  rtx = 1,
-  map = 2,
-  _COUNT = 3
-};
-
-enum NormalMode
-{
-  analytic = 0,
-  tetrahedron = 1,
-};
-
 struct LightinParams{
   float3 lightDir       = normalize(float3(-0.4f,-1.0f,-0.2f));
   float3 lightColor     = float3(1.0f, 0.95f, 0.8f);
@@ -161,8 +147,6 @@ struct PushConstant{
   DebugParams debug;
   LightinParams lp;
   int numObjects;
-  int tracingMode;
-  int normalMode;
 };
 
 struct SceneInfo{

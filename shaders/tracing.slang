@@ -656,13 +656,8 @@ float traceScene(Ray r, out float3 normal){
 
     // Trace bbox using the method defined by user
     float objDepth;
-    switch(pushConst.tracingMode){
-      default:
-      case TracingMode::compute:
-        objDepth = sphereTraceBbox(bboxRay,bbox); break;
-      case TracingMode::map:
-        objDepth = sphereTraceMap(bboxRay,length(far - bboxRay.orig)); break;
-    }
+    objDepth = sphereTraceBbox(bboxRay,bbox);
+    //objDepth = sphereTraceMap(bboxRay,length(far - bboxRay.orig));
 
     // Update min depth
     if(objDepth >= 0){
@@ -680,13 +675,8 @@ float traceScene(Ray r, out float3 normal){
   // Calc normal using user defined method
   if(depth >= 0){
     float3 p = r.orig + r.dir*depth;
-    switch(pushConst.normalMode){
-      default:
-      case NormalMode::analytic:
-        normal = analyticNormal(p); break;
-      case NormalMode::tetrahedron:
-        normal = evalNormal(p); break;
-    }
+    normal = analyticNormal(p);
+    //normal = evalNormal(p);
   }
 
   return depth;

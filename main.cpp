@@ -269,8 +269,7 @@ public:
         nvgui::tonemapperWidget(m_tonemapperData);
 
     if(!ImGui::CollapsingHeader("Tracing")){
-      ImGui::Combo("Tracing mode", &m_pushConst.tracingMode, TracingModes, IM_ARRAYSIZE(TracingModes));
-      ImGui::Combo("Normal mode", &m_pushConst.normalMode, NormalModes, IM_ARRAYSIZE(NormalModes));
+      ImGui::Checkbox("RTX", &m_rtxON);
     }
 
     if(ImGui::CollapsingHeader("Lighting data")){
@@ -445,7 +444,7 @@ public:
       }
     }
 
-    if(m_pushConst.tracingMode == shaderio::TracingMode::rtx){
+    if(m_rtxON){
       raytracingPass(cmd);
     }else{
       tracingPass(cmd);
@@ -1353,6 +1352,7 @@ private:
   // UI params
   bool m_debugActive = false;
   int m_debugMode = 0;
+  bool m_rtxON = false;
 
   // Test variables TODO: Remove after debugging
   int m_testSize = 0;
