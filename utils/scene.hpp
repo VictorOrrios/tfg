@@ -77,6 +77,7 @@ private:
   std::vector<shaderio::BuildJob> splitBuildJob(shaderio::BuildJob);
 
   std::vector<Node> m_root;
+  std::vector<nvutils::Bbox> m_removeList;
   int m_selected = -1;
   uint32_t m_nextID = 1;
 };

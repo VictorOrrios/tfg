@@ -211,6 +211,7 @@ void Scene::deleteSelected() {
   if (m_selected == -1)
     return;
 
+  m_removeList.push_back(m_root[m_selected].bbox);
   m_root.erase(m_root.begin() + m_selected);
   m_selected = -1;
   m_needsRefresh = true;
@@ -600,6 +601,16 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(glm::ivec3 currCamId0, glm::
     levelSplitted = createBaseBuildJobs(bbox, currCamId0);
     baseJobs.insert(baseJobs.end(),levelSplitted.begin(),levelSplitted.end());
   }
+
+  for(auto& bbox: m_removeList){
+    // Negative volume build job check
+    if(glm::any(glm::lessThan(bbox.max(),bbox.min())))
+      continue;
+
+    levelSplitted = createBaseBuildJobs(bbox, currCamId0);
+    baseJobs.insert(baseJobs.end(),levelSplitted.begin(),levelSplitted.end());
+  }
+  m_removeList.clear();
 
   for(auto& buildJob: baseJobs){
     auto splited = splitBuildJob(buildJob);
