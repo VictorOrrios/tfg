@@ -89,7 +89,7 @@ float3 evalNormal(float3 p){
 // Sphere traces the scene evaluating the scene sdf at every step
 // Pre: r.orig must be inside bbox
 float sphereTraceMap(Ray ray, float maxDepth){
-  const int MAX_ITERATIONS = 100;
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
   const float MIN_DIST = 0.0001;
   
   float depth = 0.0;
@@ -431,9 +431,9 @@ float sphereTraceBbox(Ray r, Bbox bbox){
   // Debug visualizers
   const bool drawSilhouette   = debugColor && true;   // Draw the silhouette of the grid
   const bool drawSteps        = debugColor && false;  // Draw the numer of steps taken
-  const bool drawLevel        = debugColor && true;  // Draw the clip map level at hit point
+  const bool drawLevel        = debugColor && false;  // Draw the clip map level at hit point
   const bool drawHitIndex     = debugColor && false;  // Draw the grid brick index at the hit point
-  const bool drawBrickPointer = debugColor && false;   // Draw the pointer value of the brick at hit point
+  const bool drawBrickPointer = debugColor && true;   // Draw the pointer value of the brick at hit point
 
   float3 p = r.orig, dir = r.dir;
   int3 currentIndex, lastIndex;

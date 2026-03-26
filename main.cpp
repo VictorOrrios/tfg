@@ -26,6 +26,7 @@
 
 
 #include "glm/common.hpp"
+#include "nvvk/barriers.hpp"
 #include <string>
 #define VMA_IMPLEMENTATION
 // TODO: Organize and label imports
@@ -149,7 +150,8 @@ public:
   void onAttach(nvapp::Application* app) override{
     SCOPED_TIMER(__FUNCTION__);
 
-    m_app                                = app;
+    // Save the application pointer
+    m_app = app;
 
     // Get ray tracing properties
     VkPhysicalDeviceProperties2 prop2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
@@ -171,7 +173,6 @@ public:
     // Initialize core components
     m_samplerPool.init(app->getDevice());
     m_stagingUploader.init(&m_alloc, true);
-    m_asBuilder.init(&m_alloc, &m_stagingUploader, m_app->getQueue(0)); // TODO: Is this the correct queue?
     m_sbtGen.init(app->getDevice(),m_rtProperties);
 
 
@@ -224,25 +225,30 @@ public:
     vkDestroyShaderModule(device,m_brickJobModule,nullptr);
     vkDestroyShaderModule(device,m_buildJobModule,nullptr);
 
+    m_alloc.destroyAcceleration(m_bLas);
+    m_alloc.destroyAcceleration(m_tLas);
+
     m_alloc.destroyBuffer(m_sceneInfoB);
     m_alloc.destroyBuffer(m_sceneAabbB);
     m_alloc.destroyBuffer(m_sceneObjectsB);
+   
     m_alloc.destroyBuffer(m_buildJobQueue);
     m_alloc.destroyBuffer(m_brickJobQueue);
+   
     m_alloc.destroyBuffer(m_countersB);
     m_alloc.destroyBuffer(m_indirectB);
     m_alloc.destroyBuffer(m_freeListB);
-    m_alloc.destroyImage(m_globalGrid);
+
     m_alloc.destroyImage(m_clipMap);
     m_alloc.destroyImage(m_brickAtlas);
-    m_alloc.destroyBuffer(m_sbtBuffer);
-    m_asBuilder.deinitAccelerationStructures();
+    
+    m_alloc.destroyBuffer(m_bLasB);
+    m_alloc.destroyBuffer(m_instancesB);
+    m_alloc.destroyBuffer(m_sbtB);
 
     m_gBuffers.deinit();
     m_sbtGen.deinit();
     m_stagingUploader.deinit();
-    m_asBuilder.deinit();
-    //m_skySimple.deinit();
     m_tonemapper.deinit();
     m_samplerPool.deinit();
     m_alloc.deinit();
@@ -321,6 +327,9 @@ public:
       ImGui::Text("Test size: %i",m_testSize);
       ImGui::Text("Test Median: %f,%f,%f",m_testMed.x,m_testMed.y,m_testMed.z);
       ImGui::Text("Camera id0: %i,%i,%i",m_sceneInfo.cameraId0.x,m_sceneInfo.cameraId0.y,m_sceneInfo.cameraId0.z);
+      if(ImGui::Button("Reset TLas")){
+        m_resetTlas = true;
+      }
     }
 
     ImGui::End();
@@ -433,6 +442,22 @@ public:
     m_pushConst.time = static_cast<float>(ImGui::GetTime());
     m_pushConst.lp.lightDir = glm::normalize(m_pushConst.lp.lightDir);
     updateSceneBuffer(cmd);
+    
+    if(m_rtxON && m_resetTlas){
+      m_resetTlas = false;
+      VkBufferMemoryBarrier barrier = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+            .buffer = m_instancesB.buffer,
+            .size = VK_WHOLE_SIZE
+        };
+        vkCmdPipelineBarrier(cmd, 
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+            0, 0, nullptr, 1, &barrier, 0, nullptr);
+      createTopLevelAS(true);
+    }
 
     {
       const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Generation");
@@ -453,6 +478,8 @@ public:
     lightingPass(cmd);
     
     postProcess(cmd);
+
+    
   }
 
   void tracingPass(VkCommandBuffer cmd){
@@ -492,6 +519,7 @@ public:
 
   void raytracingPass(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Tracing");
 
     // Bind pipeline
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline);  
@@ -594,9 +622,7 @@ public:
   
     nvvk::cmdBufferMemoryBarrier(cmd, {m_brickJobQueue.buffer, 
                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                               VK_ACCESS_SHADER_WRITE_BIT,
-                               VK_ACCESS_SHADER_READ_BIT}); 
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
   }
 
   void generationPass(VkCommandBuffer cmd){
@@ -734,18 +760,11 @@ public:
   void create3DTextures(){
     SCOPED_TIMER(__FUNCTION__);
 
-    // Global grid 
-    VkExtent3D extent = {shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS,shaderio::NUM_VALUES_PER_AXIS};  // XYZ size
-    VkFormat format = VK_FORMAT_R16_SNORM;  // Texel format
-    glm::float32 clearValueF = 1.0f;
-    VkClearColorValue clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
-    create3DStorageTexture(m_globalGrid, extent, format, clearColor);
-
     // Clipmap
-    extent = {NUM_BRICKS_PER_AXIS,NUM_BRICKS_PER_AXIS,NUM_BRICKS_PER_AXIS*CLIPMAP_LEVELS};  // XYZ size
-    format = VK_FORMAT_R32_UINT;  // Texel format
+    VkExtent3D extent = {NUM_BRICKS_PER_AXIS,NUM_BRICKS_PER_AXIS,NUM_BRICKS_PER_AXIS*CLIPMAP_LEVELS};  // XYZ size
+    VkFormat format = VK_FORMAT_R32_UINT;  // Texel format
     uint32_t clearValueClip = shaderio::UNIFORM_POSITIVE_BRICK_POINTER;
-    clearColor = {.uint32={clearValueClip,clearValueClip,clearValueClip,clearValueClip}};
+    VkClearColorValue clearColor = {.uint32={clearValueClip,clearValueClip,clearValueClip,clearValueClip}};
     create3DStorageTexture(m_clipMap, extent, format, clearColor);
 
     // Brick atlas
@@ -753,24 +772,11 @@ public:
     const int atlas_axis_size = BRICK_PER_ATLAS_AXIS*BRICK_SIZE;
     extent = {atlas_axis_size,atlas_axis_size,brick_size};  // XYZ size
     format = VK_FORMAT_R16_SNORM;  // Texel format
-    clearValueF = 1.0f;
+    glm::float32 clearValueF = 1.0f;
     clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
     create3DStorageTexture(m_brickAtlas, extent, format, clearColor);
     
   }
-
-  // Warning: Deprecated
-  void updateTextureDataCPU(VkCommandBuffer cmd){
-    NVVK_DBG_SCOPE(cmd);
-
-    assert(m_globalGrid.image);
-    std::vector<float> imageData = m_scene.generateDenseGrid();
-    assert(m_stagingUploader.isAppendedEmpty());
-    nvvk::SemaphoreState cmdSemaphoreState{};
-    NVVK_CHECK(m_stagingUploader.appendImage(m_globalGrid, std::span(imageData), m_globalGrid.descriptor.imageLayout, cmdSemaphoreState));
-    m_stagingUploader.cmdUploadAppended(cmd);
-  }
-
 
   nvvk::AccelerationStructureGeometryInfo primitiveToGeometry(const uint32_t aabbCount){
     nvvk::AccelerationStructureGeometryInfo result = {};
@@ -778,7 +784,7 @@ public:
     // Describe buffer as array of VkAabbPostions
     VkAccelerationStructureGeometryAabbsDataKHR aabbs{
       .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR,
-      .data   = {.deviceAddress = m_sceneAabbB.address},
+      .data   = {.deviceAddress = m_bLasB.address},
       .stride = sizeof(VkAabbPositionsKHR)
     };
 
@@ -795,74 +801,172 @@ public:
     return result;
   }
 
-  void createBottomLevelAS(const std::vector<nvvk::AccelerationStructureGeometryInfo> geoInfos){
-    m_asBuilder.blasSubmitBuildAndWait(geoInfos, 
-    VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
-    // TODO: Check out more flags
+  void createAccelerationStructure(VkAccelerationStructureTypeKHR asType,           // The type of acceleration structure (BLAS or TLAS)
+                                  nvvk::AccelerationStructure& accelStruct,         // The acceleration structure to create
+                                  nvvk::AccelerationStructureGeometryInfo& geoInfo, // The geometry and range to build the acceleration structure from
+                                  VkBuildAccelerationStructureFlagsKHR flags,       // Build flags (e.g. prefer fast trace)
+                                  VkBuildAccelerationStructureModeKHR mode          // Mode type, either BUILD or UPDATE
+  )
+  {
+    VkDevice device = m_app->getDevice();
+
+    // Helper function to align a value to a given alignment
+    auto alignUp = [](auto value, size_t alignment) noexcept { return ((value + alignment - 1) & ~(alignment - 1)); };
+
+    // Fill the build information with the current information, the rest is filled later (scratch buffer and destination AS)
+    VkAccelerationStructureBuildGeometryInfoKHR asBuildInfo{
+        .sType         = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
+        .type          = asType,  // The type of acceleration structure (BLAS or TLAS)
+        .flags         = flags,   // Build flags (e.g. prefer fast trace)
+        .mode          = mode,  // Build mode vs update
+        .srcAccelerationStructure =  (mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR) ? 
+          accelStruct.accel : VK_NULL_HANDLE,
+        .geometryCount = 1,     // Deal with one geometry at a time
+        .pGeometries   = &geoInfo.geometry,  // The geometry to build the acceleration structure from
+        
+    };
+
+    // One geometry at a time (could be multiple)
+    std::vector<uint32_t> maxPrimCount(1);
+    maxPrimCount[0] = geoInfo.rangeInfo.primitiveCount;
+
+    // Find the size of the acceleration structure and the scratch buffer
+    VkAccelerationStructureBuildSizesInfoKHR asBuildSize{.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
+    vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &asBuildInfo,
+                                            maxPrimCount.data(), &asBuildSize);
+
+    // Make sure the scratch buffer is properly aligned
+    VkDeviceSize scratchSize = alignUp(asBuildSize.buildScratchSize, m_asProperties.minAccelerationStructureScratchOffsetAlignment);
+
+    // Create the scratch buffer to store the temporary data for the build
+    nvvk::Buffer scratchBuffer;
+    NVVK_CHECK(m_alloc.createBuffer(scratchBuffer, scratchSize,
+                                        VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
+                                            | VK_BUFFER_USAGE_2_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, VMA_MEMORY_USAGE_AUTO, {}, m_asProperties.minAccelerationStructureScratchOffsetAlignment));
+
+    // Create the acceleration structure
+    VkAccelerationStructureCreateInfoKHR createInfo{
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
+        .size  = asBuildSize.accelerationStructureSize,  // The size of the acceleration structure
+        .type  = asType,  // The type of acceleration structure (BLAS or TLAS)
+    };
+    NVVK_CHECK(m_alloc.createAcceleration(accelStruct, createInfo));
+
+    // Build the acceleration structure
+    {
+      VkCommandBuffer cmd = m_app->createTempCmdBuffer();
+
+      // Fill with new information for the build,scratch buffer and destination AS
+      asBuildInfo.dstAccelerationStructure  = accelStruct.accel;
+      asBuildInfo.scratchData.deviceAddress = scratchBuffer.address;
+
+      VkAccelerationStructureBuildRangeInfoKHR* pBuildRangeInfo = &geoInfo.rangeInfo;
+      vkCmdBuildAccelerationStructuresKHR(cmd, 1, &asBuildInfo, &pBuildRangeInfo);
+
+      m_app->submitAndWaitTempCmdBuffer(cmd);
+    }
+    // Cleanup the scratch buffer
+    m_alloc.destroyBuffer(scratchBuffer);
   }
 
-  void createTopLevelAS(const int instanceCount){
-    // TODO: This is hardwired to one global instance
-    const glm::mat4 transformM = glm::mat4(1.0f);
+  void createBottomLevelAS(nvvk::AccelerationStructureGeometryInfo geoInfo){
+    //SCOPED_TIMER(__FUNCTION__);
 
-    std::vector<VkAccelerationStructureInstanceKHR> tlasInstances;
-    for(int i = 0; i<instanceCount; i++){
-      VkAccelerationStructureInstanceKHR ray_inst{};
-      ray_inst.transform = nvvk::toTransformMatrixKHR(transformM);
-      ray_inst.accelerationStructureReference = m_asBuilder.blasSet[i].address;
-      ray_inst.instanceCustomIndex = i;
-      ray_inst.mask = 0xFF;
-      ray_inst.instanceShaderBindingTableRecordOffset = 0;
-      ray_inst.flags = 0;
-      // TODO: You can put flags here
-      tlasInstances.push_back(ray_inst);
+    createAccelerationStructure(VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR, m_bLas, geoInfo, 
+      VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | 
+        VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR,
+        VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR);
+    NVVK_DBG_NAME(m_bLas.accel);
+  }
+
+  void createTopLevelAS(bool update){
+    //SCOPED_TIMER(__FUNCTION__);
+    LOGI("createTopLevelAS %b %lu\n",update,m_tLas.address);
+
+
+    if (m_instancesB.address == 0) {
+      LOGE("Instances buffer has no device address\n");
+      return;
     }
 
-    m_asBuilder.tlasSubmitBuildAndWait(tlasInstances, 
-    VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
-    // TODO: Check out more flags
+    nvvk::AccelerationStructureGeometryInfo geoInfo{};
+    VkAccelerationStructureGeometryInstancesDataKHR geometryInstances{
+      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
+      .data = {.deviceAddress = m_instancesB.address}
+    };
+    geoInfo.geometry = {.sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+                        .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
+                        .geometry     = {.instances = geometryInstances}};
+    geoInfo.rangeInfo = {.primitiveCount = static_cast<uint32_t>(shaderio::NUM_BRICKS_IN_ATLAS)};
+
+    if (update) {
+      if (m_tLas.accel == VK_NULL_HANDLE) {
+        LOGE("Cannot update TLAS, it doesn't exist\n");
+        return;
+      }
+      
+      createAccelerationStructure(
+          VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR, 
+          m_tLas, 
+          geoInfo,
+          VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | 
+          VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR,
+          VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
+      );
+
+      nvvk::WriteSetContainer writeContainer;
+      writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLas), m_tLas);
+      vkUpdateDescriptorSets(m_app->getDevice(),  
+                          static_cast<uint32_t>(writeContainer.size()),  
+                          writeContainer.data(), 0, nullptr);
+                          
+    } else {
+      if (m_tLas.accel != VK_NULL_HANDLE) {
+        m_alloc.destroyAcceleration(m_tLas);
+      }
+      
+      createAccelerationStructure(
+          VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR, 
+          m_tLas, 
+          geoInfo,
+          VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | 
+          VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR,
+          VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR
+      );
+    }
+    //NVVK_DBG_NAME(m_tLas.accel);
+    LOGI("END createTopLevelAS %b %lu\n",update,m_tLas.address);
+    
+  }
+
+  void createInstanceBuffer(){
+    const int instanceCount = shaderio::NUM_BRICKS_IN_ATLAS;
+    std::vector<VkAccelerationStructureInstanceKHR> tlasInstances;
+    for(int i = 0; i < instanceCount; i++) {
+        VkAccelerationStructureInstanceKHR ray_inst{};
+        ray_inst.transform = nvvk::toTransformMatrixKHR(glm::mat4(1.0f));
+        ray_inst.accelerationStructureReference = m_bLas.address;
+        ray_inst.instanceCustomIndex = i;
+        ray_inst.mask = 0x00;
+        ray_inst.instanceShaderBindingTableRecordOffset = 0;
+        ray_inst.flags = 0;
+        tlasInstances.push_back(ray_inst);
+    }    
+
+    VkCommandBuffer cmd = m_app->createTempCmdBuffer();
+      m_stagingUploader.appendBuffer(m_instancesB, 0, std::span(tlasInstances));
+      m_stagingUploader.cmdUploadAppended(cmd);
+    m_app->submitAndWaitTempCmdBuffer(cmd);
   }
 
   void createAccelerationStructures(){
     SCOPED_TIMER(__FUNCTION__);
 
-    VkCommandBuffer cmd = m_app->createTempCmdBuffer();
-    updateSceneObjects(cmd);  // Call update scene after the initial reation of buffers
-    m_app->submitAndWaitTempCmdBuffer(cmd); 
-
-    std::vector<nvutils::Bbox> aabbVector = m_scene.getAllBboxes();
-
-    std::vector<nvvk::AccelerationStructureGeometryInfo> geoInfos;
-    VkDeviceSize stride = sizeof(VkAabbPositionsKHR);
-    VkDeviceSize currentOffset = 0;
-    for(int i = 0; i < aabbVector.size(); i++){
-      nvvk::AccelerationStructureGeometryInfo geoInfo = {};
-
-      // Describe buffer as array of VkAabbPostions
-      VkAccelerationStructureGeometryAabbsDataKHR aabbs{
-        .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR,
-        .data   = {.deviceAddress = m_sceneAabbB.address + currentOffset},
-        .stride = stride
-      };
-
-      // Identify the above data as containing opaque triangles.
-      geoInfo.geometry = VkAccelerationStructureGeometryKHR{
-          .sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
-          .geometryType = VK_GEOMETRY_TYPE_AABBS_KHR,
-          .geometry     = {.aabbs = aabbs},
-          .flags        = VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR | VK_GEOMETRY_OPAQUE_BIT_KHR,
-      };
-
-      geoInfo.rangeInfo = VkAccelerationStructureBuildRangeInfoKHR{
-        .primitiveCount = 1,
-        .firstVertex = 0
-      };
-
-      geoInfos.push_back(geoInfo);
-      currentOffset += stride;
-    }
-    createBottomLevelAS(geoInfos);
-    createTopLevelAS(aabbVector.size());
+    createBottomLevelAS(primitiveToGeometry(1));
+    
+    createInstanceBuffer();
+    
+    createTopLevelAS(false);
   }
 
   void updateSceneObjects(VkCommandBuffer cmd){
@@ -915,7 +1019,6 @@ public:
                                      MAX_SCENE_OBJECTS*sizeof(nvutils::Bbox),
                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
                                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
-                                          | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
                                         ));
       NVVK_DBG_NAME(m_sceneAabbB.buffer);
       
@@ -925,6 +1028,31 @@ public:
                                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
                                         ));
       NVVK_DBG_NAME(m_sceneObjectsB.buffer);
+
+      // ------------------
+      // Accel structure buffers
+      // ------------------
+      std::vector<nvutils::Bbox> aabbVector;
+      aabbVector.push_back(
+        nvutils::Bbox(glm::vec3(0.0),glm::vec3(shaderio::BRICK_SIZES[0])));
+      NVVK_CHECK(allocator->createBuffer(m_bLasB,
+                                     aabbVector.size()*sizeof(nvutils::Bbox),
+                                     VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                          | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                          | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
+                                        ));
+      NVVK_DBG_NAME(m_bLasB.buffer);
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_bLasB, 0,std::span(aabbVector)));  
+
+      const int instanceCount = shaderio::NUM_BRICKS_IN_ATLAS;
+      NVVK_CHECK(m_alloc.createBuffer(m_instancesB,
+                                    instanceCount*sizeof(VkAccelerationStructureInstanceKHR),
+                                    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+                                        | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                        | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
+                                        | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+                                      ));
+      NVVK_DBG_NAME(m_instancesB.buffer);
 
       // ------------------
       // Job queues
@@ -1003,16 +1131,22 @@ public:
     // TODO: OH GOD, clean this mess!!!!!1!1!!
     nvvk::DescriptorBindings bindings;
     bindings.addBinding(shaderio::BindingPoints::sceneInfo, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    
     bindings.addBinding(shaderio::BindingPoints::renderTarget, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::normalBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::albedoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::depthBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
-    bindings.addBinding(shaderio::BindingPoints::globalGrid, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    
     bindings.addBinding(shaderio::BindingPoints::aabbs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::objects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    
     bindings.addBinding(shaderio::BindingPoints::tLas, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::bLas, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::instances, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    
     bindings.addBinding(shaderio::BindingPoints::clipMap, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::brickAtlas, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    
     bindings.addBinding(shaderio::BindingPoints::buildJobQ, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::brickJobQ, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::counters, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
@@ -1020,7 +1154,6 @@ public:
     bindings.addBinding(shaderio::BindingPoints::freeList, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
     // Creating the descriptor set and set layout from the bindings
-    // TODO: You can put flags here, maybe this is important
     NVVK_CHECK(m_descPack.init(bindings, m_app->getDevice(), 1));
     NVVK_DBG_NAME(m_descPack.getLayout());
     NVVK_DBG_NAME(m_descPack.getPool());
@@ -1028,12 +1161,17 @@ public:
 
     nvvk::WriteSetContainer writeContainer;
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::sceneInfo), m_sceneInfoB.buffer);
-    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::globalGrid), m_globalGrid.descriptor);
+    
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::aabbs), m_sceneAabbB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::objects), m_sceneObjectsB.buffer);
-    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLas), m_asBuilder.tlas);
+    
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLas), m_tLas);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::bLas), m_bLasB.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::instances), m_instancesB.buffer);
+    
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::clipMap), m_clipMap.descriptor);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::brickAtlas), m_brickAtlas.descriptor);
+    
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::buildJobQ), m_buildJobQueue.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::brickJobQ), m_brickJobQueue.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::counters), m_countersB.buffer);
@@ -1220,19 +1358,19 @@ public:
   void createShaderBindingTable(const VkRayTracingPipelineCreateInfoKHR& rtPipelineInfo){
     SCOPED_TIMER(__FUNCTION__);
 
-    m_alloc.destroyBuffer(m_sbtBuffer);
+    m_alloc.destroyBuffer(m_sbtB);
     // Calculate required SBT buffer size
     size_t bufferSize = m_sbtGen.calculateSBTBufferSize(m_rtPipeline, rtPipelineInfo);
 
     // Create SBT buffer using the size from above
-    NVVK_CHECK(m_alloc.createBuffer(m_sbtBuffer, bufferSize, VK_BUFFER_USAGE_2_SHADER_BINDING_TABLE_BIT_KHR, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+    NVVK_CHECK(m_alloc.createBuffer(m_sbtB, bufferSize, VK_BUFFER_USAGE_2_SHADER_BINDING_TABLE_BIT_KHR, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
                                         VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
                                         m_sbtGen.getBufferAlignment()));
 
-    NVVK_DBG_NAME(m_sbtBuffer.buffer);
+    NVVK_DBG_NAME(m_sbtB.buffer);
 
     // Populate the SBT buffer with shader handles and data using the CPU-mapped memory pointer
-    NVVK_CHECK(m_sbtGen.populateSBTBuffer(m_sbtBuffer.address, bufferSize, m_sbtBuffer.mapping));
+    NVVK_CHECK(m_sbtGen.populateSBTBuffer(m_sbtB.address, bufferSize, m_sbtB.mapping));
   }
 
 
@@ -1271,7 +1409,7 @@ public:
   std::shared_ptr<nvutils::CameraManipulator> getCameraManipulator() const { return m_cameraManip; }
 
 private:
-  // Vulkan variables
+  // Vulkan and app variables
   nvapp::Application*     m_app{};            // The application framework
   nvvk::ResourceAllocator m_alloc{};          // Resource allocator for Vulkan resources, used for buffers and images
   nvvk::StagingUploader   m_stagingUploader{};// Utility to upload data to the GPU, used for staging buffers and images
@@ -1296,21 +1434,18 @@ private:
   VkShaderModule        m_rtModule{};         // Raytracing shader module for rt pipeline
 
   // Brick generation Pipeline
-  VkPipeline            m_brickJobPipeline{};  // Compute pipeline
-  VkPipelineLayout      m_brickJobLayout{};    // Compute pipeline layout
-  VkShaderModule        m_brickJobModule{};    // Compute shader module for brick generation
+  VkPipeline            m_brickJobPipeline{}; // Compute pipeline
+  VkPipelineLayout      m_brickJobLayout{};   // Compute pipeline layout
+  VkShaderModule        m_brickJobModule{};   // Compute shader module for brick generation
 
   // Build job Pipeline
-  VkPipeline            m_buildJobPipeline{};  // Compute pipeline
-  VkPipelineLayout      m_buildJobLayout{};    // Compute pipeline layout
-  VkShaderModule        m_buildJobModule{};    // Compute shader module for build jobs
+  VkPipeline            m_buildJobPipeline{}; // Compute pipeline
+  VkPipelineLayout      m_buildJobLayout{};   // Compute pipeline layout
+  VkShaderModule        m_buildJobModule{};   // Compute shader module for build jobs
 
-  // Acceleration Structure Components
-  nvvk::AccelerationStructureHelper        m_asBuilder{};
-
-  // Direct SBT management
-  nvvk::SBTGenerator    m_sbtGen;
-  nvvk::Buffer          m_sbtBuffer;         // Buffer for shader binding table
+  // Shader binding table management
+  nvvk::SBTGenerator    m_sbtGen;             // SBT manager
+  nvvk::Buffer          m_sbtB;               // Buffer for shader binding table
 
   // Ray Tracing Properties
   VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties{
@@ -1321,12 +1456,17 @@ private:
   // Push constants to send 
   shaderio::PushConstant m_pushConst = {.time = 0.0f};
 
-  // Scene information. TODO: encapsulate this into a class
+  // Scene information
   shaderio::SceneInfo   m_sceneInfo{};          // Struct containing the scene information
   nvvk::Buffer          m_sceneInfoB{};         // Buffer binded to the UBO of scene info
   nvvk::Buffer          m_sceneAabbB{};         // Buffer binded to the scene aabbs array
   nvvk::Buffer          m_sceneObjectsB{};      // Buffer binded to the scene objects array
 
+  // Acceleration structure buffers and components
+  nvvk::AccelerationStructure   m_tLas{};  // Top-level acceleration structure
+  nvvk::AccelerationStructure   m_bLas{};  // Bottom-level acceleration structure
+  nvvk::Buffer                  m_bLasB{};      // Bottom-level acceleration structures buffer
+  nvvk::Buffer                  m_instancesB{}; // Instances buffer
   // Job queues and utils
   nvvk::Buffer m_buildJobQueue{};   // Queue for the Build jobs
   nvvk::Buffer m_brickJobQueue{};   // Queue for the Brick jobs
@@ -1335,9 +1475,8 @@ private:
   nvvk::Buffer m_freeListB{};       // List of free pointers to the brick atlas
 
   // 3D textures
-  nvvk::Image m_globalGrid;   // Dense value grid
-  nvvk::Image m_clipMap;      // 3D map of pointers to the brick atlas
-  nvvk::Image m_brickAtlas;   // Atlas where all the bricks are stored
+  nvvk::Image m_clipMap{};          // 3D map of pointers to the brick atlas
+  nvvk::Image m_brickAtlas{};       // Atlas where all the bricks are stored
 
   // Pre-built components
   std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()}; // Camera manipulator
@@ -1353,6 +1492,7 @@ private:
   bool m_debugActive = false;
   int m_debugMode = 0;
   bool m_rtxON = false;
+  bool m_resetTlas = false;
 
   // Test variables TODO: Remove after debugging
   int m_testSize = 0;

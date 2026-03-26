@@ -108,17 +108,18 @@ enum BindingPoints
   normalBuffer = 2,
   albedoBuffer = 3,
   depthBuffer  = 4,
-  globalGrid = 5,
-  aabbs = 6,
-  objects = 7,
-  tLas = 8,
-  clipMap = 9,
-  brickAtlas = 10,
-  buildJobQ = 11,
-  brickJobQ = 12,
-  counters = 13,
-  indirectCommands = 14,
-  freeList = 15,
+  aabbs = 5,
+  objects = 6,
+  tLas = 7,
+  bLas = 8,
+  instances = 9,
+  clipMap = 10,
+  brickAtlas = 11,
+  buildJobQ = 12,
+  brickJobQ = 13,
+  counters = 14,
+  indirectCommands = 15,
+  freeList = 16,
 };
 
 enum Counters
@@ -195,6 +196,16 @@ struct DispatchIndirectCommand {
   uint _pad;
 };
 CHECK_STRUCT_ALIGNMENT(DispatchIndirectCommand)
+
+struct InstanceData{
+  float3x4 transform; // Row-major
+  uint instanceCustomIndex : 24;
+  uint mask                : 8;
+  uint instanceSBTOffset   : 24;
+  uint flags               : 8;
+  uint64_t blasAddress;
+};
+CHECK_STRUCT_ALIGNMENT(InstanceData)
 
 
 NAMESPACE_SHADERIO_END()

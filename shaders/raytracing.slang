@@ -14,8 +14,8 @@
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 [[vk::binding(BindingPoints::tLas)]] RaytracingAccelerationStructure topLevelAS;
 
- // Numer of voxel2 per axis of globalGrids
-[[vk::binding(BindingPoints::globalGrid)]] RWTexture3D<float> globalGrid;
+[[vk::binding(BindingPoints::clipMap)]] RWTexture3D<uint32_t> clipMap;
+[[vk::binding(BindingPoints::brickAtlas)]] RWTexture3D<float> brickAtlas;
 
 #ifdef NDEBUGSHADER
 // TODO: Change to false for final release and boost performance
@@ -38,20 +38,40 @@ float3 scalarToColor(float x){
   return scalarToColor(x, pushConst.debug.palette);
 }
 
-void sampleVoxel2(int3 index, out float4 sBottom, out float4 sTop){
-  sBottom = float4(
-    globalGrid[index + int3(0,0,0)],  // s000
-    globalGrid[index + int3(1,0,0)],  // s100
-    globalGrid[index + int3(1,0,1)],  // s101
-    globalGrid[index + int3(0,0,1)]   // s001
-  )  * MAX_VOXEL_VALUES[0];
+void sampleVoxel2(int3 index, int level, out float4 sBottom, out float4 sTop){
+  const int NUM_VOXELS_PER_BRICK = BRICK_SIZE-1;
+  const float max_voxel_value = MAX_VOXEL_VALUES[level];
 
-  sTop = float4(
-    globalGrid[index + int3(0,1,0)],  // s010
-    globalGrid[index + int3(1,1,0)],  // s110
-    globalGrid[index + int3(1,1,1)],  // s111
-    globalGrid[index + int3(0,1,1)]   // s011
-  )  * MAX_VOXEL_VALUES[0];
+  int3 brickIndex = index/NUM_VOXELS_PER_BRICK;
+  brickIndex.z += NUM_BRICKS_PER_AXIS*level;
+  uint pointer = clipMap[brickIndex] & NOT_DIRTY_BIT;
+
+  if(pointer == UNIFORM_POSITIVE_BRICK_POINTER){
+    sBottom = float4(max_voxel_value);
+    sTop    = float4(max_voxel_value);
+  }else if(pointer == UNIFORM_NEGATIVE_BRICK_POINTER){
+    sBottom = float4(-max_voxel_value);
+    sTop    = float4(-max_voxel_value);
+  }else{
+
+    int3 brickAtlasIndex = int3(pointer%BRICK_PER_ATLAS_AXIS,pointer/BRICK_PER_ATLAS_AXIS,0);
+    int3 voxelId = int3(index.x%NUM_VOXELS_PER_BRICK,index.y%NUM_VOXELS_PER_BRICK,index.z%NUM_VOXELS_PER_BRICK);
+    int3 voxelIndex = brickAtlasIndex*BRICK_SIZE + voxelId;
+
+    sBottom = float4(
+      brickAtlas[voxelIndex + int3(0,0,0)],  // s000
+      brickAtlas[voxelIndex + int3(1,0,0)],  // s100
+      brickAtlas[voxelIndex + int3(1,0,1)],  // s101
+      brickAtlas[voxelIndex + int3(0,0,1)]   // s001
+    ) * max_voxel_value;
+
+    sTop = float4(
+      brickAtlas[voxelIndex + int3(0,1,0)],  // s010
+      brickAtlas[voxelIndex + int3(1,1,0)],  // s110
+      brickAtlas[voxelIndex + int3(1,1,1)],  // s111
+      brickAtlas[voxelIndex + int3(0,1,1)]   // s011
+    ) * max_voxel_value;
+  }
 }
 
 float triLerp(float3 p, float4 sBottom, float4 sTop){
@@ -155,7 +175,7 @@ float sphereTraceGridMod(Ray r, Bbox bbox, out float3 normal, out float3 debug){
     // If this voxel hasn't been visited yet
     if(steps == 1 || any(currentIndex != lastIndex)){
       // Update current voxel data and index
-      sampleVoxel2(currentIndex,sBottom,sTop);
+      sampleVoxel2(currentIndex,0,sBottom,sTop);
       //getkConstants(sBottom,sTop,k0123,k4567);
       lastIndex = currentIndex;
     }
@@ -226,120 +246,124 @@ Ray get_ray(float2 uv){
 [shader("raygeneration")]
 void rgenMain()
 {
-    float depth; float3 albedo, normal, debug;
+  float depth; float3 albedo, normal, debug;
 
-    // Get the current pixel coordinates and image dimensions
-    float2 launchID = (float2)DispatchRaysIndex().xy;     // Current pixel (x,y)
-    float2 launchSize = (float2)DispatchRaysDimensions().xy; // Image size (width,height)
-    float2 uv = launchID/launchSize;
+  // Get the current pixel coordinates and image dimensions
+  float2 launchID = (float2)DispatchRaysIndex().xy;     // Current pixel (x,y)
+  float2 launchSize = (float2)DispatchRaysDimensions().xy; // Image size (width,height)
+  float2 uv = launchID/launchSize;
 
-    const uint rayFlags = 0;
+  const uint rayFlags = 0;
 
-    Ray r = get_ray(uv);
+  Ray r = get_ray(uv);
 
-    // Create the primary ray
-    RayDesc ray;
-    // Transform camera origin (0,0,0) from view space to world space
-    ray.Origin = r.orig;
-    // Transform ray direction from view space to world space
-    ray.Direction = r.dir;
-    ray.TMin = 0.001;    // Minimum distance to avoid self-intersection
-    ray.TMax = INFINITE; // Maximum distance (infinite for primary rays)
+  // Create the primary ray
+  RayDesc ray;
+  // Transform camera origin (0,0,0) from view space to world space
+  ray.Origin = r.orig;
+  // Transform ray direction from view space to world space
+  ray.Direction = r.dir;
+  ray.TMin = 0.001;    // Minimum distance to avoid self-intersection
+  ray.TMax = INFINITE; // Maximum distance (infinite for primary rays)
 
-    // Initialize ray payload with default values
-    HitPayload payload;
-    payload.debug = float3(0);
-    payload.normal = float3(1);
-    payload.depth = -1;
-    
+  // Initialize ray payload with default values
+  HitPayload payload;
+  payload.debug = float3(0);
+  payload.normal = float3(1);
+  payload.depth = -1;
+  
 
-    // Cast the ray into the scene using the acceleration structure
-    // Parameters: AS, flags, instance mask, sbt offset, sbt stride, miss offset, ray, payload
-    TraceRay(topLevelAS, rayFlags, 0xff, 0,0,0, ray, payload);
-    
-    albedo = float3(1);
-    debug = payload.debug;
-    normal = payload.normal;
-    depth = payload.depth;
+  // Cast the ray into the scene using the acceleration structure
+  // Parameters: AS, flags, instance mask, sbt offset, sbt stride, miss offset, ray, payload
+  TraceRay(topLevelAS, rayFlags, 0xff, 0,0,0, ray, payload);
+  
+  albedo = float3(1);
+  debug = payload.debug;
+  normal = payload.normal;
+  depth = payload.depth;
 
-    bool hit = depth >= 0.0;
-    if(hit){
-      albedo = float3(1.0);
-    }else{
-      albedo = float3(0);
-      debug = r.dir;
-    }
+  bool hit = depth >= 0.0;
+  if(hit){
+    albedo = float3(1.0);
+  }else{
+    albedo = float3(0);
+    //debug = r.dir;
+  }
 
-    if(debugColor || bboxColor){
-        albedo = debug;
-    }
+  if(debugColor || bboxColor){
+      albedo = debug;
+  }
 
-    normalImage[int2(launchID)] = float4(normal, 0.0F);
-    albedoImage[int2(launchID)] = float4(albedo,1.0F);
-    depthImage[int2(launchID)] = depth;
+  normalImage[int2(launchID)] = float4(normal, 0.0F);
+  albedoImage[int2(launchID)] = float4(albedo,1.0F);
+  depthImage[int2(launchID)] = depth;
 }
 
 
 [shader("intersection")]
 void rintMain()
 {
-    HitPayload payload;
-    Ray r; 
-    r.orig = WorldRayOrigin();
-    r.dir  = WorldRayDirection();
+  HitPayload payload;
+  Ray r; 
+  r.orig = WorldRayOrigin();
+  r.dir  = WorldRayDirection();
 
-    uint instanceID = InstanceIndex();
-    uint primitiveID = PrimitiveIndex();
-    uint geometryID = GeometryIndex();
-    Bbox bbox = aabbs[instanceID];
+  uint instanceID = InstanceIndex();
+  uint primitiveID = PrimitiveIndex();
+  uint geometryID = GeometryIndex();
+  Bbox bbox = aabbs[instanceID];
+/* 
+  if(bboxColor){
+      payload.debug = scalarToColor(float(instanceID)/float(pushConst.numObjects));
+      payload.depth = 1.0;
+      payload.normal = float3(1);
+      ReportHit(payload.depth, 0, payload);
+      return;
+  }
 
-    if(bboxColor){
-        payload.debug = scalarToColor(float(instanceID)/float(pushConst.numObjects));
-        payload.depth = 1.0;
-        payload.normal = float3(1);
-        ReportHit(payload.depth, 0, payload);
-        return;
-    }
+  payload.depth = sphereTraceGridMod(r,bbox,payload.normal,payload.debug);
 
-    payload.depth = sphereTraceGridMod(r,bbox,payload.normal,payload.debug);
-
-    if(payload.depth >= 0.0){
-        ReportHit(payload.depth, 0, payload);
-    }
+  if(payload.depth >= 0.0){
+      ReportHit(payload.depth, 0, payload);
+  }
+*/
+  payload.depth = 0.1f;
+  payload.normal = float3(0, 0, 1); // Normal hacia arriba para depurar
+  payload.debug = float3(1, 0, 0); // Rojo para hits
+  ReportHit(payload.depth, 0, payload);
 }
 
 // Closest hit shader - called when ray hits geometry
 [shader("closesthit")]
 void rchitMain(inout HitPayload payload, in HitPayload attr)
 {
-    // For now, just set a simple solid red color for all hits
-    // In a full implementation, this would:
-    // 1. Sample material properties (albedo, normal, etc.)
-    // 2. Calculate lighting (direct + indirect)
-    // 3. Potentially cast secondary rays (reflection, refraction)
-    payload = attr;
-
+  // For now, just set a simple solid red color for all hits
+  // In a full implementation, this would:
+  // 1. Sample material properties (albedo, normal, etc.)
+  // 2. Calculate lighting (direct + indirect)
+  // 3. Potentially cast secondary rays (reflection, refraction)
+  payload = attr;
 }
 
 // Miss shader - called when ray doesn't hit any geometry
 [shader("miss")]
 void rmissMain(inout HitPayload payload)
 {
-    // Set background color when ray misses all geometry
-    // In a full implementation, this could sample from:
-    // - Skybox textures
-    // - Procedural sky gradients
-    // - Environment maps
-    payload.debug = float3(0,0,1); // Gray background
+  // Set background color when ray misses all geometry
+  // In a full implementation, this could sample from:
+  // - Skybox textures
+  // - Procedural sky gradients
+  // - Environment maps
+  payload.debug = float3(0,0,1); // Gray background
 /* 
-    Ray r;
-    r.orig = WorldRayOrigin();
-    r.dir  = WorldRayDirection();
-    Bbox bbox = aabbs[0];
-    float3 nearP, farP;
-    if(intersectCube(r, bbox, nearP, farP))
-    {
-        payload.color = float3(0, 1, 0);
-    }
-     */
+  Ray r;
+  r.orig = WorldRayOrigin();
+  r.dir  = WorldRayDirection();
+  Bbox bbox = aabbs[0];
+  float3 nearP, farP;
+  if(intersectCube(r, bbox, nearP, farP))
+  {
+      payload.color = float3(0, 1, 0);
+  }
+    */
 }
