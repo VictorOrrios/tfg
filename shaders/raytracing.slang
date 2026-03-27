@@ -307,11 +307,22 @@ void rintMain()
   Ray r; 
   r.orig = WorldRayOrigin();
   r.dir  = WorldRayDirection();
-
+  float3x4 objToWorld = ObjectToWorld();
+  float3 pos = float3(objToWorld[0][3],objToWorld[1][3],objToWorld[2][3]);
+  float size = objToWorld[0][0];
   uint instanceID = InstanceIndex();
-  uint primitiveID = PrimitiveIndex();
-  uint geometryID = GeometryIndex();
-  Bbox bbox = aabbs[instanceID];
+  Bbox bbox = Bbox(pos,pos+size);
+  float3 near, far;
+  payload.normal = float3(0, 0, 1);
+  if(intersectCube(r,bbox,near,far)){
+    payload.depth = length(r.orig-near);
+    payload.debug = scalarToColor(float(instanceID)/float(NUM_BRICKS_IN_ATLAS));
+  }else{
+    payload.depth = 1.0;
+    payload.debug = float3(1, 0, 0);
+  }
+  ReportHit(payload.depth, 0, payload);
+
 /* 
   if(bboxColor){
       payload.debug = scalarToColor(float(instanceID)/float(pushConst.numObjects));
@@ -327,10 +338,7 @@ void rintMain()
       ReportHit(payload.depth, 0, payload);
   }
 */
-  payload.depth = 0.1f;
-  payload.normal = float3(0, 0, 1); // Normal hacia arriba para depurar
-  payload.debug = float3(1, 0, 0); // Rojo para hits
-  ReportHit(payload.depth, 0, payload);
+  
 }
 
 // Closest hit shader - called when ray hits geometry

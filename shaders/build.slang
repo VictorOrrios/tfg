@@ -43,7 +43,7 @@ void freePointer(int pointer){
 }
 
 inline float3x4 createTransform(int3 id, int level){
-  const float s = level+1;
+  const float s = BRICK_SIZES[level];
   const float3 pos = id*BRICK_SIZES[level];
   return float3x4(
         s, 0, 0, pos.x,
@@ -58,7 +58,7 @@ void updateInstance(int instIdx, int3 id, int level){
 }
 
 void maskInstance(int instIdx){
-  //instances[instIdx].mask = 0x00;
+  instances[instIdx].mask = 0x00;
 }
 
 [shader("compute")]
@@ -84,15 +84,10 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   
   // Might not be necesary
   // Out of bounds brick for this level
-  /* 
   if(any(relBrickId < 0) || any(relBrickId > NUM_BRICKS_PER_AXIS-1))
     return; 
-  */
  
-  // Brick inside hole in levels > 0 check
-  if(level > 0 && all(relBrickId > hole_min) && all(relBrickId <= hole_max))
-    return;
-
+ 
   int3 brickIndex = id2index(brickId);
   int3 clipIndex = brickIndex;
   clipIndex.z += NUM_BRICKS_PER_AXIS * level;
@@ -105,23 +100,37 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     // Brickjob will be executed and the dirty bit cleaned
     BrickJob brickJob = BrickJob(int4(brickId,level));
 
-    const float brick_size = BRICK_SIZES[level];
-    const float max_brick_value = MAX_BRICK_VALUES[level];
+    const bool brick_inside_hole = level > 0 && all(relBrickId > hole_min) && all(relBrickId <= hole_max);
+    const bool brick_allocated = prevClipPointer < NUM_BRICKS_IN_ATLAS;
 
-    // Evaluate scene at brick center
-    float3 p = (float3(brickId)+0.5)*brick_size;
-    float centerSDF = map(p,MAX_BRICK_VALUES[level],pushConst.numObjects,aabbs,objects);
-    
-    // Uniform value brick check
-    if(abs(centerSDF) > max_brick_value){
-      freePointer(prevClipPointer);
-      maskInstance(prevClipPointer);
-      int newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
-      clipMap[clipIndex] = newPointer | DIRTY_BIT;
-    }else if(prevClipPointer >= NUM_BRICKS_IN_ATLAS){
-      int newPointer = allocPointer();
-      updateInstance(0,brickId,level);
-      clipMap[clipIndex] = newPointer | DIRTY_BIT;
+    // If brick inside hole => Free brick
+    if(brick_inside_hole){
+      if(brick_allocated){
+        freePointer(prevClipPointer);
+        maskInstance(prevClipPointer);
+        clipMap[clipIndex] = UNIFORM_POSITIVE_BRICK_POINTER | DIRTY_BIT;
+      }
+    }else{
+      const float brick_size = BRICK_SIZES[level];
+      const float max_brick_value = MAX_BRICK_VALUES[level];
+
+      // Evaluate scene at brick center
+      float3 p = (float3(brickId)+0.5)*brick_size;
+      float centerSDF = map(p,MAX_BRICK_VALUES[level],pushConst.numObjects,aabbs,objects);
+      
+      // Uniform value brick check
+      if(abs(centerSDF) > max_brick_value){
+        freePointer(prevClipPointer);
+        maskInstance(prevClipPointer);
+        int newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
+        clipMap[clipIndex] = newPointer | DIRTY_BIT;
+      }else if(!brick_allocated){
+        int newPointer = allocPointer();
+        updateInstance(newPointer,brickId,level);
+        clipMap[clipIndex] = newPointer | DIRTY_BIT;
+      }else{
+        updateInstance(prevClipPointer,brickId,level);
+      }
     }
 
     // Add to brick job queue with the nextBrickJob counter

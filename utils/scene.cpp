@@ -513,6 +513,7 @@ std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0,
       if(prevCamId[axis] == currCamId[axis])
         continue;
 
+      // New area -> Grid outer reach
       glm::ivec3 minId = currMinId;
       glm::ivec3 maxId = currMaxId;
 
@@ -529,6 +530,7 @@ std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0,
         .num_b=glm::ivec4(num_b,0)
       });
 
+      // Hole area -> Grid inner reach
       if(level > 0){
         minId = prevHMinId;
         maxId = prevHMaxId;
@@ -537,6 +539,25 @@ std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0,
           maxId[axis] = currHMinId[axis];
         }else{
           minId[axis] = currHMaxId[axis];
+        }
+
+        num_b = glm::abs(minId - maxId) + glm::ivec3(1);
+
+        out.push_back({
+          .min_id_level=glm::ivec4(minId,level),
+          .num_b=glm::ivec4(num_b,0)
+        });
+      }
+
+      // Grid inner reach -> Hole area
+      if(level > 0){
+        minId = currHMinId;
+        maxId = currHMaxId;
+
+        if(prevCamId[axis] <= currCamId[axis]){
+          minId[axis] = prevHMaxId[axis];
+        }else{
+          maxId[axis] = prevHMinId[axis];
         }
 
         num_b = glm::abs(minId - maxId) + glm::ivec3(1);
