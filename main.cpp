@@ -446,12 +446,18 @@ public:
 
     {
       const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Generation");
-      if(m_scene.m_needsRefresh || m_currCamId0 != m_prevCamId0){
+      const bool sceneRefresh = m_scene.m_needsRefresh || m_currCamId0 != m_prevCamId0;
+      
+      if(sceneRefresh){
         updateSceneObjects(cmd);
         generationPass(cmd);
         m_scene.m_needsRefresh = false;
         m_prevCamId0 = m_currCamId0;
-        
+      }
+      
+      if((m_rtxON && sceneRefresh) || m_RTXIni){
+        updateTopLevelAS(cmd);
+        m_RTXIni = false;
       }
     }
 
@@ -464,12 +470,6 @@ public:
     lightingPass(cmd);
     
     postProcess(cmd);
-
-    if(m_rtxON){
-      m_resetTlas = false;
-      updateTopLevelAS(cmd);
-    }
-    
   }
 
   void tracingPass(VkCommandBuffer cmd){
@@ -894,7 +894,7 @@ public:
   }
 
   void updateTopLevelAS(VkCommandBuffer cmd){
-    //const auto profiledSection = m_profilerGpuTimer.cmdAsyncSection(cmd, "Build job execution");
+    const auto profiledSection = m_profilerGpuTimer.cmdAsyncSection(cmd, "Accel struct update");
 
     auto alignUp = [](auto value, size_t alignment) noexcept { return ((value + alignment - 1) & ~(alignment - 1)); };
 
@@ -933,7 +933,7 @@ public:
 
     asBuildInfo.scratchData.deviceAddress = m_tLasB.address;
 
-        // ========== BARRERA PRE-BUILD (Versión clásica corregida) ==========
+    // ========== BARRERA PRE-BUILD (Versión clásica corregida) ==========
     VkMemoryBarrier preBuildBarrier{
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
         .pNext = nullptr,
@@ -1531,6 +1531,7 @@ private:
   Scene m_scene;
   glm::ivec3 m_currCamId0 = glm::ivec3(0);
   glm::ivec3 m_prevCamId0 = glm::ivec3(0);
+  bool m_RTXIni = true;
 
   // UI params
   bool m_debugActive = false;

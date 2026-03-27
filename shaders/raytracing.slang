@@ -26,6 +26,8 @@ const static bool debugColor = pushConst.debug.mode == 1;
 const static bool bboxColor = pushConst.debug.mode == 5;
 #endif
 
+const static float EPSILON = 0.000001;
+
 // Ray payload structure - carries data through the ray tracing pipeline
 struct HitPayload
 {
@@ -72,6 +74,24 @@ void sampleVoxel2(int3 index, int level, out float4 sBottom, out float4 sTop){
       brickAtlas[voxelIndex + int3(0,1,1)]   // s011
     ) * max_voxel_value;
   }
+}
+
+void fetchBrickValue(int pointer, int3 voxel_offset, float max_voxel_value, out float4 sBottom, out float4 sTop){
+  int3 brickAtlasIndex = int3(pointer%BRICK_PER_ATLAS_AXIS,pointer/BRICK_PER_ATLAS_AXIS,0);
+  int3 voxelIndex = brickAtlasIndex*BRICK_SIZE + voxel_offset;
+  sBottom = float4(
+    brickAtlas[voxelIndex + int3(0,0,0)],  // s000
+    brickAtlas[voxelIndex + int3(1,0,0)],  // s100
+    brickAtlas[voxelIndex + int3(1,0,1)],  // s101
+    brickAtlas[voxelIndex + int3(0,0,1)]   // s001
+  ) * max_voxel_value;
+
+  sTop = float4(
+    brickAtlas[voxelIndex + int3(0,1,0)],  // s010
+    brickAtlas[voxelIndex + int3(1,1,0)],  // s110
+    brickAtlas[voxelIndex + int3(1,1,1)],  // s111
+    brickAtlas[voxelIndex + int3(0,1,1)]   // s011
+  ) * max_voxel_value;
 }
 
 float triLerp(float3 p, float4 sBottom, float4 sTop){
@@ -134,96 +154,88 @@ float3 calcNormalAnalytic(float3 p, float4 sBottom, float4 sTop){
   return normalize(float3(dx,dy,dz));
 }
 
-float sphereTraceGridMod(Ray r, Bbox bbox, out float3 normal, out float3 debug){
-  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS;
-  Bbox gBbox = unitBBox;
-  debug = float3(0);
-
-  // Debug visualizers
-  const bool drawSilhouette = debugColor && false;  // Draw the silhouette of the grid
-  const bool drawSteps      = debugColor && true;   // Draw the numer of steps taken
-  const bool drawHitIndex   = debugColor && false;  // Draw the grid voxel index at the hit point
-
-  normal = float3(0);
-
-  // Initial boundig box hit test
-  float3 p, far, dir = r.dir;
-  bool hit = intersectCube(r, bbox, p, far);
-  if(!hit) return -1;
-
-  // Silhouette highlighter
-  if(drawSilhouette && length(far-p)<0.02){
-    debug = scalarToColor(-1);
-    return 1;
-  }
-
-  const float3 gridSize = gBbox.bMax - gBbox.bMin;          // World space grid size
-  const float3 voxelSize = gridSize/NUM_VOXELS_PER_AXIS;    // Size of a voxel
-  const float3 voxelDensity = NUM_VOXELS_PER_AXIS/gridSize; // How many voxels per unit of world space
+int getLevelOfPoint(float3 p) {
+  int3 camId0 = sceneInfo.cameraId0.xyz;
+  int3 pId0 = int3(floor(p / BRICK_SIZES[0]));
   
-  float3 hitCoor, voxelCoor;
-  int3 currentIndex, lastIndex;
-  float4 coeff, sBottom, sTop;
-
-  for(int steps = 1; steps < MAX_ITERATIONS; steps++){
-    hitCoor = (p-gBbox.bMin)*voxelDensity; // P coordinates relative to grid, in [0,1]³
-
-    // TODO: Check if it needs clamping
-    currentIndex = int3(trunc(hitCoor));  // Grid index of p
-    voxelCoor = frac(hitCoor);            // P Coordinates relative to voxel, in [0,1]³
-
-    // If this voxel hasn't been visited yet
-    if(steps == 1 || any(currentIndex != lastIndex)){
-      // Update current voxel data and index
-      sampleVoxel2(currentIndex,0,sBottom,sTop);
-      //getkConstants(sBottom,sTop,k0123,k4567);
-      lastIndex = currentIndex;
-    }
-
-    // Interpolate current sdf value of the voxel2
-    //float t = triLerp(voxelCoor,sBottom,sTop);
-    float t = triLerp(voxelCoor,sBottom, sTop);
-
-
-    // Cutoff condition: A distance of 1/10 voxels
-    // TODO: Fine tune to better performance/quality
-    if(t < voxelSize.x/10){
-
-      // Debug visualizer of step count
-      if(drawSteps) debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
-      // Debug visualizer of hit grid index
-      if(drawHitIndex) debug = float3(currentIndex)/float3(NUM_VOXELS_PER_AXIS);
-      
-      normal = calcNormalAnalytic(voxelCoor,sBottom,sTop);
-      // Returns depth of hit
-      return length(p - r.orig);
-    }
-    
-    // Update p to move the estimated length to surface
-    p += r.dir*t;
+  int3 diff = pId0 - camId0;
+  diff += max(0,sign(diff));
+  diff = abs(diff);
+  int maxDiff = max(diff.x,max(diff.y,diff.z));
   
-    // Check if ray has left the bbox
-    if(!insideBbox(p,bbox)){
-      // Outside grid
-      if(drawSteps){
-        debug = scalarToColor(float(steps)/float(MAX_ITERATIONS));
-        return 1;
-      }else{
-        // No hit
-        return -1;
-      }
-    }
-  }
-
-  // Over iterated 
-  if(drawSteps){
-    // Debug visualizer of step count
-    debug = scalarToColor(1.1);
-    return 1;
+  const int HALF = NUM_BRICKS_PER_AXIS / 2;
+  float logVal = log2((float)(maxDiff) / (float)HALF);
+  int level = clamp((int)ceil(logVal),0,CLIPMAP_LEVELS - 1);
+  
+  int3 camId = id0LevelTransform(camId0,level);
+  int3 pId = id0LevelTransform(pId0,level);
+  int3 rel_id = pId - camId;
+  if (all(rel_id < HALF)) {
+    return level;
   }else{
-    // No hit
-    return -1;
+    return min(level+1,CLIPMAP_LEVELS - 1);
   }
+}
+
+float3 analyticNormal(float3 p){
+  int level = getLevelOfPoint(p);
+  float voxel_size = VOXEL_SIZES[level];
+  // Scale normalization
+  float3 pVoxelNorm = p/voxel_size;
+  // Truncate normalized coordinates to get the id
+  int3 voxelId = int3(floor(pVoxelNorm));
+  // Get the grid indices with floor division modulus (WARNING: Normal modulus % will not give correct result)
+  int3 voxelIndex = id2voxelIndex(voxelId);
+  // Get grid index and coordinates inside the voxel
+  int3 currentIndex = max(int3(0),min(int3(NUM_VOXELS_PER_AXIS-1),
+    voxelIndex));
+  float3 voxelCoor = frac(pVoxelNorm);
+  // Sample voxel
+  float4 sBottom,sTop;
+  sampleVoxel2(currentIndex,level,sBottom,sTop);
+  // Calc normal
+  return calcNormalAnalytic(voxelCoor,sBottom,sTop);
+}
+
+bool sphereTraceBrick(Ray r, int pointer, float3 brickPos, int level, out float depth){
+  const int MAX_ITERATIONS = BRICK_SIZE * 5;
+  depth = 0.0;
+
+
+  const float brick_size = BRICK_SIZES[level];
+  const float voxel_size = VOXEL_SIZES[level];
+  const float max_voxel_value = MAX_VOXEL_VALUES[level];
+  float3 p = r.orig;
+  float3 diff = p - brickPos;
+  float4 sBottom,sTop;
+  int3 prev_voxel_offset = int3(-1);
+
+  for(int step = 0; step<MAX_ITERATIONS; step++){
+    if(any(diff<0.0) || any(diff>brick_size))
+      break;
+
+    float3 diffNorm = diff/voxel_size;
+    int3 voxel_offset = int3(floor(diffNorm));
+    float3 voxel_coor = frac(diffNorm);
+
+    if(step == 0 || any(prev_voxel_offset != voxel_offset) || true){
+      fetchBrickValue(pointer,voxel_offset,max_voxel_value,sBottom,sTop);
+      prev_voxel_offset = voxel_offset;
+    }
+
+    float t = triLerp(voxel_coor,sBottom,sTop);
+
+    if(t < voxel_size/10){
+      depth = length(r.orig - p);
+      return true;
+    }
+
+    p += r.dir*t*0.25;
+
+    diff = p - brickPos;
+  }
+
+  return false;
 }
 
 Ray get_ray(float2 uv){
@@ -307,38 +319,29 @@ void rintMain()
   Ray r; 
   r.orig = WorldRayOrigin();
   r.dir  = WorldRayDirection();
+
+  uint instanceID = InstanceIndex();
+
   float3x4 objToWorld = ObjectToWorld();
   float3 pos = float3(objToWorld[0][3],objToWorld[1][3],objToWorld[2][3]);
+
   float size = objToWorld[0][0];
-  uint instanceID = InstanceIndex();
+  int level = InstanceID();
   Bbox bbox = Bbox(pos,pos+size);
-  float3 near, far;
-  payload.normal = float3(0, 0, 1);
-  if(intersectCube(r,bbox,near,far)){
-    payload.depth = length(r.orig-near);
-    payload.debug = scalarToColor(float(instanceID)/float(NUM_BRICKS_IN_ATLAS));
-  }else{
-    payload.depth = 1.0;
-    payload.debug = float3(1, 0, 0);
-  }
-  ReportHit(payload.depth, 0, payload);
 
-/* 
-  if(bboxColor){
-      payload.debug = scalarToColor(float(instanceID)/float(pushConst.numObjects));
-      payload.depth = 1.0;
-      payload.normal = float3(1);
+  float3 nearP, farP;
+  if(intersectCube(r,bbox,nearP,farP)){
+    nearP = max(bbox.bMin,min(bbox.bMax,nearP));
+    Ray brickRay = Ray(nearP,r.dir);
+    float depthToBbox = length(r.orig-nearP);
+    payload.depth = depthToBbox;
+
+    if(sphereTraceBrick(brickRay,instanceID,pos,level,payload.depth)){
+      payload.depth += depthToBbox; 
+      payload.debug = scalarToColor(float(instanceID)/float(NUM_BRICKS_IN_ATLAS));
       ReportHit(payload.depth, 0, payload);
-      return;
+    }
   }
-
-  payload.depth = sphereTraceGridMod(r,bbox,payload.normal,payload.debug);
-
-  if(payload.depth >= 0.0){
-      ReportHit(payload.depth, 0, payload);
-  }
-*/
-  
 }
 
 // Closest hit shader - called when ray hits geometry
@@ -351,6 +354,11 @@ void rchitMain(inout HitPayload payload, in HitPayload attr)
   // 2. Calculate lighting (direct + indirect)
   // 3. Potentially cast secondary rays (reflection, refraction)
   payload = attr;
+  Ray r; 
+  r.orig = WorldRayOrigin();
+  r.dir  = WorldRayDirection();
+  float3 p = r.orig + r.dir*payload.depth;
+  payload.normal = analyticNormal(p);
 }
 
 // Miss shader - called when ray doesn't hit any geometry

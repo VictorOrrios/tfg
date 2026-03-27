@@ -55,6 +55,7 @@ inline float3x4 createTransform(int3 id, int level){
 void updateInstance(int instIdx, int3 id, int level){
   instances[instIdx].mask = 0xFF;
   instances[instIdx].transform = createTransform(id,level);
+  instances[instIdx].instanceCustomIndex = level;
 }
 
 void maskInstance(int instIdx){
