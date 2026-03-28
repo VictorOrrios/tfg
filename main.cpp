@@ -456,7 +456,8 @@ public:
       }
       
       if((m_rtxON && sceneRefresh) || m_RTXIni){
-        updateTopLevelAS(cmd);
+        updateTopLevelAS(cmd,m_resetTlas);
+        m_resetTlas = false;
         m_RTXIni = false;
       }
     }
@@ -893,10 +894,11 @@ public:
     NVVK_DBG_NAME(m_tLas.accel);
   }
 
-  void updateTopLevelAS(VkCommandBuffer cmd){
+  void updateTopLevelAS(VkCommandBuffer cmd, bool rebuild){
     const auto profiledSection = m_profilerGpuTimer.cmdAsyncSection(cmd, "Accel struct update");
 
-    auto alignUp = [](auto value, size_t alignment) noexcept { return ((value + alignment - 1) & ~(alignment - 1)); };
+    if(rebuild)
+      LOGI("REBUILDING TLAS\n");
 
     nvvk::AccelerationStructureGeometryInfo geoInfo{};
     VkAccelerationStructureGeometryInstancesDataKHR geometryInstances{
@@ -914,71 +916,32 @@ public:
         .flags         = 
           VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | 
           VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR,
-        .mode          = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR,
-        .srcAccelerationStructure = m_tLas.accel,
+        .mode          = rebuild ?
+          VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR: VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR,
+        .srcAccelerationStructure = rebuild ? VK_NULL_HANDLE : m_tLas.accel,
         .dstAccelerationStructure = m_tLas.accel,
         .geometryCount = 1,
         .pGeometries   = &geoInfo.geometry,
-        
+        .scratchData = {.deviceAddress = m_tLasB.address}
     };
 
-    std::vector<uint32_t> maxPrimCount(1);
-    maxPrimCount[0] = geoInfo.rangeInfo.primitiveCount;
-
-    VkAccelerationStructureBuildSizesInfoKHR asBuildSize{.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
-    vkGetAccelerationStructureBuildSizesKHR(m_app->getDevice(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &asBuildInfo,
-                                            maxPrimCount.data(), &asBuildSize);
-
-    VkDeviceSize scratchSize = alignUp(asBuildSize.buildScratchSize, m_asProperties.minAccelerationStructureScratchOffsetAlignment);
-
-    asBuildInfo.scratchData.deviceAddress = m_tLasB.address;
-
-    // ========== BARRERA PRE-BUILD (Versión clásica corregida) ==========
-    VkMemoryBarrier preBuildBarrier{
-        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-        .pNext = nullptr,
-        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | 
-                         VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR |
-                         VK_ACCESS_SHADER_WRITE_BIT |
-                         VK_ACCESS_TRANSFER_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR |
-                         VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR
-    };
-    
-    vkCmdPipelineBarrier(cmd,
-        VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
-        VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR |
-        VK_PIPELINE_STAGE_TRANSFER_BIT,  // Nota: sin _KHR, es VK_PIPELINE_STAGE_TRANSFER_BIT
-        VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-        0,
-        1, &preBuildBarrier,
-        0, nullptr,
-        0, nullptr
-    );
-
-    // ========== EJECUTAR LA ACTUALIZACIÓN DEL TLAS ==========
     VkAccelerationStructureBuildRangeInfoKHR* pBuildRangeInfo = &geoInfo.rangeInfo;
     vkCmdBuildAccelerationStructuresKHR(cmd, 1, &asBuildInfo, &pBuildRangeInfo);
-
-    // ========== BARRERA POST-BUILD ==========
-    // Asegura que el TLAS actualizado esté visible para los shaders de ray tracing
-    VkMemoryBarrier postBuildBarrier{
-        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-        .pNext = nullptr,
-        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,  // La escritura del build
-        .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR |  // Lectura para builds futuros
-                         VK_ACCESS_SHADER_READ_BIT                       // Lectura para shaders RT
+  
+    VkMemoryBarrier barrier{
+      .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+      .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+      .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR
     };
-    
-    vkCmdPipelineBarrier(cmd,
-        VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,  // Fuente: el build que acaba de terminar
-        VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | // Para futuros builds
-        VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,            // Para shaders que usarán el TLAS
-        0,
-        1, &postBuildBarrier,
-        0, nullptr,
-        0, nullptr
-    );
+
+    vkCmdPipelineBarrier(
+      cmd,
+      VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+      VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+      0,
+      1, &barrier,
+      0, nullptr,
+      0, nullptr);
   }
 
   void createInstanceBuffer(){
