@@ -668,7 +668,8 @@ std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 currCamId0, 
 Scene::Scene() {
   // Create the scene
   Node *terrain = createNode(NodeType::Terrain);
-  terrain->p.scale = 1.0;
+  terrain->p.position = glm::vec3(0.0,18.0,-7.0);
+  terrain->p.scale = 20.0;
   updateNodeData(terrain);
   addNode(terrain);
 

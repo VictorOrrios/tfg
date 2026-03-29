@@ -141,14 +141,15 @@ struct LightinParams{
 struct DebugParams{
   int mode;     // 0: Off, 1: Debug color, 2: Albedo, 3: Normal, 4:Depth, 5:BBox
   int palette;
+  bool brickPercent;
 };
 
 struct TerrainParams{
   float sIni = 1.0;
   float sDecay = 0.5;
-  int numOctaves = 5;
-  float smaxDecay = 0.1;
-  float smaxIncrease = 0.3;
+  int numOctaves = 10;
+  float smaxDecay = 0.006;
+  float smaxIncrease = 0.23;
   float sminIncrease = 0.3;
 };
 

@@ -28,6 +28,7 @@
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
+[[vk::binding(BindingPoints::counters)]] RWStructuredBuffer<uint32_t> counters;
 
 #ifdef NDEBUGSHADER
 // TODO: Change to false for final release and boost performance
@@ -95,7 +96,14 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   }
 
   if(debugActive){
-    if((pushConst.debug.mode == 1 || pushConst.debug.mode == 4 || pushConst.debug.mode == 5) && uv.x > 0.98){
+    if(pushConst.debug.brickPercent && uv.x<=0.01){
+      float percent = (counters[Counters::allocCounter] - counters[Counters::freeCounter]) / float(NUM_BRICKS_IN_ATLAS);
+      if(percent > (1.0-uv.y)){
+        outImage[int2(fragCoord)] = float4(1.0);
+      }else{
+        outImage[int2(fragCoord)] = float4(0.0);
+      }
+    }else if((pushConst.debug.mode == 1 || pushConst.debug.mode == 4 || pushConst.debug.mode == 5) && uv.x > 0.98){
       // Palette visualizer
       if(uv.x - uv.y > 0.99){
         outImage[int2(fragCoord)] = float4(scalarToColor(-1),1.0);

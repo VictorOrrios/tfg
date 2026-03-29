@@ -296,6 +296,7 @@ public:
     }
     
     if(!ImGui::CollapsingHeader("Debug colors")){
+      ImGui::Checkbox("Atlas%", &m_pushConst.debug.brickPercent);
       ImGui::Checkbox("Active", &m_debugActive);
       ImGui::Combo("Mode", &m_debugMode, DebugModes, IM_ARRAYSIZE(DebugModes));
       ImGui::Combo("Palette", &m_pushConst.debug.palette, DebugPalettes, IM_ARRAYSIZE(DebugPalettes));
