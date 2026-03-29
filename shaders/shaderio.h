@@ -54,6 +54,13 @@ CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS) // Power of two needed for faster calc
 const static int NUM_VOXELS_PER_AXIS = NUM_BRICKS_PER_AXIS*(BRICK_SIZE-1);
 const static int NUM_VALUES_PER_AXIS = NUM_BRICKS_PER_AXIS*BRICK_SIZE;
 
+#define CLIPMAP_LEVEL_LIST \
+  X(0) \
+  X(1) \
+  X(2) \
+  X(3) \
+  X(4)
+    
 // Sizes definition
 #define S_AXIS(level) (L0_AXIS_WORLD_SIZE * (1<<level))
 #define S_BRICK(level) (S_AXIS(level) / NUM_BRICKS_PER_AXIS)
@@ -71,7 +78,7 @@ const static float MAX_VOXEL_VALUES[CLIPMAP_LEVELS] = {
   MAX_VOXEL_V(0),MAX_VOXEL_V(1),MAX_VOXEL_V(2),MAX_VOXEL_V(3),MAX_VOXEL_V(4)};
 const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
   MAX_BRICK_V(0),MAX_BRICK_V(1),MAX_BRICK_V(2),MAX_BRICK_V(3),MAX_BRICK_V(4)};
-  
+   
 /*    
    const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
   S_AXIS(0)};

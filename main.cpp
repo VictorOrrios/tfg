@@ -91,6 +91,7 @@
 #include <glm/vector_relational.hpp>
 #include <nvvk/resources.hpp>
 #include <numeric>
+#include <nvvk/validation_settings.hpp>  
 
 const char* DebugModes[] = {
     "Debug color",
@@ -1564,6 +1565,9 @@ int main(int argc, char** argv)
   VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
 
+  nvvk::ValidationSettings validationSettings;  
+  validationSettings.setPreset(nvvk::ValidationSettings::LayerPresets::eDebugPrintf);  
+
   nvvk::ContextInitInfo vkSetup{
       .instanceExtensions = {VK_EXT_DEBUG_UTILS_EXTENSION_NAME},
       .deviceExtensions   = {
@@ -1572,7 +1576,9 @@ int main(int argc, char** argv)
         {VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, &accelFeature},     // Build acceleration structures
         {VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, &rtPipelineFeature},  // Use vkCmdTraceRaysKHR
         {VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME},                           // Required by ray tracing pipeline
+        {VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME}
       },
+      .instanceCreateInfoExt = validationSettings.buildPNextChain(),
       .enableValidationLayers = true
   };
 

@@ -1,7 +1,10 @@
+#extension GL_EXT_debug_printf : enable
+
 #include "shaderio.h"             // Shared definitions with CPU
 #include "utils/common.slang"     // Shared definitions with shaders
 #include "utils/bbox.slang"       // AABB helpers
 #include "utils/sdf.slang"        // SDF functions, operations and primitives
+
 
 //----------------------------
 // External memory definition
@@ -28,6 +31,9 @@ int allocPointer(){
   int index;
   InterlockedAdd(counters[int(Counters::allocCounter)],1,index);
   index = index%NUM_BRICKS_IN_ATLAS;
+  if(counters[int(Counters::freeCounter)]%NUM_BRICKS_IN_ATLAS == index){
+    printf("Free index == Alloc index\n");
+  }
   return free_list[index];
 }
 
