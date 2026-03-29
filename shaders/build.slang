@@ -117,12 +117,14 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
 
       // Evaluate scene at brick center
       float3 p = (float3(brickId)+0.5)*brick_size;
-      float centerSDF = map(p,MAX_BRICK_VALUES[level],pushConst.numObjects,aabbs,objects);
+      float centerSDF = map(p,MAX_BRICK_VALUES[level],pushConst.numObjects,aabbs,objects,pushConst.tp);
       
       // Uniform value brick check
       if(abs(centerSDF) > max_brick_value){
-        freePointer(prevClipPointer);
-        maskInstance(prevClipPointer);
+        if(brick_allocated){
+          freePointer(prevClipPointer);
+          maskInstance(prevClipPointer);
+        }
         int newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
         clipMap[clipIndex] = newPointer | DIRTY_BIT;
       }else if(!brick_allocated){

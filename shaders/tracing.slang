@@ -59,7 +59,7 @@ float3 scalarToColor(float x){
 // Evaluates the whole sdf scene in a point in space
 float map(float3 p){
   const float maxD = 100.0;
-  float mapValue = map(p,maxD,pushConst.numObjects,aabbs,objects);
+  float mapValue = map(p,maxD,pushConst.numObjects,aabbs,objects,pushConst.tp);
   return min(mapValue,maxD);
 }
 

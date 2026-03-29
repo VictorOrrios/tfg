@@ -12,7 +12,7 @@
 
 class Scene {
 public:
-  enum class NodeType { Empty, Box, Sphere, Torus, Snowman };
+  enum class NodeType { Empty, Box, Sphere, Torus, Snowman, Terrain };
   enum class CombinationOp { Union, Substraction, Intersection };
   enum class RepetitionOp { NoneOP, LimRepetition, IlimRepetition };
   enum class DeformationOp { NoneOP, Elongate };

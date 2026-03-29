@@ -333,6 +333,19 @@ public:
       }
     }
 
+    if(!ImGui::CollapsingHeader("Terrain")){
+      bool dirty = false;
+      dirty |= ImGui::SliderFloat("s initial", &m_pushConst.tp.sIni, 0.0f, 8.0f);
+      dirty |= ImGui::SliderFloat("s decay", &m_pushConst.tp.sDecay, 0.0f, 1.0f);
+      dirty |= ImGui::SliderInt("Octaves", &m_pushConst.tp.numOctaves, 1,24);
+      dirty |= ImGui::SliderFloat("max decay", &m_pushConst.tp.smaxDecay, 0.0f, 1.0f);
+      dirty |= ImGui::SliderFloat("max increase", &m_pushConst.tp.smaxIncrease, 0.0f, 1.0f);
+      dirty |= ImGui::SliderFloat("min increase", &m_pushConst.tp.sminIncrease, 0.0f, 1.0f);
+      if(dirty){
+        m_scene.m_needsRefresh = true;
+      }
+    }
+
     ImGui::End();
 
     // Draw scene tree and object tab
@@ -399,6 +412,7 @@ public:
   // - Called when the Window "viewport is resized
   void onResize(VkCommandBuffer cmd, const VkExtent2D& size) override { 
     NVVK_CHECK(m_gBuffers.update(cmd, size)); 
+    const auto profiledSection = m_profilerGpuTimer.cmdAsyncSection(cmd, "Viewport resize");
 
     // CRITICAL: Needs to update the descriptor set if it resizes the gbuffers
     nvvk::WriteSetContainer writeContainer;
@@ -440,9 +454,12 @@ public:
     NVVK_DBG_SCOPE(cmd);
     
     // Update data TODO: Encapsulate
-    m_pushConst.time = static_cast<float>(ImGui::GetTime());
-    m_pushConst.lp.lightDir = glm::normalize(m_pushConst.lp.lightDir);
-    updateSceneBuffer(cmd);
+    {
+      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Scene buffer update");
+      m_pushConst.time = static_cast<float>(ImGui::GetTime());
+      m_pushConst.lp.lightDir = glm::normalize(m_pushConst.lp.lightDir);
+      updateSceneBuffer(cmd);
+    }
 
     {
       const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Generation");
@@ -531,6 +548,9 @@ public:
       group_counts.height,
       1
     );
+    // Wait for tracing to be done
+    nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgAlbedo), VK_IMAGE_LAYOUT_GENERAL,
+                                      VK_IMAGE_LAYOUT_GENERAL});
   }
 
   void executeBrickJobs(VkCommandBuffer cmd){
@@ -581,8 +601,8 @@ public:
 
     int num_bricks;
     std::vector<shaderio::BuildJob> buildJobs;
-    buildJobs = m_scene.getBuildJobs(m_currCamId0,m_prevCamId0);
-    //buildJobs = m_scene.getDenseBuildJobs(m_currCamId0,m_prevCamId0);
+    //buildJobs = m_scene.getBuildJobs(m_currCamId0,m_prevCamId0);
+    buildJobs = m_scene.getDenseBuildJobs(m_currCamId0,m_prevCamId0);
 
     if(buildJobs.size() > shaderio::MAX_NUM_BUILD_JOBS)
       LOGE("Not enough space in build job queue to allocale %zu jobs\n",buildJobs.size());
@@ -629,13 +649,16 @@ public:
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Post process");
 
     // Wait for render target to be done
-    nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgRendered), VK_IMAGE_LAYOUT_GENERAL,
+    nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgAlbedo), VK_IMAGE_LAYOUT_GENERAL,
                                       VK_IMAGE_LAYOUT_GENERAL});
 
     // No img layout transition needed
-
     m_tonemapper.runCompute(cmd, m_gBuffers.getSize(), m_tonemapperData, m_gBuffers.getDescriptorImageInfo(eImgRendered),
                             m_gBuffers.getDescriptorImageInfo(eImgTonemapped));
+
+    // Wait for render target to be done
+    nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgRendered), VK_IMAGE_LAYOUT_GENERAL,
+                                      VK_IMAGE_LAYOUT_GENERAL});
   }
 
   void setupSlangCompiler(){

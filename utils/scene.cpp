@@ -19,7 +19,7 @@
 //------------------
 
 static std::string NodeTypeNames[] = {
-    "Empty", "Box", "Sphere", "Torus", "Snowman",
+    "Empty", "Box", "Sphere", "Torus", "Snowman", "Terrain"
 };
 using sdf3DPrimitiveF = float (*)(const glm::vec3 &);
 static sdf3DPrimitiveF primFTable[5] = {sdEmpty, sdBox, sdSphere, sdTorus,
@@ -316,6 +316,11 @@ void Scene::generateBBox(Node *n) {
 
   min = glm::max(bboxt.min(), -1000.0f);
   max = glm::min(bboxt.max(), 1000.0f);
+
+  if(n->p.type == NodeType::Terrain){
+    min = glm::vec3(-1000.0f);
+    max = glm::vec3(1000.0f);
+  }
 
   n->bbox = nvutils::Bbox(min, max);
 }
@@ -662,6 +667,11 @@ std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 currCamId0, 
 
 Scene::Scene() {
   // Create the scene
+  Node *terrain = createNode(NodeType::Terrain);
+  terrain->p.scale = 1.0;
+  updateNodeData(terrain);
+  addNode(terrain);
+
   Node *snowMan = createNode(NodeType::Snowman);
   snowMan->p.scale = 0.8;
   snowMan->p.position = glm::vec3(0.0,0.0,-1.0);

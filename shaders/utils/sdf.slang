@@ -109,11 +109,84 @@ float sdSnowMan(float3 point){
   return r * scale;
 }
 
+uint pcgHash(uint x) {
+    x = x * 747796405u + 2891336453u;
+    x = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u;
+    x = (x >> 22u) ^ x;
+    return x;
+}
+
+uint hash(uint3 p) {
+    uint h = p.x * 1664525u + p.y * 1013904223u + p.z * 374761393u;
+    return pcgHash(h);
+}
+
+float hashf(uint3 p) {
+    return float(hash(p)) / 4294967295.0;
+}
+
+float smin( float a, float b, float k )
+{
+    float h = max(k-abs(a-b),0.0);
+    return min(a, b) - h*h*0.25/k;
+}
+
+float smax( float a, float b, float k )
+{
+    float h = max(k-abs(a-b),0.0);
+    return max(a, b) + h*h*0.25/k;
+}
+
+float sph(float3 i,float3 f,float3 c){
+    // random radius at grid vertex i+c (please replace this hash by
+    // something better if you plan to use this for a real application)
+    float3  p = 17.0*fract( (i+c)*0.3183099+float3(0.11,0.17,0.13) );
+    float w = fract( p.x*p.y*p.z*(p.x+p.y+p.z) );
+    float r = 0.7*w*w;
+    // distance to sphere at grid vertex i+c
+    return length(f-c) - r; 
+}
+
+float sdBase(float3 p){
+  int3 i = int3(floor(p));
+  float3 f = fract(p);
+  // distance to the 8 corners spheres
+  return min(min(min(sph(i,f,int3(0,0,0)),
+                    sph(i,f,int3(0,0,1))),
+                min(sph(i,f,int3(0,1,0)),
+                    sph(i,f,int3(0,1,1)))),
+            min(min(sph(i,f,int3(1,0,0)),
+                    sph(i,f,int3(1,0,1))),
+                min(sph(i,f,int3(1,1,0)),
+                    sph(i,f,int3(1,1,1)))));
+}
+
+
+
+float sdFbm(float3 p, float d, TerrainParams tp){
+  float s = tp.sIni;
+  for(int i=0; i<tp.numOctaves; i++){
+    // evaluate new octave
+    float n = s*sdBase(p);
+
+    // add
+    n = smax(n,d-tp.smaxDecay*s,tp.smaxIncrease*s);
+    d = smin(n,d      ,tp.sminIncrease*s);
+
+    // prepare next octave
+    p = mul(float3x3( 0.00, 1.60, 1.20,
+            -1.60, 0.72,-0.96,
+            -1.20,-0.96, 1.28 ),p);
+    s = tp.sDecay*s;
+  }
+  return d;
+}
+
 //---------------------------------------
 // Int to sdf op/primitive
 //---------------------------------------
 
-float evalPrimitive(int primType, float3 p){
+float evalPrimitive(int primType, float3 p, TerrainParams tp){
   switch(primType)
   {
     default:
@@ -122,6 +195,8 @@ float evalPrimitive(int primType, float3 p){
     case 2: return sdSphere(p);
     case 3: return sdTorus(p);
     case 4: return sdSnowMan(p);
+    case 5: return sdFbm(p,sdPlane(p,float3(0,1,0),1.0),tp);
+    //case 5: return sdPlane(p,float3(0,1,0),1.0);
   }
 }
 
@@ -161,7 +236,7 @@ float3 applyDefOp(int opIndex, float3 p, float3 defP){
 //---------------------------------------
 // Scene evaluation function
 //---------------------------------------
-float map(float3 point, float nearRange, int numObjects, StructuredBuffer<Bbox> aabbs, StructuredBuffer<SceneObject> objects){
+float map(float3 point, float nearRange, int numObjects, StructuredBuffer<Bbox> aabbs, StructuredBuffer<SceneObject> objects, TerrainParams tp){
   const float iniD = 10000.0f;
   float result = iniD;
 
@@ -183,7 +258,7 @@ float map(float3 point, float nearRange, int numObjects, StructuredBuffer<Bbox> 
 
     p /= params.scale;
 
-    float d = evalPrimitive(params.type, p) - params.roundness;
+    float d = evalPrimitive(params.type, p, tp) - params.roundness;
 
     d *= params.scale;
 

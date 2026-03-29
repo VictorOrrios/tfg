@@ -130,8 +130,8 @@ enum Counters
 };
 
 struct LightinParams{
-  float3 lightDir       = normalize(float3(-0.4f,-1.0f,-0.2f));
-  float3 lightColor     = float3(1.0f, 0.95f, 0.8f);
+  float3 lightDir       = normalize(float3(-0.9f,-0.2f,-0.2f));
+  float3 lightColor     = float3(0.644, 0.635, 0.608);
   float3 ambientTop     = float3(0.3f, 0.35f, 0.5f);
   float3 ambientBottom  = float3(0.1f, 0.1f, 0.1f);
   float3 fogColor       = float3(0.5f, 0.6f, 0.7f);
@@ -143,10 +143,20 @@ struct DebugParams{
   int palette;
 };
 
+struct TerrainParams{
+  float sIni = 1.0;
+  float sDecay = 0.5;
+  int numOctaves = 5;
+  float smaxDecay = 0.1;
+  float smaxIncrease = 0.3;
+  float sminIncrease = 0.3;
+};
+
 struct PushConstant{
   float time;
   DebugParams debug;
   LightinParams lp;
+  TerrainParams tp;
   int numObjects;
 };
 
