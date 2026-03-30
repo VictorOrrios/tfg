@@ -54,12 +54,6 @@ CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS) // Power of two needed for faster calc
 const static int NUM_VOXELS_PER_AXIS = NUM_BRICKS_PER_AXIS*(BRICK_SIZE-1);
 const static int NUM_VALUES_PER_AXIS = NUM_BRICKS_PER_AXIS*BRICK_SIZE;
 
-#define CLIPMAP_LEVEL_LIST \
-  X(0) \
-  X(1) \
-  X(2) \
-  X(3) \
-  X(4)
     
 // Sizes definition
 #define S_AXIS(level) (L0_AXIS_WORLD_SIZE * (1<<level))
@@ -78,7 +72,19 @@ const static float MAX_VOXEL_VALUES[CLIPMAP_LEVELS] = {
   MAX_VOXEL_V(0),MAX_VOXEL_V(1),MAX_VOXEL_V(2),MAX_VOXEL_V(3),MAX_VOXEL_V(4)};
 const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
   MAX_BRICK_V(0),MAX_BRICK_V(1),MAX_BRICK_V(2),MAX_BRICK_V(3),MAX_BRICK_V(4)};
-   
+
+/* 
+const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
+  S_AXIS(0),S_AXIS(1)};
+const static float BRICK_SIZES[CLIPMAP_LEVELS] = {
+  S_BRICK(0),S_BRICK(1)};
+const static float VOXEL_SIZES[CLIPMAP_LEVELS] = {
+  S_VOXEL(0),S_VOXEL(1)};
+const static float MAX_VOXEL_VALUES[CLIPMAP_LEVELS] = {
+  MAX_VOXEL_V(0),MAX_VOXEL_V(1)};
+const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
+  MAX_BRICK_V(0),MAX_BRICK_V(1)};
+ */
 /*    
    const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
   S_AXIS(0)};
@@ -95,16 +101,16 @@ const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
 // Build & Brick jobs constants
 #define MAX_BUILD_JOB_SIZE 8
 #define BRICK_JOB_GROUP_X_DISPATCH_SIZE 256
-const static int MAX_NUM_BUILD_JOBS = 512*512;
-const static int MAX_NUM_BRICK_JOBS = NUM_BRICKS_IN_ATLAS;
+const static uint MAX_NUM_BUILD_JOBS = 512*512;
+const static uint MAX_NUM_BRICK_JOBS = MAX_NUM_BUILD_JOBS*MAX_BUILD_JOB_SIZE*MAX_BUILD_JOB_SIZE;
 
 // Dirty bit definitions for mutual exclusion
 #define DIRTY_BIT 0x80000000        // Most significant bit of a 32 bit variable
 #define NOT_DIRTY_BIT (~DIRTY_BIT) 
 
 // Magic pointer indicating unirform values in brick (not stored in atlas)
-const static int UNIFORM_POSITIVE_BRICK_POINTER = NUM_BRICKS_IN_ATLAS+1;
-const static int UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTER+1;
+const static uint UNIFORM_POSITIVE_BRICK_POINTER = NUM_BRICKS_IN_ATLAS+1;
+const static uint UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTER+1;
 
 
 // Shared between Host and Device

@@ -1,5 +1,3 @@
-#extension GL_EXT_debug_printf : enable
-
 #include "shaderio.h"             // Shared definitions with CPU
 #include "utils/common.slang"     // Shared definitions with shaders
 #include "utils/bbox.slang"       // AABB helpers
@@ -31,9 +29,11 @@ int allocPointer(){
   int index;
   InterlockedAdd(counters[int(Counters::allocCounter)],1,index);
   index = index%NUM_BRICKS_IN_ATLAS;
-  if(counters[int(Counters::freeCounter)]%NUM_BRICKS_IN_ATLAS == index){
-    printf("Free index == Alloc index\n");
-  }
+  
+  // Out of space in atlas warning
+  //if(counters[int(Counters::allocCounter)] - counters[int(Counters::freeCounter)] > NUM_BRICKS_IN_ATLAS)
+  //  printf("WARN: ATLAS IS FULL\n");
+  
   return free_list[index];
 }
 
@@ -91,8 +91,8 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   
   // Might not be necesary
   // Out of bounds brick for this level
-  if(any(relBrickId < 0) || any(relBrickId > NUM_BRICKS_PER_AXIS-1))
-    return; 
+  //if(any(relBrickId < 0) || any(relBrickId > NUM_BRICKS_PER_AXIS-1))
+  //  return; 
  
  
   int3 brickIndex = id2index(brickId);
@@ -145,7 +145,11 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     // Add to brick job queue with the nextBrickJob counter
     uint brickJobIndex;
     InterlockedAdd(counters[int(Counters::nextBrickJob)],1,brickJobIndex);
-    brick_job_queue[brickJobIndex] = brickJob; 
+    brick_job_queue[brickJobIndex] = brickJob;
+    
+    // Out of space in brick job queue warning
+    //if(brickJobIndex >= MAX_NUM_BRICK_JOBS)
+    //  printf("Out off space for brick job\n");
 
     // Add +1 to brick job groups.y if necesary
     if(brickJobIndex % BRICK_JOB_GROUP_X_DISPATCH_SIZE == 0){

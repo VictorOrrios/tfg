@@ -338,7 +338,8 @@ void rintMain()
 
     if(sphereTraceBrick(brickRay,instanceID,pos,level,payload.depth)){
       payload.depth += depthToBbox; 
-      payload.debug = scalarToColor(float(instanceID)/float(NUM_BRICKS_IN_ATLAS));
+      //payload.debug = scalarToColor(float(instanceID)/float(NUM_BRICKS_IN_ATLAS));
+      payload.debug = scalarToColor(float(level)/float(CLIPMAP_LEVELS-1));
       ReportHit(payload.depth, 0, payload);
     }
   }

@@ -458,7 +458,8 @@ std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox, g
   
   std::vector<shaderio::BuildJob> jobs;
   
-  for(int level=0; level<CLIPMAP_LEVELS; level++){
+  //for(int level=CLIPMAP_LEVELS-1 ; level>=0; level--){
+  for(int level=0 ; level<CLIPMAP_LEVELS; level++){
     glm::ivec3 camId = id0LevelTransform(camId0, level);
 
     glm::ivec3 min_id = glm::floor(bbox.min()/shaderio::BRICK_SIZES[level]);

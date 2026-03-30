@@ -431,9 +431,9 @@ float sphereTraceBbox(Ray r, Bbox bbox){
   // Debug visualizers
   const bool drawSilhouette   = debugColor && true;   // Draw the silhouette of the grid
   const bool drawSteps        = debugColor && false;  // Draw the numer of steps taken
-  const bool drawLevel        = debugColor && false;  // Draw the clip map level at hit point
+  const bool drawLevel        = debugColor && true;  // Draw the clip map level at hit point
   const bool drawHitIndex     = debugColor && false;  // Draw the grid brick index at the hit point
-  const bool drawBrickPointer = debugColor && true;   // Draw the pointer value of the brick at hit point
+  const bool drawBrickPointer = debugColor && false;   // Draw the pointer value of the brick at hit point
 
   float3 p = r.orig, dir = r.dir;
   int3 currentIndex, lastIndex;
@@ -636,6 +636,9 @@ float3 analyticNormal(float3 p){
 
 
 float traceScene(Ray r, out float3 normal){
+  const float3 worldMin = sceneInfo.cameraId0Pos.xyz - AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
+  const float3 worldMax = sceneInfo.cameraId0Pos.xyz + AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
+
   float depth = -1.0f;
   normal = float3(0.0);
   float3 lastDebug = debug;
@@ -643,6 +646,8 @@ float traceScene(Ray r, out float3 normal){
   // Iterated in reverse order because user placed objects are usually nearest to screen and at the bottom of the stack
   for(int i = pushConst.numObjects; i>=0; i--){
     Bbox bbox = aabbs[i];
+    bbox.bMin = max(bbox.bMin,worldMin);
+    bbox.bMax = min(bbox.bMax,worldMax);
 
     // Peprare the ray that will trace the object
     Ray bboxRay = r;

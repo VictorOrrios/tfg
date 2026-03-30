@@ -782,6 +782,7 @@ public:
     uint32_t clearValueClip = shaderio::UNIFORM_POSITIVE_BRICK_POINTER;
     VkClearColorValue clearColor = {.uint32={clearValueClip,clearValueClip,clearValueClip,clearValueClip}};
     create3DStorageTexture(m_clipMap, extent, format, clearColor);
+    NVVK_DBG_NAME(m_clipMap.image);
 
     // Brick atlas
     const int brick_size = BRICK_SIZE;
@@ -791,6 +792,7 @@ public:
     glm::float32 clearValueF = 1.0f;
     clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
     create3DStorageTexture(m_brickAtlas, extent, format, clearColor);
+    NVVK_DBG_NAME(m_brickAtlas.image);
     
   }
 
