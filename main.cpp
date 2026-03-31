@@ -331,7 +331,7 @@ public:
       ImGui::Text("Test Median: %f,%f,%f",m_testMed.x,m_testMed.y,m_testMed.z);
       ImGui::Text("Camera id0: %i,%i,%i",m_sceneInfo.cameraId0.x,m_sceneInfo.cameraId0.y,m_sceneInfo.cameraId0.z);
       if(ImGui::Button("Reset TLas")){
-        m_resetTlas = true;
+        m_rebuildTlas = true;
       }
     }
 
@@ -474,11 +474,12 @@ public:
         m_prevCamId0 = m_currCamId0;
       }
       
-      if((m_rtxON && sceneRefresh) || m_RTXIni){
-        updateTopLevelAS(cmd,m_resetTlas);
-        m_resetTlas = false;
-        m_RTXIni = false;
+      if(m_rtxON && (m_updateTlas || sceneRefresh)){
+        updateTopLevelAS(cmd,m_rebuildTlas);
+        m_rebuildTlas = false;
       }
+      m_updateTlas = !m_rtxON;
+
     }
 
     if(m_rtxON){
@@ -1536,13 +1537,13 @@ private:
   Scene m_scene;
   glm::ivec3 m_currCamId0 = glm::ivec3(0);
   glm::ivec3 m_prevCamId0 = glm::ivec3(0);
-  bool m_RTXIni = true;
 
   // UI params
   bool m_debugActive = false;
   int m_debugMode = 0;
   bool m_rtxON = false;
-  bool m_resetTlas = false;
+  bool m_rebuildTlas = false;
+  bool m_updateTlas = true;
 
   // Test variables TODO: Remove after debugging
   int m_testSize = 0;

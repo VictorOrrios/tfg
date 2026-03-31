@@ -431,7 +431,7 @@ float sphereTraceBbox(Ray r, Bbox bbox){
   // Debug visualizers
   const bool drawSilhouette   = debugColor && true;   // Draw the silhouette of the grid
   const bool drawSteps        = debugColor && false;  // Draw the numer of steps taken
-  const bool drawLevel        = debugColor && true;  // Draw the clip map level at hit point
+  const bool drawLevel        = debugColor && false;  // Draw the clip map level at hit point
   const bool drawHitIndex     = debugColor && false;  // Draw the grid brick index at the hit point
   const bool drawBrickPointer = debugColor && false;   // Draw the pointer value of the brick at hit point
 
@@ -637,7 +637,7 @@ float3 analyticNormal(float3 p){
 
 float traceScene(Ray r, out float3 normal){
   const float3 worldMin = sceneInfo.cameraId0Pos.xyz - AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
-  const float3 worldMax = sceneInfo.cameraId0Pos.xyz + AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
+  const float3 worldMax = sceneInfo.cameraId0Pos.xyz + (AXIS_SIZES[CLIPMAP_LEVELS-1]/2 - BRICK_SIZES[CLIPMAP_LEVELS-1]);
 
   float depth = -1.0f;
   normal = float3(0.0);
@@ -648,6 +648,9 @@ float traceScene(Ray r, out float3 normal){
     Bbox bbox = aabbs[i];
     bbox.bMin = max(bbox.bMin,worldMin);
     bbox.bMax = min(bbox.bMax,worldMax);
+
+    if(any(bbox.bMin >= bbox.bMax))
+      continue;
 
     // Peprare the ray that will trace the object
     Ray bboxRay = r;
