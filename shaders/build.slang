@@ -49,8 +49,9 @@ void freePointer(int pointer){
 }
 
 inline float3x4 createTransform(int3 id, int level){
-  const float s = BRICK_SIZES[level];
-  const float3 pos = id*BRICK_SIZES[level];
+  const float brick_size = BRICK_SIZES[level];
+  float s = brick_size;
+  float3 pos = id*brick_size;
   return float3x4(
         s, 0, 0, pos.x,
         0, s, 0, pos.y,

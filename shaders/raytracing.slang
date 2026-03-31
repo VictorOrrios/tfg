@@ -205,6 +205,7 @@ bool sphereTraceBrick(Ray r, int pointer, float3 brickPos, int level, out float 
   const float brick_size = BRICK_SIZES[level];
   const float voxel_size = VOXEL_SIZES[level];
   const float max_voxel_value = MAX_VOXEL_VALUES[level];
+  const float epsilon = VOXEL_SIZES[level]/128;
   float3 p = r.orig;
   float3 diff = p - brickPos;
   float4 sBottom,sTop;
@@ -213,9 +214,10 @@ bool sphereTraceBrick(Ray r, int pointer, float3 brickPos, int level, out float 
   for(int step = 0; step<MAX_ITERATIONS; step++){
     if(any(diff<0.0) || any(diff>brick_size))
       break;
-
+    
     float3 diffNorm = diff/voxel_size;
     int3 voxel_offset = int3(floor(diffNorm));
+    //voxel_offset = clamp(voxel_offset, int3(0), int3(BRICK_SIZE - 1));
     float3 voxel_coor = frac(diffNorm);
 
     if(step == 0 || any(prev_voxel_offset != voxel_offset) || true){
@@ -331,7 +333,7 @@ void rgenMain()
   ray.Origin = r.orig;
   // Transform ray direction from view space to world space
   ray.Direction = r.dir;
-  ray.TMin = 0.001;    // Minimum distance to avoid self-intersection
+  ray.TMin = VOXEL_SIZES[0]/100;    // Minimum distance to avoid self-intersection
   ray.TMax = INFINITE; // Maximum distance (infinite for primary rays)
 
   // Initialize ray payload with default values
@@ -371,6 +373,8 @@ void rgenMain()
 [shader("intersection")]
 void rintMain()
 {
+  const float eps = 1e-4;
+
   HitPayload payload;
   Ray r; 
   r.orig = WorldRayOrigin();
@@ -387,7 +391,7 @@ void rintMain()
 
   float3 nearP, farP;
   if(intersectCube(r,bbox,nearP,farP)){
-    nearP = max(bbox.bMin,min(bbox.bMax,nearP));
+    nearP += r.dir * eps; // floating point error correction
     Ray brickRay = Ray(nearP,r.dir);
     float depthToBbox = length(r.orig-nearP);
     payload.depth = depthToBbox;
