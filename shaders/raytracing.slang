@@ -230,12 +230,68 @@ bool sphereTraceBrick(Ray r, int pointer, float3 brickPos, int level, out float 
       return true;
     }
 
-    p += r.dir*t*0.25;
+    p += r.dir*t;
 
     diff = p - brickPos;
   }
 
   return false;
+}
+
+float sphereTraceBbox(Ray r, Bbox bbox){
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
+
+  float3 p = r.orig, dir = r.dir;
+  int3 currentIndex, lastIndex;
+  float4 sBottom, sTop;
+  int level;
+
+  for(int steps = 1; steps < MAX_ITERATIONS; steps++){
+    level = getLevelOfPoint(p);
+
+    const float voxel_size = VOXEL_SIZES[level];
+
+    // Scale normalization
+    float3 pVoxelNorm = p/voxel_size;
+    // Truncate normalized coordinates to get the id
+    int3 voxelId = int3(floor(pVoxelNorm));
+    // Get the grid indices with floor division modulus (WARNING: Normal modulus % will not give correct result)
+    int3 voxelIndex = id2voxelIndex(voxelId);
+    // Get grid index and coordinates inside the voxel
+    currentIndex = voxelIndex;
+    float3 voxelCoor = frac(pVoxelNorm);
+
+    // If this voxel hasn't been visited yet
+    if(steps == 1 || any(currentIndex != lastIndex)){
+    //if(true){
+      // Update current voxel data and index
+      sampleVoxel2(currentIndex,level,sBottom,sTop);
+      //sampleVoxel2New(voxelOffset,currentIndex,level,sBottom,sTop);
+      //getkConstants(sBottom,sTop,k0123,k4567);
+      lastIndex = currentIndex;
+    }
+
+    // Interpolate current sdf value of the voxel2
+    float t = triLerp(voxelCoor,sBottom,sTop);
+
+
+    // Cutoff condition: A distance of 1/10 voxels
+    // TODO: Fine tune to better performance/quality
+    if(t < voxel_size/10){
+      return length(p - r.orig);
+    }
+    
+    // Update p to move the estimated length to surface
+    p += r.dir*t;
+  
+    // Check if ray has left the bbox
+    if(!insideBbox(p,bbox)){
+        return -1;
+    }
+  }
+
+  // Over iterated 
+    return -1;
 }
 
 Ray get_ray(float2 uv){
@@ -342,6 +398,16 @@ void rintMain()
       payload.debug = scalarToColor(float(level)/float(CLIPMAP_LEVELS-1));
       ReportHit(payload.depth, 0, payload);
     }
+
+/*  
+    payload.depth = sphereTraceBbox(brickRay,bbox);
+    if(payload.depth >= 0){
+      payload.depth += depthToBbox; 
+      //payload.debug = scalarToColor(float(instanceID)/float(NUM_BRICKS_IN_ATLAS));
+      payload.debug = scalarToColor(float(level)/float(CLIPMAP_LEVELS-1));
+      ReportHit(payload.depth, 0, payload);
+    }
+ */
   }
 }
 

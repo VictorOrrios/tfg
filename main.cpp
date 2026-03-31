@@ -952,10 +952,25 @@ public:
         .scratchData = {.deviceAddress = m_tLasB.address}
     };
 
+    VkMemoryBarrier barrier{
+      .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+      .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+      .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR
+    };
+
+    vkCmdPipelineBarrier(
+      cmd,
+      VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+      VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+      0,
+      1, &barrier,
+      0, nullptr,
+      0, nullptr);
+
     VkAccelerationStructureBuildRangeInfoKHR* pBuildRangeInfo = &geoInfo.rangeInfo;
     vkCmdBuildAccelerationStructuresKHR(cmd, 1, &asBuildInfo, &pBuildRangeInfo);
   
-    VkMemoryBarrier barrier{
+    barrier = {
       .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
       .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
       .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR
