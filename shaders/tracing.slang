@@ -644,7 +644,7 @@ float traceScene(Ray r, out float3 normal){
   float3 lastDebug = debug;
 
   // Iterated in reverse order because user placed objects are usually nearest to screen and at the bottom of the stack
-  for(int i = pushConst.numObjects; i>=0; i--){
+  for(int i = 0; i<pushConst.numObjects; i++){
     Bbox bbox = aabbs[i];
     bbox.bMin = max(bbox.bMin,worldMin);
     bbox.bMax = min(bbox.bMax,worldMax);
@@ -860,8 +860,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
       bool hit = intersectCube(r, bboxObj, near, far);
       if(!hit) continue;
       float nearD = length(near-r.orig);
-      //if((depth < 0 || depth+eps > nearD) && length(near-far) < eps){
-      if((depth < 0 || depth+eps > nearD)){
+      if((depth < 0 || depth+eps > nearD) && length(near-far) < eps){
+      //if((depth < 0 || depth+eps > nearD)){
         albedo = scalarToColor(float(i)/float(pushConst.numObjects));
         depth = nearD;
       }

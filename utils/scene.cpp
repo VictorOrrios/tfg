@@ -333,10 +333,9 @@ void Scene::generateBBox(Node *n) {
   spacing += n->p.roundness;
 
   if(n->p.octaves > 0){
-    spacing += n->p.terrain.x/4.0;
-    spacing += n->p.terrain.x/4.0 * n->p.terrain.y/4.0 * glm::max(0.0f,glm::log2(float(n->p.octaves)));
-    spacing += n->p.terrain.z;
-    spacing += n->p.terrain.w/4.0;
+    spacing += n->p.terrain.x * n->p.terrain.z
+    * (1.0f - glm::pow(n->p.terrain.y,n->p.octaves-1))/(1.0f - n->p.terrain.y);
+    spacing += n->p.terrain.w/8.0;
   }
 
   min -= spacing;
