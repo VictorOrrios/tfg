@@ -157,20 +157,10 @@ struct DebugParams{
   bool brickPercent;
 };
 
-struct TerrainParams{
-  float sIni = 1.0;
-  float sDecay = 0.5;
-  int numOctaves = 10;
-  float smaxDecay = 0.006;
-  float smaxIncrease = 0.23;
-  float sminIncrease = 0.3;
-};
-
 struct PushConstant{
   float time;
   DebugParams debug;
   LightinParams lp;
-  TerrainParams tp;
   int numObjects;
 };
 
@@ -190,6 +180,7 @@ struct SceneObject{
   float4 rotation;
   float4 spacing;
   float4 defP;
+  float4 terrain;
   int4 limit;
   int type;
   int combOp;
@@ -198,7 +189,7 @@ struct SceneObject{
   float scale;
   float roundness;
   float smoothness;
-  float _padding;
+  int octaves;
 };
 CHECK_STRUCT_ALIGNMENT(SceneObject)
 

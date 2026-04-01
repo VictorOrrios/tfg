@@ -58,8 +58,8 @@ float3 scalarToColor(float x){
 
 // Evaluates the whole sdf scene in a point in space
 float map(float3 p){
-  const float maxD = 100.0;
-  float mapValue = map(p,maxD,pushConst.numObjects,aabbs,objects,pushConst.tp);
+  const float maxD = BRICK_SIZES[CLIPMAP_LEVELS-1];
+  float mapValue = map(p,CLIPMAP_LEVELS-1,pushConst.numObjects,aabbs,objects);
   return min(mapValue,maxD);
 }
 
@@ -860,7 +860,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
       bool hit = intersectCube(r, bboxObj, near, far);
       if(!hit) continue;
       float nearD = length(near-r.orig);
-      if((depth < 0 || depth+eps > nearD) && length(near-far) < eps){
+      //if((depth < 0 || depth+eps > nearD) && length(near-far) < eps){
+      if((depth < 0 || depth+eps > nearD)){
         albedo = scalarToColor(float(i)/float(pushConst.numObjects));
         depth = nearD;
       }

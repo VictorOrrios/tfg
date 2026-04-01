@@ -12,7 +12,7 @@
 
 class Scene {
 public:
-  enum class NodeType { Empty, Box, Sphere, Torus, Snowman, Terrain };
+  enum class NodeType { Empty, Box, Sphere, Torus, Snowman, Plane };
   enum class CombinationOp { Union, Substraction, Intersection };
   enum class RepetitionOp { NoneOP, LimRepetition, IlimRepetition };
   enum class DeformationOp { NoneOP, Elongate };
@@ -26,11 +26,13 @@ public:
     float roundness;
     int combOp;
     float smoothness;
-    int repOp ;
+    int repOp;
     glm::vec3 spacing;
     glm::i32vec3 limit;
-    int defOp ;
+    int defOp;
     glm::vec3 defP;
+    int octaves;
+    glm::vec4 terrain;
   };
 
   struct Node {

@@ -335,19 +335,6 @@ public:
       }
     }
 
-    if(!ImGui::CollapsingHeader("Terrain")){
-      bool dirty = false;
-      dirty |= ImGui::SliderFloat("s initial", &m_pushConst.tp.sIni, 0.0f, 8.0f);
-      dirty |= ImGui::SliderFloat("s decay", &m_pushConst.tp.sDecay, 0.0f, 1.0f);
-      dirty |= ImGui::SliderInt("Octaves", &m_pushConst.tp.numOctaves, 1,24);
-      dirty |= ImGui::SliderFloat("max decay", &m_pushConst.tp.smaxDecay, 0.0f, 1.0f);
-      dirty |= ImGui::SliderFloat("max increase", &m_pushConst.tp.smaxIncrease, 0.0f, 1.0f);
-      dirty |= ImGui::SliderFloat("min increase", &m_pushConst.tp.sminIncrease, 0.0f, 1.0f);
-      if(dirty){
-        m_scene.m_needsRefresh = true;
-      }
-    }
-
     ImGui::End();
 
     // Draw scene tree and object tab
@@ -604,8 +591,8 @@ public:
 
     int num_bricks;
     std::vector<shaderio::BuildJob> buildJobs;
-    //buildJobs = m_scene.getBuildJobs(m_currCamId0,m_prevCamId0);
-    buildJobs = m_scene.getDenseBuildJobs(m_currCamId0,m_prevCamId0);
+    buildJobs = m_scene.getBuildJobs(m_currCamId0,m_prevCamId0);
+    //buildJobs = m_scene.getDenseBuildJobs(m_currCamId0,m_prevCamId0);
 
     if(buildJobs.size() > shaderio::MAX_NUM_BUILD_JOBS)
       LOGE("Not enough space in build job queue to allocale %zu jobs\n",buildJobs.size());
@@ -1632,7 +1619,7 @@ int main(int argc, char** argv)
 
     ImGuiID settingID = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Right, 0.12f, nullptr, &centerNode);
     ImGuiID sceneID   = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Left,  0.2f, nullptr, &centerNode);
-    ImGuiID objectID   = ImGui::DockBuilderSplitNode(sceneID, ImGuiDir_Down,  0.33f, nullptr, &sceneID);
+    ImGuiID objectID   = ImGui::DockBuilderSplitNode(sceneID, ImGuiDir_Down,  0.4f, nullptr, &sceneID);
     ImGuiID loggerID  = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Down,  0.3f, nullptr, &centerNode);
     ImGuiID profilerID = ImGui::DockBuilderSplitNode(loggerID, ImGuiDir_Right, 0.5f, nullptr, &loggerID);
 

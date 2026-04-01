@@ -70,6 +70,9 @@ float sdBox(float3 p) {
 float sdPlane(float3 p, float3 n, float h ){
   return dot(p,n) + h;
 }
+float sdPlane(float3 p){
+  return dot(p,float3(0,1,0));
+}
 
 float sdCapsule(float3 p, float3 a, float3 b, float r){
   float3 pa = p - a, ba = b - a;
@@ -125,14 +128,12 @@ float hashf(uint3 p) {
     return float(hash(p)) / 4294967295.0;
 }
 
-float smin( float a, float b, float k )
-{
+float smin(float a, float b, float k){
     float h = max(k-abs(a-b),0.0);
     return min(a, b) - h*h*0.25/k;
 }
 
-float smax( float a, float b, float k )
-{
+float smax(float a, float b, float k){
     float h = max(k-abs(a-b),0.0);
     return max(a, b) + h*h*0.25/k;
 }
@@ -161,32 +162,33 @@ float sdBase(float3 p){
                     sph(i,f,int3(1,1,1)))));
 }
 
-
-
-float sdFbm(float3 p, float d, TerrainParams tp){
-  float s = tp.sIni;
-  for(int i=0; i<tp.numOctaves; i++){
+float applyTerrainOp(float3 p, float d, int octaves, float4 terrain, float minD){
+  float s = terrain.x;
+  for(int i=0; i<octaves; i++){
     // evaluate new octave
     float n = s*sdBase(p);
 
     // add
-    n = smax(n,d-tp.smaxDecay*s,tp.smaxIncrease*s);
-    d = smin(n,d      ,tp.sminIncrease*s);
+    n = smax(n,d-terrain.z*s,terrain.w*s);
+    d = smin(n,d            ,terrain.w*s);
 
     // prepare next octave
     p = mul(float3x3( 0.00, 1.60, 1.20,
             -1.60, 0.72,-0.96,
             -1.20,-0.96, 1.28 ),p);
-    s = tp.sDecay*s;
+    s = terrain.y*s;
+
+    if(s<minD) break;
   }
   return d;
 }
+
 
 //---------------------------------------
 // Int to sdf op/primitive
 //---------------------------------------
 
-float evalPrimitive(int primType, float3 p, TerrainParams tp){
+float evalPrimitive(int primType, float3 p){
   switch(primType)
   {
     default:
@@ -195,7 +197,8 @@ float evalPrimitive(int primType, float3 p, TerrainParams tp){
     case 2: return sdSphere(p);
     case 3: return sdTorus(p);
     case 4: return sdSnowMan(p);
-    case 5: return sdFbm(p,sdPlane(p,float3(0,1,0),1.0),tp);
+    case 5: return sdPlane(p);
+    //case 5: return sdFbm(p,sdPlane(p,float3(0,1,0),1.0),tp);
     //case 5: return sdPlane(p,float3(0,1,0),1.0);
   }
 }
@@ -223,12 +226,12 @@ float3 applyRepOp(int opIndex, float3 p, float3 spacing, int3 limit){
   }
 }
 
-float3 applyDefOp(int opIndex, float3 p, float3 defP){
+float3 applyDefOp(int opIndex, float3 p, float4 defP){
   switch(opIndex)
   {
     default:
     case 0: return p;
-    case 1: return opElongate(p,defP);
+    case 1: return opElongate(p,defP.xyz);
   }
 }
 
@@ -236,8 +239,9 @@ float3 applyDefOp(int opIndex, float3 p, float3 defP){
 //---------------------------------------
 // Scene evaluation function
 //---------------------------------------
-float map(float3 point, float nearRange, int numObjects, StructuredBuffer<Bbox> aabbs, StructuredBuffer<SceneObject> objects, TerrainParams tp){
+float map(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs, StructuredBuffer<SceneObject> objects){
   const float iniD = 10000.0f;
+  const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
 
   for(int obIdx = 0; obIdx < numObjects; obIdx++) {
@@ -254,11 +258,13 @@ float map(float3 point, float nearRange, int numObjects, StructuredBuffer<Bbox> 
 
     p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit.xyz);
 
-    p = applyDefOp(params.defOp, p, params.defP.xyz);
+    p = applyDefOp(params.defOp, p, params.defP);
 
     p /= params.scale;
 
-    float d = evalPrimitive(params.type, p, tp) - params.roundness;
+    float d = evalPrimitive(params.type, p) - params.roundness;
+
+    d = d>0.0 ? applyTerrainOp(p, d, params.octaves, params.terrain, VOXEL_SIZES[0]/10.0): d;
 
     d *= params.scale;
 

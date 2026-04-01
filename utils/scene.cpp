@@ -1,10 +1,12 @@
 // TODO: Clean imports
 #include "scene.hpp"
 #include "glm/common.hpp"
+#include "glm/exponential.hpp"
 #include "glm/ext/vector_int3.hpp"
 #include "nvutils/bounding_box.hpp"
 #include "nvutils/logger.hpp"
 #include "sdf.hpp"
+#include <cmath>
 #include <glm/ext/vector_float3.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -17,18 +19,19 @@
 //------------------
 // Defintions
 //------------------
+// TODO: CPU scene map not ~fully~ supported
 
 static std::string NodeTypeNames[] = {
-    "Empty", "Box", "Sphere", "Torus", "Snowman", "Terrain"
+    "Empty", "Box", "Sphere", "Torus", "Snowman", "Plane"
 };
 using sdf3DPrimitiveF = float (*)(const glm::vec3 &);
-static sdf3DPrimitiveF primFTable[5] = {sdEmpty, sdBox, sdSphere, sdTorus,
-                                        sdSnowMan};
+static sdf3DPrimitiveF primFTable[6] = {sdEmpty, sdBox, sdSphere, sdTorus,
+                                        sdSnowMan, sdPlane};
 
 static constexpr const char *CombinationOpNames[] = {
-    "Union",
-    "Substraction",
-    "Intersection",
+  "Union",
+  "Substraction",
+  "Intersection",
 };
 using combinationOpF = float (*)(float, float, float);
 static combinationOpF combFTable[6] = {
@@ -42,11 +45,12 @@ using repetitionOpF = glm::vec3 (*)(const glm::vec3 &, const glm::vec3 &,
 static repetitionOpF repFTable[3] = {opNone, opLimRepetition, opRepetition};
 
 static constexpr const char *DeformationOpNames[] = {
-    "None",
-    "Elongate",
+  "None",
+  "Elongate",
+  "Terrain",
 };
 using deformationOpF = glm::vec3 (*)(const glm::vec3 &, const glm::vec3 &);
-static deformationOpF defFTable[4] = {opNone, opElongate};
+static deformationOpF defFTable[2] = {opNone, opElongate};
 
 //------------------
 // Helper functions
@@ -99,14 +103,14 @@ void Scene::draw() {
                           CombinationOpNames, IM_ARRAYSIZE(CombinationOpNames));
     dirty |= ImGui::SliderFloat(("Smoothness" + id).c_str(),
                                 &selectedNode.p.smoothness, 0.0f,
-                                selectedNode.p.scale * 0.2);
+                                0.04);
     ImGui::Separator();
 
     dirty |= ImGui::Combo(("Deformation operation" + id).c_str(),
                           &selectedNode.p.defOp, DeformationOpNames,
                           IM_ARRAYSIZE(DeformationOpNames));
     if (selectedNode.p.defOp == (int)DeformationOp::Elongate) {
-      dirty |= ImGui::InputFloat3(("Deformation" + id).c_str(),
+      dirty |= ImGui::InputFloat3(("Elongation" + id).c_str(),
                                   &selectedNode.p.defP.x);
     }
 
@@ -122,6 +126,21 @@ void Scene::draw() {
       if ((RepetitionOp)selectedNode.p.repOp == RepetitionOp::LimRepetition)
         dirty |= ImGui::DragInt3(("Limit" + id).c_str(),
                                  &selectedNode.p.limit.x, 0.1f, 0, INT_MAX);
+    }
+
+    ImGui::Separator();
+
+    dirty |= ImGui::SliderInt(("Terrain octaves" + id).c_str(),
+                                    &selectedNode.p.octaves,0,20);
+    if(selectedNode.p.octaves > 0){
+      dirty |= ImGui::SliderFloat(("Initial size" + id).c_str(),
+                                    &selectedNode.p.terrain.x,0.001,2.0);
+      dirty |= ImGui::SliderFloat(("Size increase" + id).c_str(),
+                                    &selectedNode.p.terrain.y,0.001,0.75);
+      dirty |= ImGui::SliderFloat(("Inflation" + id).c_str(),
+                                    &selectedNode.p.terrain.z,0.001,1);
+      dirty |= ImGui::SliderFloat(("Erosion" + id).c_str(),
+                                    &selectedNode.p.terrain.w,0.001,1);
     }
 
     if (dirty) {
@@ -166,6 +185,8 @@ void Scene::drawButtonGroup() {
 void Scene::drawPrimitives() {
   ImGuiSelectableFlags selectableFlags = 0;
 
+  bool clickedOnItem = false;
+
   for (int idx = 0; idx < m_root.size(); idx++) {
     auto& node = m_root[idx];
     bool isSelected = idx == m_selected;
@@ -174,6 +195,7 @@ void Scene::drawPrimitives() {
     // Draw primitive
     if (ImGui::Selectable(label.c_str(), isSelected, selectableFlags)) {
       m_selected = idx;
+      clickedOnItem = true;
     }
 
     // Drag source
@@ -200,6 +222,10 @@ void Scene::drawPrimitives() {
       ImGui::EndDragDropTarget();
     }
   }
+
+  if (!clickedOnItem && ImGui::IsMouseClicked(0) && ImGui::IsWindowHovered()) {
+    m_selected = -1;
+  }
 }
 
 //------------------
@@ -220,7 +246,10 @@ void Scene::deleteSelected() {
 Scene::Node *Scene::createNode(NodeType t) {
   Node *node = new Node({
       .id = getNextId(),
-      .p={.type = t},
+      .p={
+        .type = t,
+        .terrain = glm::vec4(1.0,0.5,0.1,0.3)
+      },
       .bbox=nvutils::Bbox(glm::vec3(0.0),glm::vec3(0.0)),
       .needsRefresh=false,
   });
@@ -286,12 +315,32 @@ void Scene::generateMatrix(Node *n) {
 
 // TODO: Make bboxes with intersection op include all bbox above it in the scene
 void Scene::generateBBox(Node *n) {
+  const glm::vec3 worldMin(-1000.0);
+  const glm::vec3 worldMax(1000.0);
+
+  glm::vec3 min, max;
+  if(n->p.type == NodeType::Plane){
+    min = worldMin;
+    max = worldMax;
+    max.y = 0.1;
+  }else{
+    min = glm::vec3(-0.5);
+    max = glm::vec3(0.5);
+  }
+
   float spacing = 0.15; // Safety margin
   spacing += n->p.smoothness * 5;
   spacing += n->p.roundness;
 
-  glm::vec3 min(-0.5 - spacing);
-  glm::vec3 max(0.5 + spacing);
+  if(n->p.octaves > 0){
+    spacing += n->p.terrain.x/4.0;
+    spacing += n->p.terrain.x/4.0 * n->p.terrain.y/4.0 * glm::max(0.0f,glm::log2(float(n->p.octaves)));
+    spacing += n->p.terrain.z;
+    spacing += n->p.terrain.w/4.0;
+  }
+
+  min -= spacing;
+  max += spacing;
 
   min *= n->p.scale;
   max *= n->p.scale;
@@ -314,13 +363,10 @@ void Scene::generateBBox(Node *n) {
   nvutils::Bbox bboxt(min, max);
   bboxt = bboxt.transform(glm::inverse(n->p.tInv));
 
-  min = glm::max(bboxt.min(), -1000.0f);
-  max = glm::min(bboxt.max(), 1000.0f);
+  min = glm::max(bboxt.min(), worldMin);
+  max = glm::min(bboxt.max(), worldMax);
 
-  if(n->p.type == NodeType::Terrain){
-    min = glm::vec3(-1000.0f);
-    max = glm::vec3(1000.0f);
-  }
+  
 
   n->bbox = nvutils::Bbox(min, max);
 }
@@ -359,6 +405,7 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
       .rotation=glm::vec4(p.rotation,0),
       .spacing=glm::vec4(p.spacing,0),
       .defP=glm::vec4(p.defP,0),
+      .terrain=glm::vec4(p.terrain),
       .limit=glm::ivec4(p.limit,0),
       .type=int(p.type),
       .combOp=p.combOp,
@@ -367,6 +414,7 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
       .scale=p.scale,
       .roundness=p.roundness,
       .smoothness=p.smoothness,
+      .octaves=p.octaves,
     });
   }
 
@@ -668,9 +716,11 @@ std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 currCamId0, 
 
 Scene::Scene() {
   // Create the scene
-  Node *terrain = createNode(NodeType::Terrain);
-  terrain->p.position = glm::vec3(0.0,18.0,-7.0);
-  terrain->p.scale = 20.0;
+  Node *terrain = createNode(NodeType::Plane);
+  terrain->p.position = glm::vec3(0.0,-2.0,0.0);
+  terrain->p.scale = 10.0;
+  terrain->p.octaves = 8;
+  terrain->p.terrain = glm::vec4(1.5,0.35,0.08,0.28);
   updateNodeData(terrain);
   addNode(terrain);
 
@@ -729,4 +779,6 @@ Scene::Scene() {
     updateNodeData(snowManL);
     addNode(snowManL);
   }
+
+  m_selected = 1;
 }

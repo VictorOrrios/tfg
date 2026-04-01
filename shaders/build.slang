@@ -124,7 +124,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
 
       // Evaluate scene at brick center
       float3 p = (float3(brickId)+0.5)*brick_size;
-      float centerSDF = map(p,MAX_BRICK_VALUES[level],pushConst.numObjects,aabbs,objects,pushConst.tp);
+      float centerSDF = map(p,level,pushConst.numObjects,aabbs,objects);
       
       // Uniform value brick check
       if(abs(centerSDF) > max_brick_value){

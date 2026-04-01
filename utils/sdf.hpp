@@ -52,5 +52,8 @@ float sdRoundedCylinder(const glm::vec3 &p, float ra, float rb,float h);
 float sdTorus(const glm::vec3 &p, const glm::vec2 &t);
 float sdTorus(const glm::vec3 &p);
 
-
 float sdSnowMan(const glm::vec3 &p);
+
+
+float sdPlane(const glm::vec3 &p, glm::vec3 n, float h);
+float sdPlane(const glm::vec3 &p);

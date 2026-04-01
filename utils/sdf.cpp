@@ -218,3 +218,10 @@ float sdSnowMan(const glm::vec3 &point) {
       r, sdRoundedCylinder(p - glm::vec3(0.0f, 2.5f, 0.0f), 0.4f, 0.05f, 0.5f));
   return r * scale;
 }
+
+float sdPlane(const glm::vec3 &p, glm::vec3 n, float h ){
+  return glm::dot(p,n) + h;
+}
+float sdPlane(const glm::vec3 &p){
+  return dot(p,glm::vec3(0,1,0));
+}
