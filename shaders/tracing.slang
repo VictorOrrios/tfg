@@ -641,15 +641,63 @@ float3 getAlbedo(float3 p){
   int level = getLevelOfPoint(p);
   const float brick_size = BRICK_SIZES[level];
   float3 pBrickNorm = p/brick_size;
+
   int3 brickId = int3(floor(pBrickNorm));
   int3 brickIndex = id2index(brickId);
-  int3 clipIndex = brickIndex;
-  clipIndex.z += NUM_BRICKS_PER_AXIS * level;
-  int clipPointer = clipMap[clipIndex];
-  int3 matIndex = int3(clipPointer%BRICK_PER_ATLAS_AXIS,clipPointer/BRICK_PER_ATLAS_AXIS,0);
-  uint matIdx = matAtlas[matIndex];
-  Material m = materials[matIdx];
-  return m.albedo.xyz;
+
+  float3 brickCoor = frac(pBrickNorm);
+  int3 sign = sign(brickCoor - 0.5);
+  sign = select(brickIndex >= NUM_BRICKS_PER_AXIS-1,0,sign);
+  float3 coorNorm = abs(brickCoor - 0.5);
+  uint4 matB, matT;
+  float4 albedoB[3], albedoT[3];
+  float3 albedoLerp;
+
+  uint baseMat = -1, matIdx;
+  for(int i = 0; i<2; i++){
+    for(int j = 0; j<4; j++){
+      int3 brickIdOffset = brickId + int3(j == 1 || j ==  2,i,j>>1)*sign;
+      int3 brickIndex = id2index(brickIdOffset);
+      int3 clipIndex = brickIndex;
+      clipIndex.z += NUM_BRICKS_PER_AXIS * level;
+      int clipPointer = clipMap[clipIndex] & NOT_DIRTY_BIT;
+      uint matIdx;
+      if(clipPointer < NUM_BRICKS_IN_ATLAS){
+        int3 matIndex = int3(clipPointer%BRICK_PER_ATLAS_AXIS,clipPointer/BRICK_PER_ATLAS_AXIS,0);
+        matIdx = matAtlas[matIndex];
+        if(baseMat<0) baseMat = matIdx;
+      }else{
+        matIdx = 0;
+      }
+      if(i>0){
+        matT[j] = matIdx;
+      }else{
+        matB[j] = matIdx;
+      }
+    }
+  }
+
+  for(int i = 0; i<4; i++){
+    Material mat = materials[matB[i]];
+    float3 albedo = mat.albedo.xyz;
+    for(int j = 0; j<3; j++){
+      albedoB[j][i] = albedo[j];
+    }
+  }
+
+  for(int i = 0; i<4; i++){
+    Material mat = materials[matT[i]];
+    float3 albedo = mat.albedo.xyz;
+    for(int j = 0; j<3; j++){
+      albedoT[j][i] = albedo[j];
+    }
+  }
+
+  for(int i = 0; i<3; i++){
+    albedoLerp[i] = triLerp(coorNorm,albedoB[i],albedoT[i]);
+  }
+  
+  return albedoLerp;
 }
 
 float traceScene(Ray r, out float3 normal, out float3 albedo){
