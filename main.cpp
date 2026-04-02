@@ -600,7 +600,7 @@ public:
       LOGE("Not enough space in build job queue to allocale %zu jobs\n",buildJobs.size());
     
     if(buildJobs.size() <= 0){
-      LOGW("Build job queue update size is 0, skipping generation pass\n");
+      //LOGW("Build job queue update size is 0, skipping generation pass\n");
       return;
     }
 
@@ -784,7 +784,7 @@ public:
     NVVK_DBG_NAME(m_brickAtlas.image);
 
     // Material atlas
-    extent = {atlas_axis_size,atlas_axis_size,1};  // XYZ size
+    extent = {BRICK_PER_ATLAS_AXIS,BRICK_PER_ATLAS_AXIS,1};  // XYZ size
     format = VK_FORMAT_R8_UINT;  // Texel format
     clearValueF = 0.0f;
     clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};

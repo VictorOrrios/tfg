@@ -54,7 +54,8 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     float3 brickPos = float3(id)*brick_size;
     float3 p = brickPos + float3(voxelId)*voxel_size;
 
-    float mapValue = map(p,level,pushConst.numObjects,aabbs,objects);
+    uint mat;
+    float mapValue = map(p,level,pushConst.numObjects,aabbs,objects, mat);
     float sdfValue = clamp(mapValue/max_voxel_value,-1.0,1.0);
 
     brickAtlas[brickPointer+voxelId] = sdfValue;

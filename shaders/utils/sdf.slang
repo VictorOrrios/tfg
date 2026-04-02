@@ -239,10 +239,11 @@ float3 applyDefOp(int opIndex, float3 p, float4 defP){
 //---------------------------------------
 // Scene evaluation function
 //---------------------------------------
-float map(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs, StructuredBuffer<SceneObject> objects){
+float map(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs, StructuredBuffer<SceneObject> objects, out uint mat){
   const float iniD = 10000.0f;
   const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
+  mat = 0;
 
   for(int obIdx = 0; obIdx < numObjects; obIdx++) {
     float3 p = float3(point);
@@ -267,6 +268,8 @@ float map(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs,
     d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
 
     d *= params.scale;
+
+    mat = d<result? params.mat : mat;
 
     result = evalCombOp(params.combOp, d, result, params.smoothness);
   }

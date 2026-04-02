@@ -14,6 +14,7 @@
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 
 [[vk::binding(BindingPoints::clipMap)]] RWTexture3D<uint32_t> clipMap;
+[[vk::binding(BindingPoints::matAtlas)]] RWTexture3D<uint> matAtlas;
 
 [[vk::binding(BindingPoints::buildJobQ)]] StructuredBuffer<BuildJob> build_job_queue;
 [[vk::binding(BindingPoints::brickJobQ)]] RWStructuredBuffer<BrickJob> brick_job_queue;
@@ -124,7 +125,8 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
 
       // Evaluate scene at brick center
       float3 p = (float3(brickId)+0.5)*brick_size;
-      float centerSDF = map(p,level,pushConst.numObjects,aabbs,objects);
+      uint mat;
+      float centerSDF = map(p,level,pushConst.numObjects,aabbs,objects,mat);
       
       // Uniform value brick check
       if(abs(centerSDF) > max_brick_value){
@@ -136,9 +138,13 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
         clipMap[clipIndex] = newPointer | DIRTY_BIT;
       }else if(!brick_allocated){
         int newPointer = allocPointer();
-        updateInstance(newPointer,brickId,level);
         clipMap[clipIndex] = newPointer | DIRTY_BIT;
+        int3 matIndex = int3(newPointer%BRICK_PER_ATLAS_AXIS,newPointer/BRICK_PER_ATLAS_AXIS,0);
+        matAtlas[matIndex] = mat;
+        updateInstance(newPointer,brickId,level);
       }else{
+        int3 matIndex = int3(prevClipPointer%BRICK_PER_ATLAS_AXIS,prevClipPointer/BRICK_PER_ATLAS_AXIS,0);
+        matAtlas[matIndex] = mat;
         updateInstance(prevClipPointer,brickId,level);
       }
     }

@@ -308,14 +308,18 @@ void Scene::drawMaterialParams(){
     if (ImGui::InputText(("Name" + id).c_str(), buffer, sizeof(buffer)))
       mat.name = std::string(buffer);
 
-    ImGui::ColorEdit3(("Albedo" + id).c_str(),
+    dirty |= ImGui::ColorEdit3(("Albedo" + id).c_str(),
                                 &mat.albedo.x);
 
-    ImGui::SliderFloat(("Roughness" + id).c_str(),
+    dirty |= ImGui::SliderFloat(("Roughness" + id).c_str(),
                                 &mat.roughness, 0.0f, 1.0f);
 
-    ImGui::SliderFloat(("Metalness" + id).c_str(),
+    dirty |= ImGui::SliderFloat(("Metalness" + id).c_str(),
                                 &mat.metalness, 0.0f, 1.0f);
+
+    if (dirty) {
+      m_needsRefresh = true;
+    }
 
     ImGui::End();
   }
@@ -391,7 +395,7 @@ int Scene::addMaterial(Material mat){
   }else{
     m_mat.push_back(mat);
   }
-  return m_mat.size();
+  return m_mat.size()-1;
 }
 
 //------------------
@@ -527,7 +531,7 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
       .scale=p.scale,
       .roundness=p.roundness,
       .smoothness=p.smoothness,
-      .mat=0,
+      .mat=uint(p.mat),
     });
   }
 
@@ -842,7 +846,14 @@ std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 currCamId0, 
 // Constructor
 //------------------
 Scene::Scene() {
-  int matIdx = addMaterial(createMaterial());
+  Material mat = createMaterial();
+  mat.name = "Default";
+  int matIdx = addMaterial(mat);
+
+  mat = createMaterial();
+  mat.name = "New material";
+  mat.albedo = glm::vec3(1,0,0);
+  int newMat = addMaterial(mat);
 
   // Create the scene
   Node *terrain = createNode(NodeType::Plane);
@@ -865,6 +876,7 @@ Scene::Scene() {
   box->p.rotation = glm::vec3(0.2, 0.4, 0.4);
   box->p.combOp = (int)CombinationOp::Union + 3;
   box->p.smoothness = 0.02;
+  box->p.mat = newMat;
   updateNodeData(box);
   addNode(box);
 
@@ -873,6 +885,7 @@ Scene::Scene() {
   sphere->p.position = glm::vec3(0.1, 0.3, -0.9);
   sphere->p.rotation = glm::vec3(0);
   sphere->p.combOp = (int)CombinationOp::Substraction;
+  sphere->p.mat = newMat;
   updateNodeData(sphere);
   addNode(sphere);
 
@@ -883,6 +896,7 @@ Scene::Scene() {
   sphereGrid->p.repOp = (int)RepetitionOp::LimRepetition;
   sphereGrid->p.spacing = glm::vec3(0.14,0.14,0);
   sphereGrid->p.limit = glm::ivec3(13,13,1);
+  sphereGrid->p.mat = newMat;
   updateNodeData(sphereGrid);
   addNode(sphereGrid);
 
@@ -890,6 +904,7 @@ Scene::Scene() {
   torus->p.scale = 0.2;
   torus->p.position = glm::vec3(0.35, 0.1, -1.2);
   torus->p.rotation = glm::vec3(0.75, 0, 0);
+  torus->p.mat = newMat;
   updateNodeData(torus);
   addNode(torus);
 

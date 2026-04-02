@@ -36,9 +36,11 @@
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 [[vk::binding(BindingPoints::objects)]] StructuredBuffer<SceneObject> objects;
+[[vk::binding(BindingPoints::materials)]] StructuredBuffer<Material> materials;
 
 [[vk::binding(BindingPoints::clipMap)]] RWTexture3D<uint32_t> clipMap;
 [[vk::binding(BindingPoints::brickAtlas)]] RWTexture3D<float> brickAtlas;
+[[vk::binding(BindingPoints::matAtlas)]] RWTexture3D<uint> matAtlas;
 
 #ifdef NDEBUGSHADER
 // TODO: Change to false for final release and boost performance
@@ -59,7 +61,8 @@ float3 scalarToColor(float x){
 // Evaluates the whole sdf scene in a point in space
 float map(float3 p){
   const float maxD = BRICK_SIZES[CLIPMAP_LEVELS-1];
-  float mapValue = map(p,CLIPMAP_LEVELS-1,pushConst.numObjects,aabbs,objects);
+  uint mat;
+  float mapValue = map(p,CLIPMAP_LEVELS-1,pushConst.numObjects,aabbs,objects,mat);
   return min(mapValue,maxD);
 }
 
@@ -433,7 +436,7 @@ float sphereTraceBbox(Ray r, Bbox bbox){
   const bool drawSteps        = debugColor && false;  // Draw the numer of steps taken
   const bool drawLevel        = debugColor && false;  // Draw the clip map level at hit point
   const bool drawHitIndex     = debugColor && false;  // Draw the grid brick index at the hit point
-  const bool drawBrickPointer = debugColor && false;   // Draw the pointer value of the brick at hit point
+  const bool drawBrickPointer = debugColor && true;   // Draw the pointer value of the brick at hit point
 
   float3 p = r.orig, dir = r.dir;
   int3 currentIndex, lastIndex;
@@ -634,8 +637,22 @@ float3 analyticNormal(float3 p){
   return calcNormalAnalytic(voxelCoor,sBottom,sTop);
 }
 
+float3 getAlbedo(float3 p){
+  int level = getLevelOfPoint(p);
+  const float brick_size = BRICK_SIZES[level];
+  float3 pBrickNorm = p/brick_size;
+  int3 brickId = int3(floor(pBrickNorm));
+  int3 brickIndex = id2index(brickId);
+  int3 clipIndex = brickIndex;
+  clipIndex.z += NUM_BRICKS_PER_AXIS * level;
+  int clipPointer = clipMap[clipIndex];
+  int3 matIndex = int3(clipPointer%BRICK_PER_ATLAS_AXIS,clipPointer/BRICK_PER_ATLAS_AXIS,0);
+  uint matIdx = matAtlas[matIndex];
+  Material m = materials[matIdx];
+  return m.albedo.xyz;
+}
 
-float traceScene(Ray r, out float3 normal){
+float traceScene(Ray r, out float3 normal, out float3 albedo){
   const float3 worldMin = sceneInfo.cameraId0Pos.xyz - AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
   const float3 worldMax = sceneInfo.cameraId0Pos.xyz + (AXIS_SIZES[CLIPMAP_LEVELS-1]/2 - BRICK_SIZES[CLIPMAP_LEVELS-1]);
 
@@ -683,6 +700,7 @@ float traceScene(Ray r, out float3 normal){
   // Calc normal using user defined method
   if(depth >= 0){
     float3 p = r.orig + r.dir*depth;
+    albedo = getAlbedo(p);
     normal = analyticNormal(p);
     //normal = evalNormal(p);
   }
@@ -801,7 +819,6 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal){
   }
 }
 
-
 Ray get_ray(float2 uv){
   // Calculate offsets
   float2 ndc = uv * 2.0 - 1.0;
@@ -840,12 +857,10 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   bbox.bMax = bbox.bMax*bboxSize+bboxPos;
   
   //depth = rayMarchAmaWoo(r,bbox,normal);
-  depth = traceScene(r,normal);
+  depth = traceScene(r,normal,albedo);
 
   bool hit = depth >= 0.0;
-  if(hit){
-    albedo = float3(1.0);
-  }else{
+  if(!hit){
     albedo = float3(0);
     debug = r.dir;
   }
