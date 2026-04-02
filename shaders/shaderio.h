@@ -39,7 +39,8 @@ NAMESPACE_SHADERIO_BEGIN()
 #define WORKGROUP_SIZE_3D 8
 
 // Buffers static max limit
-#define MAX_SCENE_OBJECTS  1024
+#define MAX_SCENE_OBJECTS 1024
+#define MAX_MATERIALS 32
 #define BRICK_PER_ATLAS_AXIS 1024
 const static int NUM_BRICKS_IN_ATLAS = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS;
 
@@ -114,29 +115,29 @@ const static uint UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTE
 
 
 // Shared between Host and Device
-enum BindingPoints
-{
+enum BindingPoints{
   sceneInfo = 0,
-  renderTarget = 1,
-  normalBuffer = 2,
-  albedoBuffer = 3,
-  depthBuffer  = 4,
-  aabbs = 5,
-  objects = 6,
-  tLas = 7,
-  bLas = 8,
-  instances = 9,
-  clipMap = 10,
-  brickAtlas = 11,
-  buildJobQ = 12,
-  brickJobQ = 13,
-  counters = 14,
-  indirectCommands = 15,
-  freeList = 16,
+  renderTarget,
+  normalBuffer,
+  albedoBuffer,
+  depthBuffer,
+  aabbs,
+  objects,
+  materials,
+  tLas,
+  bLas,
+  instances,
+  clipMap,
+  brickAtlas,
+  matAtlas,
+  buildJobQ,
+  brickJobQ,
+  counters,
+  indirectCommands,
+  freeList,
 };
 
-enum Counters
-{
+enum Counters{
   nextBrickJob = 0,
   freeCounter = 1,
   allocCounter = 2
@@ -176,12 +177,10 @@ CHECK_STRUCT_ALIGNMENT(SceneInfo)
 
 struct SceneObject{
   float4x4 tInv;
-  float4 position;
-  float4 rotation;
   float4 spacing;
   float4 defP;
   float4 terrain;
-  int4 limit;
+  int4 limit_octaves;
   int type;
   int combOp;
   int repOp;
@@ -189,9 +188,16 @@ struct SceneObject{
   float scale;
   float roundness;
   float smoothness;
-  int octaves;
+  uint mat;
 };
 CHECK_STRUCT_ALIGNMENT(SceneObject)
+
+struct Material{
+  float4 albedo;
+  float roughness;
+  float metalness;
+};
+CHECK_STRUCT_ALIGNMENT(Material)
 
 struct BuildJob{
   int4 min_id_level;

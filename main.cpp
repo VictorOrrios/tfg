@@ -232,6 +232,7 @@ public:
     m_alloc.destroyBuffer(m_sceneInfoB);
     m_alloc.destroyBuffer(m_sceneAabbB);
     m_alloc.destroyBuffer(m_sceneObjectsB);
+    m_alloc.destroyBuffer(m_sceneMaterialsB);
    
     m_alloc.destroyBuffer(m_buildJobQueue);
     m_alloc.destroyBuffer(m_brickJobQueue);
@@ -242,6 +243,7 @@ public:
 
     m_alloc.destroyImage(m_clipMap);
     m_alloc.destroyImage(m_brickAtlas);
+    m_alloc.destroyImage(m_matAtlas);
     
     m_alloc.destroyBuffer(m_tLasB);
     m_alloc.destroyBuffer(m_bLasB);
@@ -773,15 +775,21 @@ public:
     NVVK_DBG_NAME(m_clipMap.image);
 
     // Brick atlas
-    const int brick_size = BRICK_SIZE;
     const int atlas_axis_size = BRICK_PER_ATLAS_AXIS*BRICK_SIZE;
-    extent = {atlas_axis_size,atlas_axis_size,brick_size};  // XYZ size
-    format = VK_FORMAT_R16_SNORM;  // Texel format
+    extent = {atlas_axis_size,atlas_axis_size,BRICK_SIZE};  // XYZ size
+    format = VK_FORMAT_R8_SNORM;  // Texel format
     glm::float32 clearValueF = 1.0f;
     clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
     create3DStorageTexture(m_brickAtlas, extent, format, clearColor);
     NVVK_DBG_NAME(m_brickAtlas.image);
-    
+
+    // Material atlas
+    extent = {atlas_axis_size,atlas_axis_size,1};  // XYZ size
+    format = VK_FORMAT_R8_UINT;  // Texel format
+    clearValueF = 0.0f;
+    clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
+    create3DStorageTexture(m_matAtlas, extent, format, clearColor);
+    NVVK_DBG_NAME(m_matAtlas.image);
   }
 
   nvvk::AccelerationStructureGeometryInfo primitiveToGeometry(const uint32_t aabbCount){
@@ -1009,10 +1017,14 @@ public:
 
     std::vector<nvutils::Bbox> aabbVector = m_scene.getAllBboxes();
     std::vector<shaderio::SceneObject> objectsVector = m_scene.getObjects();
+    std::vector<shaderio::Material> materialsVector = m_scene.getMaterials();
+
     if(aabbVector.size() != objectsVector.size())
         LOGE("Aabb vector is diferent size from objects vector %zu != %zu\n",aabbVector.size(),objectsVector.size());
     if(aabbVector.size()>MAX_SCENE_OBJECTS)
       LOGE("Number of scene objects exceeds maximum %zu > %i\n",aabbVector.size(),MAX_SCENE_OBJECTS);
+    if(materialsVector.size()>MAX_MATERIALS)
+      LOGE("Number of scene materials exceeds maximum %zu > %i\n",materialsVector.size(),MAX_MATERIALS);
 
     if(aabbVector.size() == 0){
       aabbVector.push_back({});
@@ -1028,6 +1040,9 @@ public:
     size = objectsVector.size() * sizeof(shaderio::SceneObject);
     vkCmdUpdateBuffer(cmd, m_sceneObjectsB.buffer, 0, size, objectsVector.data());
     
+    size = materialsVector.size() * sizeof(shaderio::Material);
+    vkCmdUpdateBuffer(cmd, m_sceneMaterialsB.buffer, 0, size, materialsVector.data());
+
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneAabbB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneObjectsB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
@@ -1063,6 +1078,13 @@ public:
                                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
                                         ));
       NVVK_DBG_NAME(m_sceneObjectsB.buffer);
+
+      NVVK_CHECK(allocator->createBuffer(m_sceneMaterialsB,
+                                     MAX_MATERIALS*sizeof(shaderio::Material),
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                        ));
+      NVVK_DBG_NAME(m_sceneMaterialsB.buffer);
 
       // ------------------
       // Accel structure buffers
@@ -1174,6 +1196,7 @@ public:
     
     bindings.addBinding(shaderio::BindingPoints::aabbs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::objects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::materials, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     
     bindings.addBinding(shaderio::BindingPoints::tLas, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::bLas, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
@@ -1181,6 +1204,7 @@ public:
     
     bindings.addBinding(shaderio::BindingPoints::clipMap, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::brickAtlas, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::matAtlas, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     
     bindings.addBinding(shaderio::BindingPoints::buildJobQ, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::brickJobQ, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
@@ -1199,6 +1223,7 @@ public:
     
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::aabbs), m_sceneAabbB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::objects), m_sceneObjectsB.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::materials), m_sceneMaterialsB.buffer);
     
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLas), m_tLas);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::bLas), m_bLasB.buffer);
@@ -1206,6 +1231,7 @@ public:
     
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::clipMap), m_clipMap.descriptor);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::brickAtlas), m_brickAtlas.descriptor);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::matAtlas), m_matAtlas.descriptor);
     
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::buildJobQ), m_buildJobQueue.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::brickJobQ), m_brickJobQueue.buffer);
@@ -1496,6 +1522,7 @@ private:
   nvvk::Buffer          m_sceneInfoB{};         // Buffer binded to the UBO of scene info
   nvvk::Buffer          m_sceneAabbB{};         // Buffer binded to the scene aabbs array
   nvvk::Buffer          m_sceneObjectsB{};      // Buffer binded to the scene objects array
+  nvvk::Buffer          m_sceneMaterialsB{};    // Buffer binded to the scene materials array
 
   // Acceleration structure buffers and components
   nvvk::AccelerationStructure   m_tLas{};       // Top-level acceleration structure
@@ -1514,6 +1541,7 @@ private:
   // 3D textures
   nvvk::Image m_clipMap{};          // 3D map of pointers to the brick atlas
   nvvk::Image m_brickAtlas{};       // Atlas where all the bricks are stored
+  nvvk::Image m_matAtlas{};         // Atlas where the materials indeces of the allocated bricks are stored
 
   // Pre-built components
   std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()}; // Camera manipulator
@@ -1620,12 +1648,14 @@ int main(int argc, char** argv)
     ImGuiID settingID = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Right, 0.12f, nullptr, &centerNode);
     ImGuiID sceneID   = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Left,  0.2f, nullptr, &centerNode);
     ImGuiID objectID   = ImGui::DockBuilderSplitNode(sceneID, ImGuiDir_Down,  0.4f, nullptr, &sceneID);
+    ImGuiID materialID   = ImGui::DockBuilderSplitNode(sceneID, ImGuiDir_Down,  0.2f, nullptr, &sceneID);
     ImGuiID loggerID  = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Down,  0.3f, nullptr, &centerNode);
     ImGuiID profilerID = ImGui::DockBuilderSplitNode(loggerID, ImGuiDir_Right, 0.5f, nullptr, &loggerID);
 
     ImGui::DockBuilderDockWindow("Settings", settingID);
     ImGui::DockBuilderDockWindow("Scene", sceneID);
     ImGui::DockBuilderDockWindow("Object", objectID);
+    ImGui::DockBuilderDockWindow("Material", materialID);
     ImGui::DockBuilderDockWindow("Log", loggerID);
     ImGui::DockBuilderDockWindow("Profiler", profilerID);
   };

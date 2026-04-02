@@ -64,7 +64,12 @@ std::string Scene::getLabel(Node *n) {
   return nodeTypeToString(n->p.type) + "##" + std::to_string(n->id);
 }
 
+std::string Scene::getLabel(Material  mat) {
+  return mat.name + "##" + std::to_string(mat.id);
+}
+
 uint32_t Scene::getNextId() { return m_nextID++; }
+
 
 //------------------
 // Draw functions
@@ -73,9 +78,108 @@ uint32_t Scene::getNextId() { return m_nextID++; }
 void Scene::draw() {
   ImGui::Begin("Scene");
 
-  drawButtonGroup();
+  if (ImGui::BeginTabBar("Scene")){
+    if (ImGui::BeginTabItem("Objects")){
+      drawButtonGroup();
+      ImGui::Separator();
+      drawPrimitives();
+      drawNodeParams();
+      ImGui::EndTabItem();
+    }
 
-  drawPrimitives();
+    if (ImGui::BeginTabItem("Materials")){
+      drawMaterials();
+      drawMaterialParams();
+      ImGui::EndTabItem();
+    }
+
+    ImGui::EndTabBar();
+  }
+  
+  ImGui::End();
+}
+
+void Scene::drawButtonGroup() {
+  if (ImGui::Button("Add"))
+    ImGui::OpenPopup("AddNodePopup");
+
+  ImGui::SameLine();
+
+  if (ImGui::Button("Delete")) {
+    deleteSelected();
+  }
+
+  if (ImGui::BeginPopup("AddNodePopup")) {
+    for (int i = 0; i < NodeTypeNames->length(); ++i) {
+      if (ImGui::MenuItem(nodeTypeToString((NodeType)i).c_str()))
+        addNode((NodeType)i);
+    }
+
+    ImGui::EndPopup();
+  }
+}
+
+void Scene::drawPrimitives() {
+  ImGuiSelectableFlags selectableFlags = 0;
+
+  bool clickedOnItem = false;
+
+  for (int idx = 0; idx < m_root.size(); idx++) {
+    auto& node = m_root[idx];
+    bool isSelected = idx == m_selected;
+    std::string label = getLabel(&node).c_str();
+
+    // Draw primitive
+    if (ImGui::Selectable(label.c_str(), isSelected, selectableFlags)) {
+      m_selected = idx;
+      clickedOnItem = true;
+    }
+
+    // Drag source
+    if (ImGui::BeginDragDropSource()) {
+      ImGui::SetDragDropPayload("DND_SCENE_NODE", &idx, sizeof(int));
+      ImGui::Text("%s", label.c_str());
+      ImGui::EndDragDropSource();
+    }
+
+    if (ImGui::BeginDragDropTarget()) {
+      if (const ImGuiPayload *payload =
+              ImGui::AcceptDragDropPayload("DND_SCENE_NODE")) {
+        int sourceIdx = *(const int *)payload->Data;
+
+        if (sourceIdx != idx) {
+          auto movedItem = std::move(m_root[sourceIdx]);
+          m_root.erase(m_root.begin() + sourceIdx);
+          m_root.insert(m_root.begin() + idx, std::move(movedItem));
+
+          m_selected = idx;
+          updateNodeData(&m_root[m_selected]);
+        }
+      }
+      ImGui::EndDragDropTarget();
+    }
+  }
+
+  if (!clickedOnItem && ImGui::IsMouseClicked(0) && ImGui::IsWindowHovered()) {
+    m_selected = -1;
+  }
+}
+
+template<typename T>
+bool ComboVector(const char* label, int* current_item, std::vector<T>& vec){
+  auto getter = [](void* data, int idx, const char** out_text) -> bool
+  {
+    auto& v = *static_cast<std::vector<T>*>(data);
+    if (idx < 0 || idx >= (int)v.size()) return false;
+    *out_text = v[idx].name.c_str();
+    return true;
+  };
+
+  return ImGui::Combo(label, current_item, getter, &vec, (int)vec.size());
+}
+
+void Scene::drawNodeParams(){
+  
 
   if (m_selected != -1) {
     ImGui::Begin("Object");
@@ -86,6 +190,8 @@ void Scene::draw() {
     bool dirty = false;
     int combOpUI = selectedNode.p.combOp >= 3 ? selectedNode.p.combOp - 3
                                               : selectedNode.p.combOp;
+
+    dirty |= ComboVector("Material", &selectedNode.p.mat, m_mat);
 
     dirty |= ImGui::InputFloat3(("Position" + id).c_str(),
                                 &selectedNode.p.position.x);
@@ -159,74 +265,62 @@ void Scene::draw() {
 
     ImGui::End();
   }
-  ImGui::End();
 }
 
-void Scene::drawButtonGroup() {
-  if (ImGui::Button("Add"))
-    ImGui::OpenPopup("AddNodePopup");
-
-  ImGui::SameLine();
-
-  if (ImGui::Button("Delete")) {
-    deleteSelected();
-  }
-
-  if (ImGui::BeginPopup("AddNodePopup")) {
-    for (int i = 0; i < NodeTypeNames->length(); ++i) {
-      if (ImGui::MenuItem(nodeTypeToString((NodeType)i).c_str()))
-        addNode((NodeType)i);
-    }
-
-    ImGui::EndPopup();
-  }
-}
-
-void Scene::drawPrimitives() {
+void Scene::drawMaterials(){
+  if(ImGui::Button("Add material"))
+    addMaterial(createMaterial());
+  
   ImGuiSelectableFlags selectableFlags = 0;
 
   bool clickedOnItem = false;
 
-  for (int idx = 0; idx < m_root.size(); idx++) {
-    auto& node = m_root[idx];
-    bool isSelected = idx == m_selected;
-    std::string label = getLabel(&node).c_str();
+  for (int idx = 0; idx < m_mat.size(); idx++) {
+    auto& mat = m_mat[idx];
+    bool isSelected = idx == m_selectedMat;
+    std::string label = getLabel(mat).c_str();
 
-    // Draw primitive
+    // Draw material
     if (ImGui::Selectable(label.c_str(), isSelected, selectableFlags)) {
-      m_selected = idx;
+      m_selectedMat = idx;
       clickedOnItem = true;
-    }
-
-    // Drag source
-    if (ImGui::BeginDragDropSource()) {
-      ImGui::SetDragDropPayload("DND_SCENE_NODE", &idx, sizeof(int));
-      ImGui::Text("%s", label.c_str());
-      ImGui::EndDragDropSource();
-    }
-
-    if (ImGui::BeginDragDropTarget()) {
-      if (const ImGuiPayload *payload =
-              ImGui::AcceptDragDropPayload("DND_SCENE_NODE")) {
-        int sourceIdx = *(const int *)payload->Data;
-
-        if (sourceIdx != idx) {
-          auto movedItem = std::move(m_root[sourceIdx]);
-          m_root.erase(m_root.begin() + sourceIdx);
-          m_root.insert(m_root.begin() + idx, std::move(movedItem));
-
-          m_selected = idx;
-          updateNodeData(&m_root[m_selected]);
-        }
-      }
-      ImGui::EndDragDropTarget();
     }
   }
 
   if (!clickedOnItem && ImGui::IsMouseClicked(0) && ImGui::IsWindowHovered()) {
-    m_selected = -1;
+    m_selectedMat = -1;
+  }
+
+}
+
+void Scene::drawMaterialParams(){
+  if (m_selectedMat != -1) {
+    ImGui::Begin("Material");
+
+    Material& mat = m_mat[m_selectedMat];
+
+    const std::string id = "##" + std::to_string(mat.id);
+    bool dirty = false;
+
+    char buffer[256];
+    strncpy(buffer, mat.name.c_str(), sizeof(buffer));
+    buffer[sizeof(buffer) - 1] = '\0';
+    if (ImGui::InputText(("Name" + id).c_str(), buffer, sizeof(buffer)))
+      mat.name = std::string(buffer);
+
+    ImGui::ColorEdit3(("Albedo" + id).c_str(),
+                                &mat.albedo.x);
+
+    ImGui::SliderFloat(("Roughness" + id).c_str(),
+                                &mat.roughness, 0.0f, 1.0f);
+
+    ImGui::SliderFloat(("Metalness" + id).c_str(),
+                                &mat.metalness, 0.0f, 1.0f);
+
+    ImGui::End();
   }
 }
+
 
 //------------------
 // Tree functions
@@ -276,6 +370,28 @@ void Scene::addNode(Node *node) {
   m_root.insert(m_root.begin() + insertIdx, *node);
   m_needsRefresh = true;
   m_selected = insertIdx;
+}
+
+//------------------
+// Material functions
+//------------------
+Scene::Material Scene::createMaterial(){
+  return {
+    .id = getNextId(),
+    .name = "Material "+std::to_string(m_mat.size()),
+    .albedo = glm::vec3(1.0),
+    .roughness = 0.5f,
+    .metalness = 0.1f,
+  };
+}
+
+int Scene::addMaterial(Material mat){
+  if(m_mat.size() >= MAX_MATERIALS){
+    LOGW("Scene material vector full, skipping material\n");
+  }else{
+    m_mat.push_back(mat);
+  }
+  return m_mat.size();
 }
 
 //------------------
@@ -400,12 +516,10 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
     NodeParams& p = node.p; 
     out.push_back({
       .tInv=columnMajorToRowMajor(p.tInv),
-      .position=glm::vec4(p.position,0),
-      .rotation=glm::vec4(p.rotation,0),
       .spacing=glm::vec4(p.spacing,0),
       .defP=glm::vec4(p.defP,0),
       .terrain=glm::vec4(p.terrain),
-      .limit=glm::ivec4(p.limit,0),
+      .limit_octaves=glm::ivec4(p.limit,p.octaves),
       .type=int(p.type),
       .combOp=p.combOp,
       .repOp=p.repOp,
@@ -413,12 +527,27 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
       .scale=p.scale,
       .roundness=p.roundness,
       .smoothness=p.smoothness,
-      .octaves=p.octaves,
+      .mat=0,
     });
   }
 
   return out;
 }
+
+std::vector<shaderio::Material> Scene::getMaterials(){
+  std::vector<shaderio::Material> out;
+
+  for (auto &mat : m_mat) {
+    out.push_back({
+      .albedo = glm::vec4(mat.albedo,0.0),
+      .roughness = mat.roughness,
+      .metalness = mat.metalness
+    });
+  }
+
+  return out;
+}
+
 
 bool pointInBBox(const glm::vec3& p, const nvutils::Bbox& bbox) {
   glm::vec3 min = bbox.min();
@@ -712,8 +841,9 @@ std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 currCamId0, 
 //------------------
 // Constructor
 //------------------
-
 Scene::Scene() {
+  int matIdx = addMaterial(createMaterial());
+
   // Create the scene
   Node *terrain = createNode(NodeType::Plane);
   terrain->p.position = glm::vec3(0.0,-2.0,0.0);

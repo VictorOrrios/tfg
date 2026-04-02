@@ -19,6 +19,7 @@ public:
 
   struct NodeParams {
     NodeType type;
+    int mat;
     glm::vec3 position;
     glm::vec3 rotation;
     glm::mat4 tInv;
@@ -33,6 +34,14 @@ public:
     glm::vec3 defP;
     int octaves;
     glm::vec4 terrain;
+  };
+
+  struct Material {
+    uint32_t id;
+    std::string name;
+    glm::vec3 albedo;
+    float roughness;
+    float metalness;
   };
 
   struct Node {
@@ -50,6 +59,7 @@ public:
   std::vector<float> generateDenseGrid();
   std::vector<nvutils::Bbox> getAllBboxes();
   std::vector<shaderio::SceneObject> getObjects();
+  std::vector<shaderio::Material> getMaterials();
   std::vector<shaderio::BuildJob> getBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
   std::vector<shaderio::BuildJob> getDenseBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
 
@@ -58,15 +68,23 @@ public:
 private:
   std::string nodeTypeToString(NodeType type);
   std::string getLabel(Node *n);
+  std::string getLabel(Material mat);
   uint32_t getNextId();
 
   void drawPrimitives();
   void drawButtonGroup();
+  void drawNodeParams();
+
+  void drawMaterials();
+  void drawMaterialParams();
 
   void deleteSelected();
   void addNode(NodeType t);
   void addNode(Node*);
   Node* createNode(NodeType t);
+
+  Material createMaterial();
+  int addMaterial(Material mat);
 
   void updateNodeData(Node *n);
   void markRefresh(Node* n);
@@ -79,7 +97,9 @@ private:
   std::vector<shaderio::BuildJob> splitBuildJob(shaderio::BuildJob);
 
   std::vector<Node> m_root;
+  std::vector<Material> m_mat;
   std::vector<nvutils::Bbox> m_removeList;
   int m_selected = -1;
+  int m_selectedMat = -1;
   uint32_t m_nextID = 1;
 };

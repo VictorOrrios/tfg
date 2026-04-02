@@ -256,7 +256,7 @@ float map(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs,
 
     p = mul(params.tInv, float4(p, 1.0)).xyz;
 
-    p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit.xyz);
+    p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit_octaves.xyz);
 
     p = applyDefOp(params.defOp, p, params.defP);
 
@@ -264,7 +264,7 @@ float map(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs,
 
     float d = evalPrimitive(params.type, p) - params.roundness;
 
-    d = d>0.0 ? applyTerrainOp(p, d, params.octaves, params.terrain, VOXEL_SIZES[0]/10.0): d;
+    d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
 
     d *= params.scale;
 
