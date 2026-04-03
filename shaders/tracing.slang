@@ -700,6 +700,12 @@ float3 getAlbedo(float3 p){
   return albedoLerp;
 }
 
+float3 getAlbedoBlend(float3 p){
+  Material mat;
+  map2(p,CLIPMAP_LEVELS-1,pushConst.numObjects,aabbs,objects,materials,mat);
+  return mat.albedo.xyz;
+}
+
 float traceScene(Ray r, out float3 normal, out float3 albedo){
   const float3 worldMin = sceneInfo.cameraId0Pos.xyz - AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
   const float3 worldMax = sceneInfo.cameraId0Pos.xyz + (AXIS_SIZES[CLIPMAP_LEVELS-1]/2 - BRICK_SIZES[CLIPMAP_LEVELS-1]);
@@ -748,7 +754,9 @@ float traceScene(Ray r, out float3 normal, out float3 albedo){
   // Calc normal using user defined method
   if(depth >= 0){
     float3 p = r.orig + r.dir*depth;
-    albedo = getAlbedo(p);
+    //albedo = float3(1.0);
+    //albedo = getAlbedo(p);
+    albedo = getAlbedoBlend(p);
     normal = analyticNormal(p);
     //normal = evalNormal(p);
   }

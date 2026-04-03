@@ -276,3 +276,113 @@ float map(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs,
 
   return result;
 }
+
+void updateTopK(uint id, float score, inout uint4 ids, inout float4 scores){
+  int replaceIdx = -1;
+  float worstScore = score;
+  for(int i = 0; i < 4; i++){
+    if(ids[i] == id){
+      scores[i] = min(scores[i],score);
+      replaceIdx = -2;
+      break;
+    }
+    
+    if(scores[i] > worstScore){
+      worstScore = scores[i];
+      replaceIdx = i;
+    }
+  }
+
+  if(replaceIdx >= 0){
+    ids[replaceIdx] = id;
+    scores[replaceIdx] = score;
+  }
+}
+
+float4 scores2Weight(uint4 ids, float4 scores){
+  float4 weights = float4(0.0);
+  float sum = 0.0;
+  float epsilon = 0.0001;
+  float minScore = min(0,min(scores.x,min(scores.y,min(scores.z,scores.w))));
+  
+  [unroll]
+  for(int i = 0; i < 4; i++){
+    if(ids[i] >= 0){
+      float score = scores[i]-minScore;
+      weights[i] = rcp(score * score + epsilon);
+      sum += weights[i];
+    }
+  }
+  
+  if(sum > 0.0)
+    weights *= rcp(sum);
+  
+  return weights;
+}
+
+Material lerpMaterial(Material matA, Material matB, float b){
+  matB.albedo = lerp(matA.albedo,matB.albedo,b);
+  matB.roughness = lerp(matA.roughness,matB.roughness,b);
+  matB.metalness = lerp(matA.metalness,matB.metalness,b);
+  return matB;
+}
+
+float opUnion2(float a, float b, Material matA, inout Material matB){
+  if(a<b) matB = matA;
+  return min(a,b);
+}
+float opSmoothUnion2(float a, float b, float k, Material matA, inout Material matB){
+  float blend = a/(a+b);
+  matB = lerpMaterial(matA,matB,blend);
+  k *= 4.0;
+  float h = max(k-abs(a-b),0.0);
+  return min(a, b) - h*h*0.25/k;
+}
+
+float evalCombOp2(int opIndex, float d, float result, float smoothness, Material matA, inout Material matB){
+  switch(opIndex)
+  {
+    default:
+    case 0: return opUnion2(d,result,matA,matB);
+    case 1: return opSubtraction(d,result);
+    case 2: return opIntersection(d,result);
+    case 3: return opSmoothUnion2(d,result,smoothness,matA,matB);
+    case 4: return opSmoothSubtraction(d,result,smoothness);
+    case 5: return opSmoothIntersection(d,result,smoothness);
+  }
+}
+
+float map2(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs, StructuredBuffer<SceneObject> objects, StructuredBuffer<Material> materials, out Material matResult){
+  const float iniD = 1e5;
+  const float nearRange = MAX_BRICK_VALUES[level];
+  float result = iniD;
+
+  for(int obIdx = 0; obIdx < numObjects; obIdx++) {
+    float3 p = float3(point);
+    Bbox bbox = aabbs[obIdx];
+
+    // If not inside bbox primitive continue with next 
+    if(!nearBbox(p,bbox,nearRange))
+      continue;
+
+    SceneObject params = objects[obIdx];
+
+    p = mul(params.tInv, float4(p, 1.0)).xyz;
+
+    p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit_octaves.xyz);
+
+    p = applyDefOp(params.defOp, p, params.defP);
+
+    p /= params.scale;
+
+    float d = evalPrimitive(params.type, p) - params.roundness;
+
+    d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
+
+    d *= params.scale;
+
+    result = evalCombOp2(params.combOp, d, result, params.smoothness,materials[params.mat],matResult);
+  }
+
+  return result;
+}
