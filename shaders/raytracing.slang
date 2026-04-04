@@ -3,6 +3,7 @@
 #include "utils/common.slang"     // Shared definitions with shaders
 #include "utils/bbox.slang"       // AABB helpers
 #include "utils/palettes.slang"   // Debug color palette
+#include "utils/sdf.slang"        // SDF functions, operations and primitives
 
 
 [[vk::push_constant]]  ConstantBuffer<PushConstant> pushConst;
@@ -10,9 +11,12 @@
 [[vk::binding(BindingPoints::normalBuffer)]] RWTexture2D<float4> normalImage;
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
+[[vk::binding(BindingPoints::shadowBuffer)]] RWTexture2D<float> shadowImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 [[vk::binding(BindingPoints::tLas)]] RaytracingAccelerationStructure topLevelAS;
+[[vk::binding(BindingPoints::objects)]] StructuredBuffer<SceneObject> objects;
+[[vk::binding(BindingPoints::materials)]] StructuredBuffer<Material> materials;
 
 [[vk::binding(BindingPoints::clipMap)]] RWTexture3D<uint32_t> clipMap;
 [[vk::binding(BindingPoints::brickAtlas)]] RWTexture3D<float> brickAtlas;
@@ -29,11 +33,18 @@ const static bool bboxColor = pushConst.debug.mode == 5;
 const static float EPSILON = 0.000001;
 
 // Ray payload structure - carries data through the ray tracing pipeline
-struct HitPayload
-{
-    float3 debug;
-    float3 normal;
-    float depth;
+struct HitPayload{
+  float3 albedo;
+  float3 debug;
+  float3 normal;
+  float depth;
+  int level;
+};
+
+struct IntersectionPayload{
+  float3 debug;
+  float depth;
+  int level;
 };
 
 float3 scalarToColor(float x){
@@ -197,6 +208,12 @@ float3 analyticNormal(float3 p){
   return calcNormalAnalytic(voxelCoor,sBottom,sTop);
 }
 
+float3 getAlbedoBlend(float3 p){
+  Material mat;
+  map2(p,CLIPMAP_LEVELS-1,pushConst.numObjects,aabbs,objects,materials,mat);
+  return mat.albedo.xyz;
+}
+
 bool sphereTraceBrick(Ray r, int pointer, float3 brickPos, int level, out float depth){
   const int MAX_ITERATIONS = BRICK_SIZE * 5;
   depth = 0.0;
@@ -316,7 +333,7 @@ Ray get_ray(float2 uv){
 [shader("raygeneration")]
 void rgenMain()
 {
-  float depth; float3 albedo, normal, debug;
+  float depth, shadow; float3 albedo, normal, debug;
 
   // Get the current pixel coordinates and image dimensions
   float2 launchID = (float2)DispatchRaysIndex().xy;     // Current pixel (x,y)
@@ -338,6 +355,7 @@ void rgenMain()
 
   // Initialize ray payload with default values
   HitPayload payload;
+  payload.albedo = float3(0);
   payload.debug = float3(0);
   payload.normal = float3(1);
   payload.depth = -1;
@@ -347,26 +365,42 @@ void rgenMain()
   // Parameters: AS, flags, instance mask, sbt offset, sbt stride, miss offset, ray, payload
   TraceRay(topLevelAS, rayFlags, 0xff, 0,0,0, ray, payload);
   
-  albedo = float3(1);
+  albedo = payload.albedo;
   debug = payload.debug;
   normal = payload.normal;
   depth = payload.depth;
 
   bool hit = depth >= 0.0;
-  if(hit){
-    albedo = float3(1.0);
-  }else{
+  if(!hit){
     albedo = float3(0);
-    //debug = r.dir;
+    debug = r.dir;
   }
 
   if(debugColor || bboxColor){
       albedo = debug;
   }
 
+  // Shadow ray experiment
+  if(dot(normal,pushConst.lp.lightDir) > 0.0 || false){
+    HitPayload shadowPayload;
+    shadowPayload.albedo = float3(0);
+    shadowPayload.debug = float3(0);
+    shadowPayload.normal = float3(1);
+    shadowPayload.depth = -1;
+    const float maxSoftDepthShadow = L0_AXIS_WORLD_SIZE;
+    ray.Origin = r.orig + r.dir*depth + normal * 0.1 + pushConst.lp.lightDir*0.1;
+    ray.Direction = pushConst.lp.lightDir;
+    TraceRay(topLevelAS, rayFlags, 0xff, 0,0,0, ray, shadowPayload);
+    hit = shadowPayload.depth >= 0.0;
+    float shadowDepth = shadowPayload.depth;
+    float smoothShadow = 1.0 - min(shadowDepth,maxSoftDepthShadow)/maxSoftDepthShadow;
+    shadow = hit? 0.0 : 1.0;
+  }
+
   normalImage[int2(launchID)] = float4(normal, 0.0F);
   albedoImage[int2(launchID)] = float4(albedo,1.0F);
   depthImage[int2(launchID)] = depth;
+  shadowImage[int2(launchID)] = shadow;
 }
 
 
@@ -375,7 +409,7 @@ void rintMain()
 {
   const float eps = 1e-4;
 
-  HitPayload payload;
+  IntersectionPayload payload;
   Ray r; 
   r.orig = WorldRayOrigin();
   r.dir  = WorldRayDirection();
@@ -400,6 +434,7 @@ void rintMain()
       payload.depth += depthToBbox; 
       //payload.debug = scalarToColor(float(instanceID)/float(NUM_BRICKS_IN_ATLAS));
       payload.debug = scalarToColor(float(level)/float(CLIPMAP_LEVELS-1));
+      payload.level = level;
       ReportHit(payload.depth, 0, payload);
     }
 
@@ -417,18 +452,21 @@ void rintMain()
 
 // Closest hit shader - called when ray hits geometry
 [shader("closesthit")]
-void rchitMain(inout HitPayload payload, in HitPayload attr)
+void rchitMain(inout HitPayload payload, in IntersectionPayload attr)
 {
   // For now, just set a simple solid red color for all hits
   // In a full implementation, this would:
   // 1. Sample material properties (albedo, normal, etc.)
   // 2. Calculate lighting (direct + indirect)
   // 3. Potentially cast secondary rays (reflection, refraction)
-  payload = attr;
+  payload.debug = attr.debug;
+  payload.depth = attr.depth;
+  payload.level = attr.level;
   Ray r; 
   r.orig = WorldRayOrigin();
   r.dir  = WorldRayDirection();
   float3 p = r.orig + r.dir*payload.depth;
+  payload.albedo = getAlbedoBlend(p);
   payload.normal = analyticNormal(p);
 }
 

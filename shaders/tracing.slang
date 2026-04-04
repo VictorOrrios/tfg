@@ -33,6 +33,7 @@
 [[vk::binding(BindingPoints::normalBuffer)]] RWTexture2D<float4> normalImage;
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
+[[vk::binding(BindingPoints::shadowBuffer)]] RWTexture2D<float> shadowImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 [[vk::binding(BindingPoints::objects)]] StructuredBuffer<SceneObject> objects;
@@ -45,10 +46,10 @@
 #ifdef NDEBUGSHADER
 // TODO: Change to false for final release and boost performance
 const static bool debugColor = pushConst.debug.mode == 1;
-const static bool bboxColor = pushConst.debug.mode == 5;
+const static bool bboxColor = pushConst.debug.mode == 6;
 #else
 const static bool debugColor = pushConst.debug.mode == 1;
-const static bool bboxColor = pushConst.debug.mode == 5;
+const static bool bboxColor = pushConst.debug.mode == 6;
 #endif
 
 
@@ -706,7 +707,146 @@ float3 getAlbedoBlend(float3 p){
   return mat.albedo.xyz;
 }
 
-float traceScene(Ray r, out float3 normal, out float3 albedo){
+float evalShadow(float3 p, float k){
+  const float3 worldMin = sceneInfo.cameraId0Pos.xyz - AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
+  const float3 worldMax = sceneInfo.cameraId0Pos.xyz + (AXIS_SIZES[CLIPMAP_LEVELS-1]/2 - BRICK_SIZES[CLIPMAP_LEVELS-1]);
+
+  float shadow = 1.0f;
+  float depth = 0.01;
+
+  Ray r;
+  r.orig = p;
+  r.dir = pushConst.lp.lightDir;
+
+  float3 near,far;
+  Bbox bbox = Bbox(worldMin,worldMax);
+  if(!intersectCube(r, bbox, near, far)) return 0.0;
+  float maxDepth = length(r.orig-far);
+
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
+  const float MIN_DIST = 0.0001;
+  
+  for(int i = 0; i < MAX_ITERATIONS; i++){
+    float3 p = r.orig + r.dir * depth;
+    float dist = map(p);    
+
+    if(abs(dist) < MIN_DIST){
+      shadow = 0.0;
+      break;  // Hit
+    }
+    
+    if(depth >= maxDepth) break;  // No hit
+
+    shadow = min(shadow,k*dist/depth);
+    depth += dist;
+  }
+  
+  return shadow;
+}
+
+// Pre: r.orig must be inside bbox
+bool sphereTraceShadowBbox(Ray r, Bbox bbox, float k, float depthOffset, inout float shadow){
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
+
+  float3 p = r.orig, dir = r.dir;
+  int3 currentIndex, lastIndex;
+  float4 sBottom, sTop;
+  int level;
+
+  float depth = depthOffset;
+
+  for(int steps = 1; steps < MAX_ITERATIONS; steps++){
+    level = getLevelOfPoint(p);
+
+    const float voxel_size = VOXEL_SIZES[level];
+
+    // Scale normalization
+    float3 pVoxelNorm = p/voxel_size;
+    // Truncate normalized coordinates to get the id
+    int3 voxelId = int3(floor(pVoxelNorm));
+    // Get the grid indices with floor division modulus (WARNING: Normal modulus % will not give correct result)
+    int3 voxelIndex = id2voxelIndex(voxelId);
+    // Get grid index and coordinates inside the voxel
+    currentIndex = voxelIndex;
+    float3 voxelCoor = frac(pVoxelNorm);
+
+    // If this voxel hasn't been visited yet
+    if(steps == 1 || any(currentIndex != lastIndex)){
+    //if(true){
+      // Update current voxel data and index
+      sampleVoxel2(currentIndex,level,sBottom,sTop);
+      //sampleVoxel2New(voxelOffset,currentIndex,level,sBottom,sTop);
+      //getkConstants(sBottom,sTop,k0123,k4567);
+      lastIndex = currentIndex;
+    }
+
+    // Interpolate current sdf value of the voxel2
+    float t = triLerp(voxelCoor,sBottom,sTop);
+
+
+    // Cutoff condition: A distance of 1/10 voxels
+    // TODO: Fine tune to better performance/quality
+    if(t < voxel_size/10){
+      shadow = 0.0;
+      return true;
+    }
+
+    // Update shadow
+    if(t < MAX_VOXEL_VALUES[0]){
+      shadow = min(shadow,k*t/depth);
+    }
+    
+    // Update p to move the estimated length to surface
+    depth += t;
+    p += r.dir*t;
+  
+    // Check if ray has left the bbox
+    if(!insideBbox(p,bbox)){
+      return false;
+    }
+  }
+
+  return false;
+}
+
+float aproxShadow(float3 p, float k){
+  const float3 worldMin = sceneInfo.cameraId0Pos.xyz - AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
+  const float3 worldMax = sceneInfo.cameraId0Pos.xyz + (AXIS_SIZES[CLIPMAP_LEVELS-1]/2 - BRICK_SIZES[CLIPMAP_LEVELS-1]);
+  const float bboxPadding = 0.5;
+
+  float shadow = 1.0f;
+
+  Ray r;
+  r.orig = p;
+  r.dir = pushConst.lp.lightDir;
+
+  for(int i = 0; i<pushConst.numObjects; i++){
+    Bbox bbox = aabbs[i];
+
+    if(any(bbox.bMin >= bbox.bMax))
+      continue;
+
+    bbox.bMin -= bboxPadding;
+    bbox.bMax += bboxPadding;
+    bbox.bMin = max(bbox.bMin,worldMin);
+    bbox.bMax = min(bbox.bMax,worldMax);
+
+    // Peprare the ray that will trace the object
+    Ray bboxRay = r;
+    float3 far, dir = r.dir;
+    if(!intersectCube(r, bbox, bboxRay.orig, far)) continue;
+    float orig2P = length(bboxRay.orig - r.orig);
+
+    // Trace bbox using the method defined by user
+    float objDepth;
+    if(sphereTraceShadowBbox(bboxRay,bbox,k,orig2P,shadow))
+      break;
+  }
+
+  return shadow;
+}
+
+float traceScene(Ray r, out float3 normal, out float3 albedo, out float shadow){
   const float3 worldMin = sceneInfo.cameraId0Pos.xyz - AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
   const float3 worldMax = sceneInfo.cameraId0Pos.xyz + (AXIS_SIZES[CLIPMAP_LEVELS-1]/2 - BRICK_SIZES[CLIPMAP_LEVELS-1]);
 
@@ -714,14 +854,14 @@ float traceScene(Ray r, out float3 normal, out float3 albedo){
   normal = float3(0.0);
   float3 lastDebug = debug;
 
-  // Iterated in reverse order because user placed objects are usually nearest to screen and at the bottom of the stack
   for(int i = 0; i<pushConst.numObjects; i++){
     Bbox bbox = aabbs[i];
-    bbox.bMin = max(bbox.bMin,worldMin);
-    bbox.bMax = min(bbox.bMax,worldMax);
 
     if(any(bbox.bMin >= bbox.bMax))
       continue;
+
+    bbox.bMin = max(bbox.bMin,worldMin);
+    bbox.bMax = min(bbox.bMax,worldMax);
 
     // Peprare the ray that will trace the object
     Ray bboxRay = r;
@@ -759,10 +899,21 @@ float traceScene(Ray r, out float3 normal, out float3 albedo){
     albedo = getAlbedoBlend(p);
     normal = analyticNormal(p);
     //normal = evalNormal(p);
+
+    if(dot(normal,pushConst.lp.lightDir) > -0.5){
+      const float k = 180.0;
+      p += normal * 0.03;
+      //shadow = evalShadow(p,k);
+      shadow = aproxShadow(p,k);
+    }else{
+      shadow = 0.0;
+    }
   }
 
   return depth;
 }
+
+
 
 // PRE: r.dir must be normalized
 float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal){
@@ -894,7 +1045,7 @@ Ray get_ray(float2 uv){
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE_2D, WORKGROUP_SIZE_2D, 1)]
 void computeMain(uint3 threadIdx : SV_DispatchThreadID){
-  float depth; float3 albedo, normal;
+  float depth, shadow; float3 albedo, normal;
 
   float2 fragCoord = threadIdx.xy;
   uint2 iResolution;
@@ -913,7 +1064,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   bbox.bMax = bbox.bMax*bboxSize+bboxPos;
   
   //depth = rayMarchAmaWoo(r,bbox,normal);
-  depth = traceScene(r,normal,albedo);
+  depth = traceScene(r,normal,albedo,shadow);
 
   bool hit = depth >= 0.0;
   if(!hit){
@@ -942,4 +1093,5 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   albedoImage[int2(fragCoord)] = float4(albedo,1.0F);
   normalImage[int2(fragCoord)] = float4(normal, 0.0F);
   depthImage[int2(fragCoord)] = depth;
+  shadowImage[int2(fragCoord)] = shadow;
 }

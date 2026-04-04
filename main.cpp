@@ -98,6 +98,7 @@ const char* DebugModes[] = {
     "Albedo",
     "Normal",
     "Depth",
+    "Shadow",
     "Bounding boxes",
 };
 
@@ -129,6 +130,7 @@ class AppElement : public nvapp::IAppElement
     eImgAlbedo,
     eImgRendered,
     eImgTonemapped,
+    eImgShadow,
   };
 
 public:
@@ -283,9 +285,16 @@ public:
     }
 
     if(ImGui::CollapsingHeader("Lighting data")){
+      bool dirtyLight = false;
       ImGui::Text("Directional Light");
-      ImGui::SliderFloat3("Direction", &m_pushConst.lp.lightDir.x, -1.0f, 1.0f);
-      ImGui::ColorEdit3("Light Color", &m_pushConst.lp.lightColor.x);
+
+      dirtyLight |= ImGui::SliderFloat3("Direction", &m_pushConst.lp.lightDir.x, -1.0f, 1.0f);
+      dirtyLight |= ImGui::ColorEdit3("Zenith Color", &m_zenithColor.x);
+      dirtyLight |= ImGui::ColorEdit3("Horizon Color", &m_horizonColor.x);
+
+      if(dirtyLight){
+        m_pushConst.lp.lightColor = glm::mix(m_horizonColor,m_zenithColor,glm::max(0.0f,glm::dot(m_pushConst.lp.lightDir,glm::vec3(0,1,0))));
+      }
 
       ImGui::Separator();
       ImGui::Text("Ambient Hemispheric");
@@ -419,6 +428,10 @@ public:
     writeContainer.append(
       m_descPack.makeWrite(shaderio::BindingPoints::albedoBuffer), 
       m_gBuffers.getDescriptorImageInfo(eImgAlbedo));
+    
+    writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::shadowBuffer), 
+      m_gBuffers.getDescriptorImageInfo(eImgShadow));
 
     // Needs to create a descriptor image info because the GBuffer object doesn't expose a function
     VkDescriptorImageInfo depthImageInfo{
@@ -702,7 +715,9 @@ public:
           VK_FORMAT_A2B10G10R10_UNORM_PACK32, // Normal buffer, alpha = Material flag
           VK_FORMAT_R8G8B8A8_UNORM,           // Albedo buffer
           VK_FORMAT_R32G32B32A32_SFLOAT,      // Render target
-          VK_FORMAT_R8G8B8A8_UNORM},          // Tonemapped
+          VK_FORMAT_R8G8B8A8_UNORM,           // Tonemapped
+          VK_FORMAT_R8_UNORM,                 // Shadow buffer
+        },          
         .depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
         .imageSampler   = linearSampler,
         .descriptorPool = m_app->getTextureDescriptorPool(),
@@ -1193,6 +1208,7 @@ public:
     bindings.addBinding(shaderio::BindingPoints::normalBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::albedoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::depthBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::shadowBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     
     bindings.addBinding(shaderio::BindingPoints::aabbs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::objects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
@@ -1559,6 +1575,8 @@ private:
   bool m_rtxON = false;
   bool m_rebuildTlas = false;
   bool m_updateTlas = true;
+  glm::vec3 m_zenithColor = glm::vec3(0.644, 0.635, 0.608);
+  glm::vec3 m_horizonColor = glm::vec3(0.628, 0.495, 0.279);
 
   // Test variables TODO: Remove after debugging
   int m_testSize = 0;

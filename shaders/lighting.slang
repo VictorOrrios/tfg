@@ -27,6 +27,7 @@
 [[vk::binding(BindingPoints::normalBuffer)]] RWTexture2D<float4> normalImage;
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
+[[vk::binding(BindingPoints::shadowBuffer)]] RWTexture2D<float> shadowImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 [[vk::binding(BindingPoints::counters)]] RWStructuredBuffer<uint32_t> counters;
 
@@ -62,11 +63,12 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   float3 N = normalImage[int2(fragCoord)].xyz;
   float3 albedo = albedoImage[int2(fragCoord)].xyz;
   float depth = depthImage[int2(fragCoord)];
+  float shadow = shadowImage[int2(fragCoord)];
   float3 finalColor;
 
   if(depth >= 0.0){
     float3 V = getV(uv);
-    float3 L = -pushConst.lp.lightDir;
+    float3 L = pushConst.lp.lightDir;
     float3 H = normalize(L+V);
 
     float NdotL = saturate(dot(N, L));
@@ -88,7 +90,11 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     float fog = 1 - exp(-depth * pushConst.lp.fogDensity);
 
     // Color calculation
-    float3 color = diffuse + ambient + specular + rimLight;
+    float3 direct = (diffuse + specular) * shadow;
+    float3 indirect = ambient + rimLight;
+
+    float3 color = direct + indirect;
+
     finalColor = lerp(color, pushConst.lp.fogColor, fog);
   }else{
     float fog = 1 - exp(-100.0F * pushConst.lp.fogDensity);
@@ -103,7 +109,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
       }else{
         outImage[int2(fragCoord)] = float4(0.0);
       }
-    }else if((pushConst.debug.mode == 1 || pushConst.debug.mode == 4 || pushConst.debug.mode == 5) && uv.x > 0.98){
+    }else if(uv.x > 0.98 && 
+      (pushConst.debug.mode == 1 || pushConst.debug.mode == 4 || pushConst.debug.mode == 5 || pushConst.debug.mode == 6)){
       // Palette visualizer
       if(uv.x - uv.y > 0.99){
         outImage[int2(fragCoord)] = float4(scalarToColor(-1),1.0);
@@ -119,6 +126,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
         case 1: case 2: outImage[int2(fragCoord)] = float4(albedo, 1.0F); break;
         case 3: outImage[int2(fragCoord)] = float4(N, 1.0F); break;
         case 4: outImage[int2(fragCoord)] = float4(scalarToColor(depth), 1.0F); break;
+        case 5: outImage[int2(fragCoord)] = float4(scalarToColor(shadow),1.0F); break;
       }
     }
   }else{

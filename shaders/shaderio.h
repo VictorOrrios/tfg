@@ -121,6 +121,7 @@ enum BindingPoints{
   normalBuffer,
   albedoBuffer,
   depthBuffer,
+  shadowBuffer,
   aabbs,
   objects,
   materials,
@@ -144,7 +145,7 @@ enum Counters{
 };
 
 struct LightinParams{
-  float3 lightDir       = normalize(float3(-0.9f,-0.2f,-0.2f));
+  float3 lightDir       = normalize(float3(0.9f,0.2f,0.2f));
   float3 lightColor     = float3(0.644, 0.635, 0.608);
   float3 ambientTop     = float3(0.3f, 0.35f, 0.5f);
   float3 ambientBottom  = float3(0.1f, 0.1f, 0.1f);
