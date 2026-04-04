@@ -2,7 +2,10 @@
 #include "scene.hpp"
 #include "glm/common.hpp"
 #include "glm/exponential.hpp"
+#include "glm/ext/matrix_transform.hpp"
 #include "glm/ext/vector_int3.hpp"
+#include "glm/gtc/type_ptr.hpp"
+#include "glm/trigonometric.hpp"
 #include "nvutils/bounding_box.hpp"
 #include "nvutils/logger.hpp"
 #include "sdf.hpp"
@@ -178,6 +181,7 @@ bool ComboVector(const char* label, int* current_item, std::vector<T>& vec){
   return ImGui::Combo(label, current_item, getter, &vec, (int)vec.size());
 }
 
+
 void Scene::drawNodeParams(){
   
 
@@ -192,6 +196,22 @@ void Scene::drawNodeParams(){
                                               : selectedNode.p.combOp;
 
     dirty |= ComboVector("Material", &selectedNode.p.mat, m_mat);
+
+    if (ImGui::IsKeyPressed(ImGuiKey_T))
+        selectedNode.p.gzParam.guizmoOp = ImGuizmo::TRANSLATE;
+    if (ImGui::IsKeyPressed(ImGuiKey_R))
+        selectedNode.p.gzParam.guizmoOp = ImGuizmo::ROTATE;
+    if (ImGui::IsKeyPressed(ImGuiKey_E))
+        selectedNode.p.gzParam.guizmoOp = ImGuizmo::SCALE;
+    if (ImGui::RadioButton("Translate", selectedNode.p.gzParam.guizmoOp == ImGuizmo::TRANSLATE))
+        selectedNode.p.gzParam.guizmoOp = ImGuizmo::TRANSLATE;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Rotate", selectedNode.p.gzParam.guizmoOp == ImGuizmo::ROTATE))
+        selectedNode.p.gzParam.guizmoOp = ImGuizmo::ROTATE;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Scale", selectedNode.p.gzParam.guizmoOp == ImGuizmo::SCALE))
+        selectedNode.p.gzParam.guizmoOp = ImGuizmo::SCALE;
+ 
 
     dirty |= ImGui::InputFloat3(("Position" + id).c_str(),
                                 &selectedNode.p.position.x);
@@ -325,6 +345,46 @@ void Scene::drawMaterialParams(){
   }
 }
 
+void Scene::drawGuizmo(ImVec2 viewportPos, ImVec2 viewportSize, glm::mat4 cameraView, glm::mat4 cameraProjection){
+  if(m_selected != -1){ 
+    ImGuizmo::BeginFrame();
+
+    ImGuizmo::SetDrawlist();
+
+    ImGuizmo::SetRect(
+      viewportPos.x,
+      viewportPos.y,
+      viewportSize.x,
+      viewportSize.y
+    );
+
+    Node &selectedNode = m_root[m_selected];
+    GuizmoParams& gzP = selectedNode.p.gzParam;
+
+    cameraProjection[1][1] *= -1.0f;
+    ImGuizmo::Manipulate(
+      glm::value_ptr(cameraView), 
+      glm::value_ptr(cameraProjection), 
+      gzP.guizmoOp, 
+      gzP.guizmoMode, 
+      glm::value_ptr(gzP.matrix),
+      NULL, NULL);
+
+
+    m_usingGuizmo = ImGuizmo::IsUsing();
+
+    if(m_usingGuizmo){
+      float& scale = selectedNode.p.scale;
+      glm::vec3 scale_vec, rot_deg;
+      ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(gzP.matrix), &selectedNode.p.position.x, &rot_deg.x, &scale_vec.x);
+      selectedNode.p.rotation = glm::radians(rot_deg);
+      selectedNode.p.scale = scale_vec[0];
+      updateNodeData(&selectedNode);
+      m_needsRefresh = true;
+    }
+  }
+}
+
 
 //------------------
 // Tree functions
@@ -346,7 +406,12 @@ Scene::Node *Scene::createNode(NodeType t) {
       .id = getNextId(),
       .p={
         .type = t,
-        .terrain = glm::vec4(1.0,0.5,0.1,0.3)
+        .gzParam = {
+          ImGuizmo::TRANSLATE,
+          ImGuizmo::WORLD,
+          glm::mat4(1.0)
+        },
+        .terrain = glm::vec4(1.0,0.5,0.1,0.3),
       },
       .bbox=nvutils::Bbox(glm::vec3(0.0),glm::vec3(0.0)),
       .needsRefresh=false,
@@ -430,6 +495,13 @@ void Scene::generateMatrix(Node *n) {
         glm::rotate(transform4x4, n->p.rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
   }
 
+  glm::vec3 scale_vec(n->p.scale), rot_deg(glm::degrees(n->p.rotation));
+  ImGuizmo::RecomposeMatrixFromComponents(
+    glm::value_ptr(n->p.position), 
+    glm::value_ptr(rot_deg),
+    glm::value_ptr(scale_vec),
+    glm::value_ptr(n->p.gzParam.matrix));
+
   n->p.tInv = glm::inverse(transform4x4);
 }
 
@@ -484,8 +556,6 @@ void Scene::generateBBox(Node *n) {
 
   min = glm::max(bboxt.min(), worldMin);
   max = glm::min(bboxt.max(), worldMax);
-
-  
 
   n->bbox = nvutils::Bbox(min, max);
 }

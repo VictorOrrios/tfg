@@ -381,7 +381,7 @@ void rgenMain()
   }
 
   // Shadow ray experiment
-  if(dot(normal,pushConst.lp.lightDir) > 0.0 || false){
+  if(dot(normal,pushConst.lp.lightDir) > -0.3){
     HitPayload shadowPayload;
     shadowPayload.albedo = float3(0);
     shadowPayload.debug = float3(0);

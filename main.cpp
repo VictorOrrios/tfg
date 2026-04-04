@@ -271,8 +271,8 @@ public:
     ImGui::TextDisabled("%d FPS / %.3fms", static_cast<int>(ImGui::GetIO().Framerate), 1000.F / ImGui::GetIO().Framerate);
 
     // Add window information
-    const VkExtent2D& viewportSize = m_app->getViewportSize();
-    ImGui::Text("Viewport Size: %d x %d", viewportSize.width, viewportSize.height);
+    const VkExtent2D& appViewportSize = m_app->getViewportSize();
+    ImGui::Text("Viewport Size: %d x %d", appViewportSize.width, appViewportSize.height);
 
     if(ImGui::CollapsingHeader("Camera"))
         nvgui::CameraWidget(m_cameraManip);
@@ -351,9 +351,29 @@ public:
     // Draw scene tree and object tab
     m_scene.draw();
 
-    // Rendered image displayed fully in 'Viewport' window
     ImGui::Begin("Viewport");
-    ImGui::Image((ImTextureID)m_gBuffers.getDescriptorSet(eImgTonemapped), ImGui::GetContentRegionAvail());
+
+      ImVec2 viewportPos = ImGui::GetCursorScreenPos();
+      ImVec2 viewportSize = ImGui::GetContentRegionAvail();
+
+      ImGui::Image((ImTextureID)m_gBuffers.getDescriptorSet(eImgTonemapped),viewportSize);
+
+      const glm::mat4& viewMatrix = m_cameraManip->getViewMatrix();
+      const glm::mat4& projMatrix = m_cameraManip->getPerspectiveMatrix();
+      static glm::vec3 prevCamCenter = m_cameraManip->getCenter();
+      static glm::vec3 prevCamEye = m_cameraManip->getEye();
+      
+      if(m_scene.m_usingGuizmo){
+        m_cameraManip->setCenter(prevCamCenter);
+        m_cameraManip->setEye(prevCamEye);
+      }else{
+        prevCamCenter = m_cameraManip->getCenter();
+        prevCamEye = m_cameraManip->getEye();
+      }
+      
+      m_scene.drawGuizmo(viewportPos, viewportSize, viewMatrix, projMatrix);
+
+      
     ImGui::End();
   }
 

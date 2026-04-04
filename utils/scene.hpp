@@ -9,6 +9,7 @@
 #include <vector>
 #include "../shaders/shaderio.h"
 #include <nvvk/profiler_vk.hpp>
+#include "ImGuizmo.h"
 
 class Scene {
 public:
@@ -17,12 +18,19 @@ public:
   enum class RepetitionOp { NoneOP, LimRepetition, IlimRepetition };
   enum class DeformationOp { NoneOP, Elongate };
 
+  struct GuizmoParams{
+    ImGuizmo::OPERATION guizmoOp;
+    ImGuizmo::MODE guizmoMode;
+    glm::mat4 matrix;
+  };
+
   struct NodeParams {
     NodeType type;
     int mat;
     glm::vec3 position;
     glm::vec3 rotation;
     glm::mat4 tInv;
+    GuizmoParams gzParam;
     float scale;
     float roundness;
     int combOp;
@@ -55,6 +63,7 @@ public:
   Scene();
 
   void draw();
+  void drawGuizmo(ImVec2 viewportPos, ImVec2 viewportSize, glm::mat4 cameraView, glm::mat4 cameraProjection);
 
   std::vector<float> generateDenseGrid();
   std::vector<nvutils::Bbox> getAllBboxes();
@@ -64,6 +73,7 @@ public:
   std::vector<shaderio::BuildJob> getDenseBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
 
   bool m_needsRefresh = true;
+  bool m_usingGuizmo = false;
 
 private:
   std::string nodeTypeToString(NodeType type);
