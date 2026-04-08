@@ -42,6 +42,7 @@
 #include "utils/path_utils.hpp"
 #include "utils/utils.hpp"
 #include "utils/scene.hpp"
+#include "utils/rng.hpp"
 
 #include "_autogen/tracing.slang.h"
 #include "_autogen/lighting.slang.h"
@@ -187,6 +188,7 @@ public:
     setupSlangCompiler();           // Setup slang compiler with correct build config flags
     createScene();                  // Create the scene and fill it up with sdfs
     setupGBuffers();                // Set up the GBuffers to render to
+    createRNGTextures();            // Creates the different rng and noise textures used in the shaders
     create3DTextures();             // Creates the different 3d textures used to store voxel grid data
     createAccelerationStructures(); // Creates the bLas and tLas needed for the rt pipeline 
     createDescriptorSetLayout();    // Create the descriptor set layout for the pipelines
@@ -242,6 +244,8 @@ public:
     m_alloc.destroyBuffer(m_countersB);
     m_alloc.destroyBuffer(m_indirectB);
     m_alloc.destroyBuffer(m_freeListB);
+
+    m_alloc.destroyImage(m_noiseTex);
 
     m_alloc.destroyImage(m_clipMap);
     m_alloc.destroyImage(m_brickAtlas);
@@ -745,6 +749,65 @@ public:
     m_gBuffers.init(gBufferInit);
   }
 
+  void create2DTexture(nvvk::Image& image, VkExtent3D extent, VkFormat format){
+     // Destroy if already created
+    m_alloc.destroyImage(image);
+
+    VkImageCreateInfo ci = DEFAULT_VkImageCreateInfo;
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.format = format;
+    ci.extent = extent;
+    ci.mipLevels = 1;
+    ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+
+    VkImageViewCreateInfo vi = DEFAULT_VkImageViewCreateInfo;
+    vi.image = image.image;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = format;
+
+    NVVK_CHECK(m_alloc.createImage(image, ci, vi));
+
+    // Setup sampler to be ortholinear storage with no interpolation and repetition
+    VkSamplerCreateInfo si = DEFAULT_VkSamplerCreateInfo;
+    si.magFilter    = VK_FILTER_NEAREST;
+    si.minFilter    = VK_FILTER_NEAREST;
+    si.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    si.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    si.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    si.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+
+    NVVK_CHECK(m_samplerPool.acquireSampler(image.descriptor.sampler, si));
+
+    image.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  }
+
+  void createRNGTextures(){
+    SCOPED_TIMER(__FUNCTION__);
+    
+    VkCommandBuffer cmd = m_app->createTempCmdBuffer();
+
+      // Noise tex
+      VkExtent3D extent = {NOISE_TEX_SIZE,NOISE_TEX_SIZE,1};  // XYZ size
+      VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;  // Texel format
+      create2DTexture(m_noiseTex, extent, format);
+      NVVK_DBG_NAME(m_noiseTex.image);
+      
+      int size = NOISE_TEX_SIZE*NOISE_TEX_SIZE*4;
+      std::vector<float> noise;
+      noise.reserve(size);
+      for(int i = 0; i < size; i++){
+        noise.push_back(randomFloat());
+      }
+      for(int i = 0; i < 20; i++){
+        LOGI("NOISE %i, %f\n",i,noise[i]);
+      }
+      NVVK_CHECK(m_stagingUploader.appendImage(m_noiseTex,std::span(noise)));
+      
+      m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
+
+    m_app->submitAndWaitTempCmdBuffer(cmd); 
+  }
+
   void create3DStorageTexture(nvvk::Image& image, VkExtent3D extent, VkFormat format, VkClearColorValue clearColor){
     // Destroy if already created
     m_alloc.destroyImage(image);
@@ -756,9 +819,9 @@ public:
 
     VkImageCreateInfo ci = DEFAULT_VkImageCreateInfo;
     ci.imageType = VK_IMAGE_TYPE_3D;
-    ci.format = format; // TODO: Optimize to only use 8bit unorm
+    ci.format = format;
     ci.extent = extent;
-    ci.mipLevels = 1; // TODO: Learn how to use MIP levels
+    ci.mipLevels = 1;
     ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT; // Read/write texture
     // ci.queueFamilyIndexCount = 2;
     // ci.pQueueFamilyIndices = queueFamilies; // TODO: Check if necesary
@@ -1248,6 +1311,9 @@ public:
     bindings.addBinding(shaderio::BindingPoints::indirectCommands, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::freeList, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
+    bindings.addBinding(shaderio::BindingPoints::noise, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_ALL);
+
+
     // Creating the descriptor set and set layout from the bindings
     NVVK_CHECK(m_descPack.init(bindings, m_app->getDevice(), 1));
     NVVK_DBG_NAME(m_descPack.getLayout());
@@ -1274,6 +1340,9 @@ public:
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::counters), m_countersB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::indirectCommands), m_indirectB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::freeList), m_freeListB.buffer);
+    
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::noise), m_noiseTex.descriptor);
+    
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
                         writeContainer.data(), 0, nullptr);
@@ -1574,6 +1643,9 @@ private:
   nvvk::Buffer m_indirectB{};       // Indirect dispatch group counts buffer
   nvvk::Buffer m_freeListB{};       // List of free pointers to the brick atlas
 
+  // RNG Textures
+  nvvk::Image m_noiseTex{};         // Rgb noise texture
+
   // 3D textures
   nvvk::Image m_clipMap{};          // 3D map of pointers to the brick atlas
   nvvk::Image m_brickAtlas{};       // Atlas where all the bricks are stored
@@ -1613,6 +1685,8 @@ private:
 
 int main(int argc, char** argv)
 {
+  initRandom();
+
   nvutils::ProfilerManager   profilerManager;
   nvutils::ParameterRegistry parameterRegistry;
   nvutils::ParameterParser   parameterParser;

@@ -113,6 +113,8 @@ const static uint MAX_NUM_BRICK_JOBS = MAX_NUM_BUILD_JOBS*MAX_BUILD_JOB_SIZE*MAX
 const static uint UNIFORM_POSITIVE_BRICK_POINTER = NUM_BRICKS_IN_ATLAS+1;
 const static uint UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTER+1;
 
+// Noise texture size
+#define NOISE_TEX_SIZE 1024
 
 // Shared between Host and Device
 enum BindingPoints{
@@ -136,6 +138,7 @@ enum BindingPoints{
   counters,
   indirectCommands,
   freeList,
+  noise,
 };
 
 enum Counters{

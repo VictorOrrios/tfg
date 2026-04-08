@@ -1,0 +1,4 @@
+
+void initRandom();
+
+float randomFloat();

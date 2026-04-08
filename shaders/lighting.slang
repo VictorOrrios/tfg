@@ -24,12 +24,13 @@
 [[vk::push_constant]]  ConstantBuffer<PushConstant> pushConst;
 
 [[vk::binding(BindingPoints::renderTarget)]] RWTexture2D<float4> outImage;
-[[vk::binding(BindingPoints::normalBuffer)]] RWTexture2D<float4> normalImage;
-[[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
-[[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
-[[vk::binding(BindingPoints::shadowBuffer)]] RWTexture2D<float> shadowImage;
+[[vk::binding(BindingPoints::normalBuffer)]] Texture2D<float4> normalImage;
+[[vk::binding(BindingPoints::albedoBuffer)]] Texture2D<float4> albedoImage;
+[[vk::binding(BindingPoints::depthBuffer)]] Texture2D<float> depthImage;
+[[vk::binding(BindingPoints::shadowBuffer)]] Texture2D<float> shadowImage;
+[[vk::binding(BindingPoints::noise)]] Texture2D<float4> noiseImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
-[[vk::binding(BindingPoints::counters)]] RWStructuredBuffer<uint32_t> counters;
+[[vk::binding(BindingPoints::counters)]] StructuredBuffer<uint32_t> counters;
 
 #ifdef NDEBUGSHADER
 // TODO: Change to false for final release and boost performance
