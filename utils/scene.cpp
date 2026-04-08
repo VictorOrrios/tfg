@@ -24,7 +24,7 @@
 //------------------
 // TODO: CPU scene map not ~fully~ supported
 
-static std::string NodeTypeNames[] = {
+static constexpr const char * NodeTypeNames[] = {
     "Empty", "Box", "Sphere", "Torus", "Snowman", "Plane"
 };
 using sdf3DPrimitiveF = float (*)(const glm::vec3 &);
@@ -53,6 +53,13 @@ static constexpr const char *DeformationOpNames[] = {
 };
 using deformationOpF = glm::vec3 (*)(const glm::vec3 &, const glm::vec3 &);
 static deformationOpF defFTable[2] = {opNone, opElongate};
+
+static constexpr const char *MorphPrimNames[] = {
+  "Box",
+  "Sphere",
+  "Torus",
+  "Snowman",
+};
 
 //------------------
 // Helper functions
@@ -112,7 +119,7 @@ void Scene::drawButtonGroup() {
   }
 
   if (ImGui::BeginPopup("AddNodePopup")) {
-    for (int i = 0; i < NodeTypeNames->length(); ++i) {
+    for (int i = 0; i < IM_ARRAYSIZE(NodeTypeNames); ++i) {
       if (ImGui::MenuItem(nodeTypeToString((NodeType)i).c_str()))
         addNode((NodeType)i);
     }
@@ -230,6 +237,16 @@ void Scene::drawNodeParams(){
                                 &selectedNode.p.smoothness, 0.0f,
                                 0.04);
     ImGui::Separator();
+
+    dirty |= ImGui::Combo(("Morphing primitive" + id).c_str(),
+                          &selectedNode.p.morphPrim, MorphPrimNames,
+                          IM_ARRAYSIZE(MorphPrimNames));
+
+    dirty |= ImGui::SliderFloat(("Morphing" + id).c_str(),
+                                &selectedNode.p.morph, 0.0f, 1.0f);
+
+    ImGui::Separator();
+
 
     dirty |= ImGui::Combo(("Deformation operation" + id).c_str(),
                           &selectedNode.p.defOp, DeformationOpNames,
@@ -587,6 +604,9 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
 
   for (auto &node : m_root) {
     NodeParams& p = node.p; 
+
+    int morphPrim = p.morphPrim+1;
+    
     out.push_back({
       .tInv=columnMajorToRowMajor(p.tInv),
       .spacing=glm::vec4(p.spacing,0),
@@ -597,9 +617,11 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
       .combOp=p.combOp,
       .repOp=p.repOp,
       .defOp=p.defOp,
+      .morphPrim=morphPrim,
       .scale=p.scale,
       .roundness=p.roundness,
       .smoothness=p.smoothness,
+      .morph=p.morph,
       .mat=uint(p.mat),
     });
   }

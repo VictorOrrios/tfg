@@ -275,6 +275,11 @@ float3 applyDefOp(int opIndex, float3 p, float4 defP){
   }
 }
 
+float applyMorphOp(float3 p, float prevPrim, int morphPrim, float morph, float roundness){
+  float mD = evalPrimitive(morphPrim, p) - roundness;
+  return lerp(prevPrim,mD,morph);
+}
+
 
 //---------------------------------------
 // Scene evaluation function
@@ -306,6 +311,8 @@ float map(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs,
     float d = evalPrimitive(params.type, p) - params.roundness;
 
     d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
+
+    d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
 
     d *= params.scale;
 
@@ -416,6 +423,8 @@ float map2(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs
     p /= params.scale;
 
     float d = evalPrimitive(params.type, p) - params.roundness;
+
+    d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
 
     d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
 

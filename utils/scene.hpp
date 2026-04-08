@@ -42,6 +42,8 @@ public:
     glm::vec3 defP;
     int octaves;
     glm::vec4 terrain;
+    int morphPrim;
+    float morph;
   };
 
   struct Material {

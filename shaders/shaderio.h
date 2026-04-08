@@ -186,9 +186,11 @@ struct SceneObject{
   int combOp;
   int repOp;
   int defOp;
+  int morphPrim;
   float scale;
   float roundness;
   float smoothness;
+  float morph;
   uint mat;
 };
 CHECK_STRUCT_ALIGNMENT(SceneObject)

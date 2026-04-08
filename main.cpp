@@ -1685,7 +1685,7 @@ int main(int argc, char** argv)
 
     ImGuiID settingID = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Right, 0.12f, nullptr, &centerNode);
     ImGuiID sceneID   = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Left,  0.2f, nullptr, &centerNode);
-    ImGuiID objectID   = ImGui::DockBuilderSplitNode(sceneID, ImGuiDir_Down,  0.4f, nullptr, &sceneID);
+    ImGuiID objectID   = ImGui::DockBuilderSplitNode(sceneID, ImGuiDir_Down,  0.5f, nullptr, &sceneID);
     ImGuiID materialID   = ImGui::DockBuilderSplitNode(sceneID, ImGuiDir_Down,  0.2f, nullptr, &sceneID);
     ImGuiID loggerID  = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Down,  0.3f, nullptr, &centerNode);
     ImGuiID profilerID = ImGui::DockBuilderSplitNode(loggerID, ImGuiDir_Right, 0.5f, nullptr, &loggerID);
