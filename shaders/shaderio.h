@@ -115,6 +115,7 @@ const static uint UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTE
 
 // Noise texture size
 #define NOISE_TEX_SIZE 1024
+#define NUM_RAN_HEMI_VECS 64
 
 // Shared between Host and Device
 enum BindingPoints{
@@ -124,6 +125,7 @@ enum BindingPoints{
   albedoBuffer,
   depthBuffer,
   shadowBuffer,
+  positionBuffer,
   aabbs,
   objects,
   materials,
@@ -139,6 +141,7 @@ enum BindingPoints{
   indirectCommands,
   freeList,
   noise,
+  randHemiVecs,
 };
 
 enum Counters{
@@ -154,6 +157,8 @@ struct LightinParams{
   float3 ambientBottom  = float3(0.1f, 0.1f, 0.1f);
   float3 fogColor       = float3(0.5f, 0.6f, 0.7f);
   float  fogDensity     = 0.03F;
+  float  ssaoRadius     = 0.5f;
+  float  ssaoBias       = 0.025f;
 };
 
 struct DebugParams{

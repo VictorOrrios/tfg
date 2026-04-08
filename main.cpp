@@ -100,6 +100,7 @@ const char* DebugModes[] = {
     "Normal",
     "Depth",
     "Shadow",
+    "Position",
     "Bounding boxes",
 };
 
@@ -132,6 +133,7 @@ class AppElement : public nvapp::IAppElement
     eImgRendered,
     eImgTonemapped,
     eImgShadow,
+    eImgPosition,
   };
 
 public:
@@ -246,6 +248,7 @@ public:
     m_alloc.destroyBuffer(m_freeListB);
 
     m_alloc.destroyImage(m_noiseTex);
+    m_alloc.destroyBuffer(m_randomHemiVecB);
 
     m_alloc.destroyImage(m_clipMap);
     m_alloc.destroyImage(m_brickAtlas);
@@ -309,6 +312,11 @@ public:
       ImGui::Text("Fog");
       ImGui::SliderFloat("Fog Density", &m_pushConst.lp.fogDensity, 0.0f, 0.2f);
       ImGui::ColorEdit3("Fog Color", &m_pushConst.lp.fogColor.x);
+     
+      ImGui::Separator();
+      ImGui::Text("SSAO");
+      ImGui::SliderFloat("Radius", &m_pushConst.lp.ssaoRadius, 0.0f, 1.0f);
+      ImGui::SliderFloat("Bias", &m_pushConst.lp.ssaoBias, 0.0f, 0.5f);
     }
     
     if(!ImGui::CollapsingHeader("Debug colors")){
@@ -456,6 +464,10 @@ public:
     writeContainer.append(
       m_descPack.makeWrite(shaderio::BindingPoints::shadowBuffer), 
       m_gBuffers.getDescriptorImageInfo(eImgShadow));
+
+    writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::positionBuffer), 
+      m_gBuffers.getDescriptorImageInfo(eImgPosition));
 
     // Needs to create a descriptor image info because the GBuffer object doesn't expose a function
     VkDescriptorImageInfo depthImageInfo{
@@ -736,11 +748,12 @@ public:
     nvvk::GBufferInitInfo gBufferInit{
         .allocator      = &m_alloc,
         .colorFormats   = {
-          VK_FORMAT_A2B10G10R10_UNORM_PACK32, // Normal buffer, alpha = Material flag
+          VK_FORMAT_A2B10G10R10_UNORM_PACK32, // Normal buffer
           VK_FORMAT_R8G8B8A8_UNORM,           // Albedo buffer
           VK_FORMAT_R32G32B32A32_SFLOAT,      // Render target
           VK_FORMAT_R8G8B8A8_UNORM,           // Tonemapped
           VK_FORMAT_R8_UNORM,                 // Shadow buffer
+          VK_FORMAT_R8G8B8A8_SRGB,            // Position buffer
         },          
         .depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
         .imageSampler   = linearSampler,
@@ -797,9 +810,6 @@ public:
       noise.reserve(size);
       for(int i = 0; i < size; i++){
         noise.push_back(randomFloat());
-      }
-      for(int i = 0; i < 20; i++){
-        LOGI("NOISE %i, %f\n",i,noise[i]);
       }
       NVVK_CHECK(m_stagingUploader.appendImage(m_noiseTex,std::span(noise)));
       
@@ -1267,6 +1277,33 @@ public:
       NVVK_DBG_NAME(m_freeListB.buffer);
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_freeListB, 0,std::span(freeList)));
 
+      // ------------------
+      // Random
+      // ------------------
+      int size = NUM_RAN_HEMI_VECS;
+      std::vector<glm::vec3> randomVecs;
+      randomVecs.reserve(size);
+      for(int i = 0; i<size; i++){
+        glm::vec3 sample(
+          randomFloat(),
+          randomFloat()/2.0f + 0.5f,
+          randomFloat()
+        );
+        sample = glm::normalize(sample);
+        sample *= randomFloat()/2.0f + 0.5f;
+        float scale = float(i)/size;
+        scale = glm::mix(0.1f,1.0f,scale*scale);
+        sample *= scale;
+        randomVecs[i] = sample;
+      }
+      NVVK_CHECK(allocator->createBuffer(m_randomHemiVecB,
+                                     size*sizeof(float),
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                        ));
+      NVVK_DBG_NAME(m_randomHemiVecB.buffer);
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_randomHemiVecB, 0,std::span(randomVecs)));
+
       m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
 
     m_app->submitAndWaitTempCmdBuffer(cmd); 
@@ -1292,6 +1329,7 @@ public:
     bindings.addBinding(shaderio::BindingPoints::albedoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::depthBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::shadowBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::positionBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     
     bindings.addBinding(shaderio::BindingPoints::aabbs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::objects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
@@ -1312,6 +1350,7 @@ public:
     bindings.addBinding(shaderio::BindingPoints::freeList, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
     bindings.addBinding(shaderio::BindingPoints::noise, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::randHemiVecs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
 
     // Creating the descriptor set and set layout from the bindings
@@ -1342,6 +1381,7 @@ public:
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::freeList), m_freeListB.buffer);
     
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::noise), m_noiseTex.descriptor);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::randHemiVecs), m_randomHemiVecB.buffer);
     
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
@@ -1643,8 +1683,9 @@ private:
   nvvk::Buffer m_indirectB{};       // Indirect dispatch group counts buffer
   nvvk::Buffer m_freeListB{};       // List of free pointers to the brick atlas
 
-  // RNG Textures
+  // RNG
   nvvk::Image m_noiseTex{};         // Rgb noise texture
+  nvvk::Buffer m_randomHemiVecB{};   // Buffer containing random vectors on +Y hemisphere
 
   // 3D textures
   nvvk::Image m_clipMap{};          // 3D map of pointers to the brick atlas

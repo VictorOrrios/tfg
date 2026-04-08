@@ -34,6 +34,7 @@
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::shadowBuffer)]] RWTexture2D<float> shadowImage;
+[[vk::binding(BindingPoints::positionBuffer)]] RWTexture2D<float4> positionImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 [[vk::binding(BindingPoints::objects)]] StructuredBuffer<SceneObject> objects;
@@ -46,10 +47,10 @@
 #ifdef NDEBUGSHADER
 // TODO: Change to false for final release and boost performance
 const static bool debugColor = pushConst.debug.mode == 1;
-const static bool bboxColor = pushConst.debug.mode == 6;
+const static bool bboxColor = pushConst.debug.mode == 7;
 #else
 const static bool debugColor = pushConst.debug.mode == 1;
-const static bool bboxColor = pushConst.debug.mode == 6;
+const static bool bboxColor = pushConst.debug.mode == 7;
 #endif
 
 
@@ -1045,7 +1046,7 @@ Ray get_ray(float2 uv){
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE_2D, WORKGROUP_SIZE_2D, 1)]
 void computeMain(uint3 threadIdx : SV_DispatchThreadID){
-  float depth, shadow; float3 albedo, normal;
+  float depth, shadow; float3 albedo, normal, position;
 
   float2 fragCoord = threadIdx.xy;
   uint2 iResolution;
@@ -1070,6 +1071,9 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   if(!hit){
     albedo = float3(0);
     debug = r.dir;
+    position = float3(0.0);
+  }else{
+    position = r.orig + r.dir*depth;
   }
 
   if(debugColor){
@@ -1094,4 +1098,5 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   normalImage[int2(fragCoord)] = float4(normal, 0.0F);
   depthImage[int2(fragCoord)] = depth;
   shadowImage[int2(fragCoord)] = shadow;
+  positionImage[int2(fragCoord)] = float4(position,0.0);
 }

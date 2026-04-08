@@ -28,7 +28,9 @@
 [[vk::binding(BindingPoints::albedoBuffer)]] Texture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] Texture2D<float> depthImage;
 [[vk::binding(BindingPoints::shadowBuffer)]] Texture2D<float> shadowImage;
+[[vk::binding(BindingPoints::positionBuffer)]] Texture2D<float4> positionImage;
 [[vk::binding(BindingPoints::noise)]] Texture2D<float4> noiseImage;
+[[vk::binding(BindingPoints::randHemiVecs)]] ConstantBuffer<float3> randHemiVecs;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 [[vk::binding(BindingPoints::counters)]] StructuredBuffer<uint32_t> counters;
 
@@ -38,6 +40,8 @@ const static bool debugActive = true;
 #else
 const static bool debugActive = true;
 #endif
+
+static uint2 iResolution;
 
 float3 getV(float2 uv){
   float2 ndc = uv * 2.0 - 1.0;
@@ -52,12 +56,45 @@ float3 scalarToColor(float x){
   return scalarToColor(x, pushConst.debug.palette);
 }
 
+int2 worldToFragCoor(float3 worldPos){
+  float4 viewPos = mul(float4(worldPos, 1.0), sceneInfo.viewMatrix);
+  float4 clipPos = mul(viewPos, sceneInfo.projMatrix);
+  float3 ndc = clipPos.xyz / clipPos.w;
+  return int2(iResolution*(ndc.xy * 0.5 + 0.5));
+}
+
+float ssao(float2 fragCoord, float3 p, float depth, float3 N){
+  float3 noise = float3(noiseImage[int2(fragCoord)%NOISE_TEX_SIZE].xy,0.0);
+  float3 tangent = normalize(noise - N * dot(noise,N));
+  float3 bitangent = cross(N, tangent);
+  float3x3 TBN = float3x3(tangent, bitangent, N); 
+
+  float occlusion = 0.0;
+  for(int i = 0; i < NUM_RAN_HEMI_VECS; i++){
+    float3 samplePos = mul(TBN,randHemiVecs[i]);
+    samplePos = p + samplePos*pushConst.lp.ssaoRadius;
+    int2 ssPos = worldToFragCoor(samplePos);
+    float sampleTrueDepth = depthImage[ssPos];
+/* 
+    float4 offset = float4(samplePos,1.0);
+    offset = mul(sceneInfo.projMatrix,offset);
+    offset.xyz /= offset.w;
+    offset.xyz = offset.xyz * 0.5 + 0.5;
+    float sampleDepth = depthImage[int2(offset.xy)];
+     */
+    float sampleDepth = length(sceneInfo.cameraPosition.xyz-samplePos);
+    occlusion += (sampleTrueDepth >= sampleDepth + pushConst.lp.ssaoBias ? 1.0 : 0.0);
+  }
+
+  occlusion = 1.0 - (occlusion / NUM_RAN_HEMI_VECS);
+  return occlusion;
+}
+
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE_2D, WORKGROUP_SIZE_2D, 1)]
 void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 {
   float2 fragCoord = threadIdx.xy;
-  uint2 iResolution;
   outImage.GetDimensions(iResolution.x, iResolution.y);
   float2 uv = fragCoord/iResolution;
   
@@ -65,6 +102,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   float3 albedo = albedoImage[int2(fragCoord)].xyz;
   float depth = depthImage[int2(fragCoord)];
   float shadow = shadowImage[int2(fragCoord)];
+  float3 position = positionImage[int2(fragCoord)].xyz;
   float3 finalColor;
 
   if(depth >= 0.0){
@@ -111,7 +149,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
         outImage[int2(fragCoord)] = float4(0.0);
       }
     }else if(uv.x > 0.98 && 
-      (pushConst.debug.mode == 1 || pushConst.debug.mode == 4 || pushConst.debug.mode == 5 || pushConst.debug.mode == 6)){
+      (pushConst.debug.mode == 1 || pushConst.debug.mode == 4 || pushConst.debug.mode == 5 || pushConst.debug.mode == 7)){
       // Palette visualizer
       if(uv.x - uv.y > 0.99){
         outImage[int2(fragCoord)] = float4(scalarToColor(-1),1.0);
@@ -128,10 +166,39 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
         case 3: outImage[int2(fragCoord)] = float4(N, 1.0F); break;
         case 4: outImage[int2(fragCoord)] = float4(scalarToColor(depth), 1.0F); break;
         case 5: outImage[int2(fragCoord)] = float4(scalarToColor(shadow),1.0F); break;
+        case 6: outImage[int2(fragCoord)] = float4(position,1.0F); break;
       }
     }
   }else{
     outImage[int2(fragCoord)] = float4(finalColor, 1.0F);
   }
 
+  float3 noise = float3(noiseImage[int2(fragCoord)%NOISE_TEX_SIZE].xy,0.0);
+  float3 tangent = normalize(noise - N * dot(noise,N));
+  float3 bitangent = cross(N, tangent);
+  float3x3 TBN = float3x3(tangent, bitangent, N); 
+
+  int2 ssPos;
+
+  float occlusion = 0.0;
+  for(int i = 0; i < NUM_RAN_HEMI_VECS; i++){
+    float3 samplePos = mul(TBN,randHemiVecs[i]);
+    samplePos = position + samplePos*pushConst.lp.ssaoRadius;
+    ssPos = worldToFragCoor(samplePos);
+    float sampleTrueDepth = depthImage[ssPos];
+/* 
+    float4 offset = float4(samplePos,1.0);
+    offset = mul(sceneInfo.projMatrix,offset);
+    offset.xyz /= offset.w;
+    offset.xyz = offset.xyz * 0.5 + 0.5;
+    float sampleDepth = depthImage[int2(offset.xy)];
+     */
+    float sampleDepth = length(sceneInfo.cameraPosition.xyz-samplePos);
+    occlusion += (sampleTrueDepth >= sampleDepth + pushConst.lp.ssaoBias ? 1.0 : 0.0);
+  }
+
+  occlusion = 1.0 - (occlusion / NUM_RAN_HEMI_VECS);
+
+  //outImage[int2(fragCoord)] = float4(occlusion,occlusion,occlusion,1.0);
+  outImage[int2(fragCoord)] = float4(float2(worldToFragCoor(position))/iResolution,0.0,1.0);
 }
