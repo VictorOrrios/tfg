@@ -50,7 +50,6 @@ static repetitionOpF repFTable[3] = {opNone, opLimRepetition, opRepetition};
 static constexpr const char *DeformationOpNames[] = {
   "None",
   "Elongate",
-  "Terrain",
 };
 using deformationOpF = glm::vec3 (*)(const glm::vec3 &, const glm::vec3 &);
 static deformationOpF defFTable[2] = {opNone, opElongate};

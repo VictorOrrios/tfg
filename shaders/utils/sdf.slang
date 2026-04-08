@@ -93,6 +93,29 @@ float sdTorus(float3 p){
   return sdTorus(p,float2(0.275,0.15));
 }
 
+float sdHexPrism(float3 p, float2 h){
+  const float3 k = float3(-0.8660254, 0.5, 0.57735);
+  p = abs(p);
+  p.xy -= 2.0*min(dot(k.xy, p.xy), 0.0)*k.xy;
+  float2 d = float2(
+       length(p.xy-float2(clamp(p.x,-k.z*h.x,k.z*h.x), h.x))*sign(p.y-h.x),
+       p.z-h.y );
+  return min(max(d.x,d.y),0.0) + length(max(d,0.0));
+}
+
+float sdOctahedron(float3 p, float s){
+  p = abs(p);
+  float m = p.x+p.y+p.z-s;
+  float3 q;
+       if( 3.0*p.x < m ) q = p.xyz;
+  else if( 3.0*p.y < m ) q = p.yzx;
+  else if( 3.0*p.z < m ) q = p.zxy;
+  else return m*0.57735027;
+    
+  float k = clamp(0.5*(q.z-q.y+s),0.0,s); 
+  return length(float3(q.x,q.y-s+k,q.z-k)); 
+}
+
 float sdEmpty(float3 p) { return 1000000.0f; }
 
 // Made by Victor :p
@@ -113,64 +136,81 @@ float sdSnowMan(float3 point){
 }
 
 uint pcgHash(uint x) {
-    x = x * 747796405u + 2891336453u;
-    x = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u;
-    x = (x >> 22u) ^ x;
-    return x;
+  x = x * 747796405u + 2891336453u;
+  x = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u;
+  x = (x >> 22u) ^ x;
+  return x;
 }
 
-uint hash(uint3 p) {
-    uint h = p.x * 1664525u + p.y * 1013904223u + p.z * 374761393u;
-    return pcgHash(h);
-}
-
-float hashf(uint3 p) {
-    return float(hash(p)) / 4294967295.0;
+float3 hash3(float3 p){
+  p = frac(p * 0.1031);
+  p += dot(p, p.yzx + 33.33);
+  return frac((p.xxy + p.yzz) * p.zyx);
 }
 
 float smin(float a, float b, float k){
-    float h = max(k-abs(a-b),0.0);
-    return min(a, b) - h*h*0.25/k;
+  float h = max(k-abs(a-b),0.0);
+  return min(a, b) - h*h*0.25/k;
 }
 
 float smax(float a, float b, float k){
-    float h = max(k-abs(a-b),0.0);
-    return max(a, b) + h*h*0.25/k;
+  float h = max(k-abs(a-b),0.0);
+  return max(a, b) + h*h*0.25/k;
 }
 
-float sph(float3 i,float3 f,float3 c){
-    // random radius at grid vertex i+c (please replace this hash by
-    // something better if you plan to use this for a real application)
-    float3  p = 17.0*fract( (i+c)*0.3183099+float3(0.11,0.17,0.13) );
-    float w = fract( p.x*p.y*p.z*(p.x+p.y+p.z) );
-    float r = 0.7*w*w;
-    // distance to sphere at grid vertex i+c
-    return length(f-c) - r; 
+float sphSphere(float3 i,float3 f,float3 c){
+  float3 p = 17.0*fract(hash3(i+c)+float3(0.11,0.17,0.13));
+  float w = fract( p.x*p.y*p.z*(p.x+p.y+p.z) );
+  float r = 0.7*w*w;
+  return length(f-c) - r; 
 }
 
-float sdBase(float3 p){
+float sphOctahedron(float3 i,float3 f,float3 c){
+  float3 p = 17.0*fract(hash3(i+c)+float3(0.11,0.17,0.13));
+  float w = fract( p.x*p.y*p.z*(p.x+p.y+p.z) );
+  float r = 0.7*w*w;
+  return sdOctahedron(f-c,r);
+}
+
+float sdBaseSphere(float3 p){
   int3 i = int3(floor(p));
   float3 f = fract(p);
-  // distance to the 8 corners spheres
-  return min(min(min(sph(i,f,int3(0,0,0)),
-                    sph(i,f,int3(0,0,1))),
-                min(sph(i,f,int3(0,1,0)),
-                    sph(i,f,int3(0,1,1)))),
-            min(min(sph(i,f,int3(1,0,0)),
-                    sph(i,f,int3(1,0,1))),
-                min(sph(i,f,int3(1,1,0)),
-                    sph(i,f,int3(1,1,1)))));
+  return min(min(min(sphSphere(i,f,int3(0,0,0)),
+                    sphSphere(i,f,int3(0,0,1))),
+                min(sphSphere(i,f,int3(0,1,0)),
+                    sphSphere(i,f,int3(0,1,1)))),
+            min(min(sphSphere(i,f,int3(1,0,0)),
+                    sphSphere(i,f,int3(1,0,1))),
+                min(sphSphere(i,f,int3(1,1,0)),
+                    sphSphere(i,f,int3(1,1,1)))));
+}
+
+float sdBaseOctahedron(float3 p){
+  int3 i = int3(floor(p));
+  float3 f = fract(p);
+  return min(min(min(sphOctahedron(i,f,int3(0,0,0)),
+                    sphOctahedron(i,f,int3(0,0,1))),
+                min(sphOctahedron(i,f,int3(0,1,0)),
+                    sphOctahedron(i,f,int3(0,1,1)))),
+            min(min(sphOctahedron(i,f,int3(1,0,0)),
+                    sphOctahedron(i,f,int3(1,0,1))),
+                min(sphOctahedron(i,f,int3(1,1,0)),
+                    sphOctahedron(i,f,int3(1,1,1)))));
 }
 
 float applyTerrainOp(float3 p, float d, int octaves, float4 terrain, float minD){
-  float s = terrain.x;
+  float s = terrain.x, n;
   for(int i=0; i<octaves; i++){
-    // evaluate new octave
-    float n = s*sdBase(p);
 
-    // add
-    n = smax(n,d-terrain.z*s,terrain.w*s);
-    d = smin(n,d            ,terrain.w*s);
+    if(i==0){
+      n = s*sdBaseOctahedron(p);
+      n = smax(n, d - terrain.z * s*2, terrain.w * s);
+      d = smin(n, d,               terrain.w/4.0 * s);
+    }else{
+      n = s*sdBaseSphere(p);
+      n = smax(n, d - terrain.z * s, terrain.w * s);
+      d = smin(n, d,               terrain.w * s);
+    }
 
     // prepare next octave
     p = mul(float3x3( 0.00, 1.60, 1.20,
