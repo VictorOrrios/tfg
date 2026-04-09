@@ -101,6 +101,7 @@ const char* DebugModes[] = {
     "Depth",
     "Shadow",
     "Position",
+    "SSAO",
     "Bounding boxes",
 };
 
@@ -315,8 +316,9 @@ public:
      
       ImGui::Separator();
       ImGui::Text("SSAO");
-      ImGui::SliderFloat("Radius", &m_pushConst.lp.ssaoRadius, 0.0f, 1.0f);
+      ImGui::SliderFloat("Radius", &m_pushConst.lp.ssaoRadius, 0.0f, 5.0f);
       ImGui::SliderFloat("Bias", &m_pushConst.lp.ssaoBias, 0.0f, 0.5f);
+      ImGui::SliderFloat("Max distance", &m_pushConst.lp.ssaoMaxD, 0.0f, 30.0f);
     }
     
     if(!ImGui::CollapsingHeader("Debug colors")){
@@ -564,6 +566,9 @@ public:
     // Dispatch
     VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE_2D);
     vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
+    // Wait for render target to be done
+    nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgRendered), VK_IMAGE_LAYOUT_GENERAL,
+                                      VK_IMAGE_LAYOUT_GENERAL});
   }
 
   void raytracingPass(VkCommandBuffer cmd){
@@ -698,7 +703,7 @@ public:
                             m_gBuffers.getDescriptorImageInfo(eImgTonemapped));
 
     // Wait for render target to be done
-    nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgRendered), VK_IMAGE_LAYOUT_GENERAL,
+    nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgTonemapped), VK_IMAGE_LAYOUT_GENERAL,
                                       VK_IMAGE_LAYOUT_GENERAL});
   }
 
@@ -748,12 +753,12 @@ public:
     nvvk::GBufferInitInfo gBufferInit{
         .allocator      = &m_alloc,
         .colorFormats   = {
-          VK_FORMAT_A2B10G10R10_UNORM_PACK32, // Normal buffer
+          VK_FORMAT_R32G32B32A32_SFLOAT, // Normal buffer
           VK_FORMAT_R8G8B8A8_UNORM,           // Albedo buffer
           VK_FORMAT_R32G32B32A32_SFLOAT,      // Render target
           VK_FORMAT_R8G8B8A8_UNORM,           // Tonemapped
           VK_FORMAT_R8_UNORM,                 // Shadow buffer
-          VK_FORMAT_R8G8B8A8_SRGB,            // Position buffer
+          VK_FORMAT_R32G32B32A32_SFLOAT,            // Position buffer
         },          
         .depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
         .imageSampler   = linearSampler,
@@ -809,7 +814,7 @@ public:
       std::vector<float> noise;
       noise.reserve(size);
       for(int i = 0; i < size; i++){
-        noise.push_back(randomFloat());
+        noise.push_back(randomFloat2());
       }
       NVVK_CHECK(m_stagingUploader.appendImage(m_noiseTex,std::span(noise)));
       
@@ -1285,16 +1290,16 @@ public:
       randomVecs.reserve(size);
       for(int i = 0; i<size; i++){
         glm::vec3 sample(
-          randomFloat(),
-          randomFloat()/2.0f + 0.5f,
-          randomFloat()
+          randomFloat2(),
+          randomFloat2(),
+          randomFloat1()
         );
         sample = glm::normalize(sample);
-        sample *= randomFloat()/2.0f + 0.5f;
+        sample *= randomFloat1();
         float scale = float(i)/size;
         scale = glm::mix(0.1f,1.0f,scale*scale);
         sample *= scale;
-        randomVecs[i] = sample;
+        randomVecs.push_back(sample);
       }
       NVVK_CHECK(allocator->createBuffer(m_randomHemiVecB,
                                      size*sizeof(float),
@@ -1597,9 +1602,10 @@ public:
     m_currCamId0 = glm::floor(m_cameraManip->getEye()/shaderio::BRICK_SIZES[0]);
     const glm::vec3& id0Pos = glm::vec3(m_currCamId0)*shaderio::BRICK_SIZES[0];
 
-    m_sceneInfo.viewMatrix = glm::inverse(viewMatrix);
-    m_sceneInfo.projMatrix = glm::inverse(projMatrix);
-    m_sceneInfo.viewProjMatrix = glm::inverse(projMatrix * viewMatrix);
+    m_sceneInfo.viewMatrix = viewMatrix;
+    m_sceneInfo.projMatrix = projMatrix;
+    m_sceneInfo.viewMatrixInv = glm::inverse(viewMatrix);
+    m_sceneInfo.projMatrixInv = glm::inverse(projMatrix);
     m_sceneInfo.cameraPosition = glm::vec4(m_cameraManip->getEye(),0.0);
     m_sceneInfo.cameraId0 = glm::ivec4(m_currCamId0,0);
     m_sceneInfo.cameraId0Pos = glm::vec4(id0Pos,0);

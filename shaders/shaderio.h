@@ -115,7 +115,7 @@ const static uint UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTE
 
 // Noise texture size
 #define NOISE_TEX_SIZE 1024
-#define NUM_RAN_HEMI_VECS 64
+#define NUM_RAN_HEMI_VECS 1
 
 // Shared between Host and Device
 enum BindingPoints{
@@ -150,6 +150,18 @@ enum Counters{
   allocCounter = 2
 };
 
+enum DebugModes{
+  dmNone = 0,
+  dmDebug,
+  dmAlbedo,
+  dmNormal,
+  dmDepth,
+  dmShadow,
+  dmPosition,
+  dmSSAO,
+  dmBoundingBox
+};
+
 struct LightinParams{
   float3 lightDir       = normalize(float3(0.9f,0.2f,0.2f));
   float3 lightColor     = float3(0.644, 0.635, 0.608);
@@ -159,6 +171,7 @@ struct LightinParams{
   float  fogDensity     = 0.03F;
   float  ssaoRadius     = 0.5f;
   float  ssaoBias       = 0.025f;
+  float  ssaoMaxD       = 6.0f;
 };
 
 struct DebugParams{
@@ -175,7 +188,8 @@ struct PushConstant{
 };
 
 struct SceneInfo{
-  float4x4  viewProjMatrix;
+  float4x4  viewMatrixInv;
+  float4x4  projMatrixInv;
   float4x4  viewMatrix;
   float4x4  projMatrix;
   float4    cameraPosition;

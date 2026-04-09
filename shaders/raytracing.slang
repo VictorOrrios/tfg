@@ -318,8 +318,8 @@ Ray get_ray(float2 uv){
   float2 ndc = uv * 2.0 - 1.0;
   float4 rayClip = float4(ndc.x, ndc.y, -1.0, 1.0);
 
-  float4 view = mul(rayClip,sceneInfo.projMatrix);
-  float3 world = mul(float4(normalize(view.xyz),0.0),sceneInfo.viewMatrix).xyz;
+  float4 view = mul(rayClip,sceneInfo.projMatrixInv);
+  float3 world = mul(float4(normalize(view.xyz),0.0),sceneInfo.viewMatrixInv).xyz;
   float3 dir = normalize(world);
 
   Ray ray;

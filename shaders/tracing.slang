@@ -46,11 +46,11 @@
 
 #ifdef NDEBUGSHADER
 // TODO: Change to false for final release and boost performance
-const static bool debugColor = pushConst.debug.mode == 1;
-const static bool bboxColor = pushConst.debug.mode == 7;
+const static bool debugColor = pushConst.debug.mode == DebugModes::dmDebug;
+const static bool bboxColor = pushConst.debug.mode == DebugModes::dmBoundingBox;
 #else
-const static bool debugColor = pushConst.debug.mode == 1;
-const static bool bboxColor = pushConst.debug.mode == 7;
+const static bool debugColor = pushConst.debug.mode == DebugModes::dmDebug;
+const static bool bboxColor = pushConst.debug.mode == DebugModes::dmBoundingBox;
 #endif
 
 
@@ -1027,13 +1027,17 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal){
   }
 }
 
+float3 worldToViewSpace(float3 worldP){
+  return mul(float4(worldP, 1.0),sceneInfo.viewMatrix).xyz;
+}
+
 Ray get_ray(float2 uv){
   // Calculate offsets
   float2 ndc = uv * 2.0 - 1.0;
   float4 rayClip = float4(ndc.x, ndc.y, -1.0, 1.0);
 
-  float4 view = mul(rayClip,sceneInfo.projMatrix);
-  float3 world = mul(float4(normalize(view.xyz),0.0),sceneInfo.viewMatrix).xyz;
+  float4 view = mul(rayClip,sceneInfo.projMatrixInv);
+  float3 world = mul(float4(normalize(view.xyz),0.0),sceneInfo.viewMatrixInv).xyz;
   float3 dir = normalize(world);
 
   Ray ray;
@@ -1098,5 +1102,5 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   normalImage[int2(fragCoord)] = float4(normal, 0.0F);
   depthImage[int2(fragCoord)] = depth;
   shadowImage[int2(fragCoord)] = shadow;
-  positionImage[int2(fragCoord)] = float4(position,0.0);
+  positionImage[int2(fragCoord)] = float4(worldToViewSpace(position),0.0);
 }

@@ -1,4 +1,5 @@
 
 void initRandom();
 
-float randomFloat();
+float randomFloat1();
+float randomFloat2();
