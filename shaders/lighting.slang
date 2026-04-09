@@ -64,10 +64,6 @@ int2 worldToFragCoor(float3 worldP){
   return int2(uv * iResolution);
 }
 
-float3 worldPointToViewSpace(float3 worldP){
-  return mul(float4(worldP, 1.0),sceneInfo.viewMatrix).xyz;
-}
-
 int2 viewPointToScreenCoors(float3 viewP){
   float4 clipPos = mul(float4(viewP,1.0), sceneInfo.projMatrix);
   float3 ndc = clipPos.xyz / clipPos.w;
@@ -79,13 +75,6 @@ float3 worldVecToViewSpace(float3 worldP){
   return mul(float4(worldP, 0.0),sceneInfo.viewMatrix).xyz;
 }
 
-int2 viewVecToScreenCoors(float3 viewP){
-  float4 clipPos = mul(float4(viewP,0.0), sceneInfo.projMatrix);
-  float3 ndc = clipPos.xyz / clipPos.w;
-  float2 uv = ndc.xy * 0.5 + 0.5;
-  return int2(uv * iResolution);
-}
-
 float ssao(float2 fragCoord, float3 N, float3 fragPos){
   float3 NView = worldVecToViewSpace(N);
   float3 noise = float3(noiseImage[int2(fragCoord)%NOISE_TEX_SIZE].xy,0.0);
@@ -93,20 +82,15 @@ float ssao(float2 fragCoord, float3 N, float3 fragPos){
   float3 bitangent = cross(NView, tangent);
   float3x3 TBN = float3x3(tangent, bitangent, NView); 
 
-  float depth = clamp(-fragPos.z,0.0,pushConst.lp.ssaoMaxD);
-  float distanceFactor = 1.0 - smoothstep(0.0, pushConst.lp.ssaoMaxD, depth);
-
   float3 samplePos;
   float occlusion = 0.0;
   for(int i = 0; i < NUM_RAN_HEMI_VECS; i++){
-    samplePos = mul(randHemiVecs[i],TBN);
-    samplePos = fragPos + samplePos*pushConst.lp.ssaoRadius;
+    float3 sampleOffset = mul(randHemiVecs[i], TBN) * pushConst.lp.ssaoRadius;
+    samplePos = fragPos + sampleOffset;
     int2 sampleCoor = viewPointToScreenCoors(samplePos);
     float sampleDepth = positionImage[sampleCoor].z;
-    float depthDiff = abs(fragPos.z - sampleDepth);
-    float rangeCheck = 1.0 - smoothstep(0.0, pushConst.lp.ssaoRadius * 2.0, depthDiff);
-    float distanceBias = pushConst.lp.ssaoBias * (1.0 + abs(fragPos.z) * 0.01);
-    occlusion += (sampleDepth >= samplePos.z + distanceBias ? 1.0 : 0.0) * rangeCheck;
+    float rangeCheck = smoothstep(0.0, 1.0, pushConst.lp.ssaoRadius / abs(fragPos.z - sampleDepth));
+    occlusion += (sampleDepth >= samplePos.z + pushConst.lp.ssaoBias ? 1.0 : 0.0) * rangeCheck;
   }
 
   occlusion = 1.0 - (occlusion / NUM_RAN_HEMI_VECS);
@@ -207,30 +191,38 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   }else{
     outImage[int2(fragCoord)] = float4(finalColor, 1.0F);
   }
-
+/* 
   float3 NView = worldVecToViewSpace(N);
-  float3 noiseRaw = float3(noiseImage[int2(fragCoord) % NOISE_TEX_SIZE].xy, 0.0);
-  float3 noise = normalize(noiseRaw);
-  float3 tangent = normalize(noise - NView * dot(noise,NView));
+  float3 noise = float3(noiseImage[int2(fragCoord)%NOISE_TEX_SIZE].xy,0.0);
+  
+  float3 altN = float3(1,0,0);
+  if(abs(dot(altN,NView))>0.99){
+    altN = float3(0,1,0);
+  }
+  float3 tangent = cross(altN,NView);
+  
+  //float3 tangent = normalize(noise - NView * dot(noise,NView));
   float3 bitangent = cross(NView, tangent);
   float3x3 TBN = float3x3(tangent, bitangent, NView); 
 
+  float debug;
   float3 samplePos;
   float occlusion = 0.0;
   for(int i = 0; i < NUM_RAN_HEMI_VECS; i++){
     samplePos = mul(randHemiVecs[i],TBN);
+    samplePos = mul(float3(0,0,1),TBN);
     samplePos = fragPos + samplePos*pushConst.lp.ssaoRadius;
     int2 sampleCoor = viewPointToScreenCoors(samplePos);
     float sampleDepth = positionImage[sampleCoor].z;
-    float depthDiff = abs(fragPos.z - sampleDepth);
-    float rangeCheck = 1.0 - smoothstep(0.0, pushConst.lp.ssaoRadius * 2.0, depthDiff);
-    float distanceBias = pushConst.lp.ssaoBias * (1.0 + abs(fragPos.z) * 0.01);
-    occlusion += (sampleDepth >= samplePos.z + distanceBias ? 1.0 : 0.0) * rangeCheck;
+    float rangeCheck = smoothstep(0.0, 1.0, pushConst.lp.ssaoRadius / abs(fragPos.z - sampleDepth));
+    occlusion += (sampleDepth >= samplePos.z + pushConst.lp.ssaoBias ? 1.0 : 0.0) * rangeCheck;
+    debug = occlusion;
   }
 
   occlusion = 1.0 - (occlusion / NUM_RAN_HEMI_VECS);
 
   float3 final = occlusion;
   outImage[int2(fragCoord)] = float4(final,1.0);
+ */
 
 }

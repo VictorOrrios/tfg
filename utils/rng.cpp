@@ -11,5 +11,5 @@ float randomFloat1(){
 }
 
 float randomFloat2(){
-    return (float(std::rand())/RAND_MAX)*2 - 1.0;
+    return (float(std::rand())/RAND_MAX)*2.0 - 1.0;
 }

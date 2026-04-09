@@ -1075,9 +1075,9 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   if(!hit){
     albedo = float3(0);
     debug = r.dir;
-    position = float3(0.0);
+    position = float3(0.0,0.0,1000000.0);
   }else{
-    position = r.orig + r.dir*depth;
+    position = worldToViewSpace(r.orig + r.dir*depth);
   }
 
   if(debugColor){
@@ -1102,5 +1102,5 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   normalImage[int2(fragCoord)] = float4(normal, 0.0F);
   depthImage[int2(fragCoord)] = depth;
   shadowImage[int2(fragCoord)] = shadow;
-  positionImage[int2(fragCoord)] = float4(worldToViewSpace(position),0.0);
+  positionImage[int2(fragCoord)] = float4(position,0.0);
 }
