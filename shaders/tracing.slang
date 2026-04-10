@@ -1075,7 +1075,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   if(!hit){
     albedo = float3(0);
     debug = r.dir;
-    position = float3(0.0,0.0,1000000.0);
+    position = float3(0.0,0.0,-1000000.0);
   }else{
     position = worldToViewSpace(r.orig + r.dir*depth);
   }

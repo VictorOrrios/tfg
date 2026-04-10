@@ -318,7 +318,6 @@ public:
       ImGui::Text("SSAO");
       ImGui::SliderFloat("Radius", &m_pushConst.lp.ssaoRadius, 0.0f, 5.0f);
       ImGui::SliderFloat("Bias", &m_pushConst.lp.ssaoBias, 0.0f, 0.5f);
-      ImGui::SliderFloat("Max distance", &m_pushConst.lp.ssaoMaxD, 0.0f, 30.0f);
     }
     
     if(!ImGui::CollapsingHeader("Debug colors")){
@@ -1288,21 +1287,38 @@ public:
       int size = NUM_RAN_HEMI_VECS;
       std::vector<glm::vec3> randomVecs;
       randomVecs.reserve(size);
-      for(int i = 0; i<size; i++){
-        glm::vec3 sample(
-          randomFloat2(),
-          randomFloat2(),
-          randomFloat1()
-        );
+      for(int i = 0; i < size; i++){
+        glm::vec3 sample;
+        bool degenerate = true;
+        
+        while(degenerate) {
+          sample = glm::vec3(
+              randomFloat2(),
+              randomFloat2(),
+              randomFloat1()
+          );
+
+          if(abs(sample.x) < 0.01f || abs(sample.y) < 0.01f || abs(sample.z) < 0.1f) degenerate = true;
+          else degenerate = false;
+        }
+        
         sample = glm::normalize(sample);
-        sample *= randomFloat1();
-        float scale = float(i)/size;
-        scale = glm::mix(0.1f,1.0f,scale*scale);
+        float scale = float(i) / size;
+        scale = glm::mix(0.1f, 1.0f, scale * scale);
         sample *= scale;
+        sample.z = glm::max(1e-4f,sample.z);
+
         randomVecs.push_back(sample);
       }
+      /*
+      int i = 0;
+      for(auto x: randomVecs){
+        LOGI("RH: %f,%f,%f %i\n",x.x,x.y,x.z,i);
+        i++;
+      }
+        */
       NVVK_CHECK(allocator->createBuffer(m_randomHemiVecB,
-                                     size*sizeof(float),
+                                     size*sizeof(glm::vec3),
                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
                                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
                                         ));

@@ -171,7 +171,6 @@ struct LightinParams{
   float  fogDensity     = 0.03F;
   float  ssaoRadius     = 0.5f;
   float  ssaoBias       = 0.025f;
-  float  ssaoMaxD       = 6.0f;
 };
 
 struct DebugParams{
