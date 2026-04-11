@@ -156,9 +156,12 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 
   if(debugActive){
     if(pushConst.debug.brickPercent && uv.x<=0.01){
-      float percent = (counters[Counters::allocCounter] - counters[Counters::freeCounter]) / float(NUM_BRICKS_IN_ATLAS);
-      if(percent > (1.0-uv.y)){
-        outImage[int2(fragCoord)] = float4(1.0);
+      float freeUv = fract(counters[Counters::freeCounter] / float(NUM_BRICKS_IN_ATLAS));
+      float allocUv = fract(counters[Counters::allocCounter] / float(NUM_BRICKS_IN_ATLAS));
+      float percent = (counters[Counters::allocCounter] -counters[Counters::freeCounter]) / float(NUM_BRICKS_IN_ATLAS);
+      if(((uv.y <= allocUv && uv.y >= freeUv) && (allocUv > freeUv)) ||
+         ((uv.y <= allocUv || uv.y >= freeUv) && (allocUv < freeUv))){
+        outImage[int2(fragCoord)] = float4(scalarToColor(percent),1.0);
       }else{
         outImage[int2(fragCoord)] = float4(0.0);
       }

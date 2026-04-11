@@ -41,7 +41,7 @@ NAMESPACE_SHADERIO_BEGIN()
 // Buffers static max limit
 #define MAX_SCENE_OBJECTS 1024
 #define MAX_MATERIALS 32
-#define BRICK_PER_ATLAS_AXIS 1024
+#define BRICK_PER_ATLAS_AXIS 512
 const static int NUM_BRICKS_IN_ATLAS = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS;
 
 // Global grid parameters

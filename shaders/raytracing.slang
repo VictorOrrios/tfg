@@ -12,6 +12,7 @@
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::shadowBuffer)]] RWTexture2D<float> shadowImage;
+[[vk::binding(BindingPoints::positionBuffer)]] RWTexture2D<float4> positionImage;
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 [[vk::binding(BindingPoints::tLas)]] RaytracingAccelerationStructure topLevelAS;
@@ -216,13 +217,12 @@ float3 getAlbedoBlend(float3 p){
 
 bool sphereTraceBrick(Ray r, int pointer, float3 brickPos, int level, out float depth){
   const int MAX_ITERATIONS = BRICK_SIZE * 5;
-  depth = 0.0;
-
+  const float eps = 1e-4;
+  depth = -1.0;
 
   const float brick_size = BRICK_SIZES[level];
   const float voxel_size = VOXEL_SIZES[level];
   const float max_voxel_value = MAX_VOXEL_VALUES[level];
-  const float epsilon = VOXEL_SIZES[level]/128;
   float3 p = r.orig;
   float3 diff = p - brickPos;
   float4 sBottom,sTop;
@@ -313,6 +313,10 @@ float sphereTraceBbox(Ray r, Bbox bbox){
     return -1;
 }
 
+float3 worldToViewSpace(float3 worldP){
+  return mul(float4(worldP, 1.0),sceneInfo.viewMatrix).xyz;
+}
+
 Ray get_ray(float2 uv){
   // Calculate offsets
   float2 ndc = uv * 2.0 - 1.0;
@@ -333,7 +337,7 @@ Ray get_ray(float2 uv){
 [shader("raygeneration")]
 void rgenMain()
 {
-  float depth, shadow; float3 albedo, normal, debug;
+  float depth, shadow; float3 albedo, normal, debug, position;
 
   // Get the current pixel coordinates and image dimensions
   float2 launchID = (float2)DispatchRaysIndex().xy;     // Current pixel (x,y)
@@ -374,10 +378,13 @@ void rgenMain()
   if(!hit){
     albedo = float3(0);
     debug = r.dir;
+    position = float3(0.0,0.0,-1000000.0);
+  }else{
+    position = worldToViewSpace(r.orig + r.dir*depth);
   }
 
   if(debugColor || bboxColor){
-      albedo = debug;
+    albedo = debug;
   }
 
   // Shadow ray experiment
@@ -401,6 +408,7 @@ void rgenMain()
   albedoImage[int2(launchID)] = float4(albedo,1.0F);
   depthImage[int2(launchID)] = depth;
   shadowImage[int2(launchID)] = shadow;
+  positionImage[int2(launchID)] = float4(position,0.0);
 }
 
 
@@ -408,6 +416,7 @@ void rgenMain()
 void rintMain()
 {
   const float eps = 1e-4;
+  const float epsOrig = 1e-5;
 
   IntersectionPayload payload;
   Ray r; 
