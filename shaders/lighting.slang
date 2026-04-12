@@ -18,67 +18,16 @@
  */
 // TODO: Change banner
 
-#include "shaderio.h"
-#include "utils/palettes.slang"   // Debug color palette
-
-[[vk::push_constant]]  ConstantBuffer<PushConstant> pushConst;
-
-[[vk::binding(BindingPoints::renderTarget)]] RWTexture2D<float4> outImage;
-[[vk::binding(BindingPoints::normalBuffer)]] Texture2D<float4> normalImage;
-[[vk::binding(BindingPoints::albedoBuffer)]] Texture2D<float4> albedoImage;
-[[vk::binding(BindingPoints::depthBuffer)]] Texture2D<float> depthImage;
-[[vk::binding(BindingPoints::shadowBuffer)]] Texture2D<float> shadowImage;
-[[vk::binding(BindingPoints::positionBuffer)]] Texture2D<float4> positionImage;
-[[vk::binding(BindingPoints::noise)]] Texture2D<float4> noiseImage;
-[[vk::binding(BindingPoints::randHemiVecs)]] StructuredBuffer<float3> randHemiVecs;
-[[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
-[[vk::binding(BindingPoints::counters)]] StructuredBuffer<uint32_t> counters;
-
-#ifdef NDEBUGSHADER
-// TODO: Change to false for final release and boost performance
-const static bool debugActive = true;
-#else
-const static bool debugActive = true;
-#endif
+#include "shaderio.h"                 // Shared definitions with CPU
+#include "utils/palettes.slang"       // Debug color palette
+#include "utils/descriptors.slang"    // External memory definitions
+#include "utils/transforms.slang"     // World/View/Clip transforms
 
 static uint2 iResolution;
 
-float3 getV(float2 uv){
-  float2 ndc = uv * 2.0 - 1.0;
-  float4 rayClip = float4(ndc.x, ndc.y, -1.0, 1.0);
-
-  float4 view = mul(rayClip,sceneInfo.projMatrixInv);
-  float3 world = mul(float4(normalize(view.xyz),0.0),sceneInfo.viewMatrixInv).xyz;
-  return normalize(world);
-}
-
-float3 scalarToColor(float x){
-  return scalarToColor(x, pushConst.debug.palette);
-}
-
-int2 worldToFragCoor(float3 worldP){
-  float4 viewPos = mul(float4(worldP, 1.0), sceneInfo.viewMatrix);
-  float4 clipPos = mul(viewPos, sceneInfo.projMatrix);
-  float3 ndc = clipPos.xyz / clipPos.w;
-  float2 uv = saturate(ndc.xy * 0.5 + 0.5);
-  return int2(uv * iResolution);
-}
-
-int2 viewPointToScreenCoors(float3 viewP){
-  float4 clipPos = mul(float4(viewP,1.0), sceneInfo.projMatrix);
-  float3 ndc = clipPos.xyz / clipPos.w;
-  if (any(ndc.xy < -1.0) || any(ndc.xy > 1.0) || ndc.z < 0.0 || ndc.z > 1.0) 
-    return int2(-1, -1);
-  float2 uv = ndc.xy * 0.5 + 0.5;
-  return int2(uv * iResolution);
-}
-
-float3 worldVecToViewSpace(float3 worldP){
-  return mul(float4(worldP, 0.0),sceneInfo.viewMatrix).xyz;
-}
 
 float ssao(float2 fragCoord, float3 N, float3 fragPos){
-  float3 NView = worldVecToViewSpace(N);
+  float3 NView = worldVec2viewSpace(N);
   float3 noise = float3(noiseImage[int2(fragCoord)%NOISE_TEX_SIZE].xy,0.0);
   float3 tangent = normalize(noise - NView * dot(noise,NView));
   float3 bitangent = cross(NView, tangent);
@@ -89,7 +38,7 @@ float ssao(float2 fragCoord, float3 N, float3 fragPos){
     float3 randHemiVec = randHemiVecs[i];
     float3 sampleOffset = mul(randHemiVec, TBN) * pushConst.lp.ssaoRadius;
     float3 samplePos = fragPos + sampleOffset;
-    int2 sampleCoor = viewPointToScreenCoors(samplePos);
+    int2 sampleCoor = viewPoint2screenCoors(samplePos, iResolution);
     if(any(sampleCoor < 0)) continue;
     float sampleDepth = positionImage[sampleCoor].z;
     float rangeCheck = smoothstep(0.0, 1.0, pushConst.lp.ssaoRadius / abs(fragPos.z - sampleDepth));
@@ -117,7 +66,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   float occlussion = 0.0;
 
   if(depth >= 0.0){
-    float3 V = getV(uv);
+    float3 V = uv2worldDir(uv);
     float3 L = pushConst.lp.lightDir;
     float3 H = normalize(L+V);
 
@@ -163,7 +112,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
          ((uv.y <= allocUv || uv.y >= freeUv) && (allocUv < freeUv))){
         outImage[int2(fragCoord)] = float4(scalarToColor(percent),1.0);
       }else{
-        outImage[int2(fragCoord)] = float4(0.0);
+        outImage[int2(fragCoord)] = float4(0,0,0,1);
       }
     }else if(uv.x > 0.98 && 
       (pushConst.debug.mode == DebugModes::dmDebug || 

@@ -1,49 +1,74 @@
-#pragma once
-#include "bbox.slang"
+// * Most of the code is from Iñigo Quilez (https://iquilezles.org/)
 
-//------------------------------------------
-// Signed distance functions and operations
-//------------------------------------------
-// Most of the code is from Iñigo Quilez (https://iquilezles.org/)
+#pragma once
+
+#include "../shaderio.h"      // Shared definitions with CPU
+#include "bbox.slang"         // AABB helpers
+#include "descriptors.slang"  // External memory definitions
+#include "materials.slang"    // material functions
+#include "rng.slang"          // Random numbers and hashes
 
 //---------------------------------------
 // Operations
 //---------------------------------------
 
 float opUnion(float a, float b){
-    return min(a,b);
+  return min(a,b);
 }
-float opSubtraction(float a, float b){
-    return max(-a,b);
-}
-float opIntersection(float a, float b){
-    return max(a,b);
-}
-float opXor(float a, float b){
-    return max(min(a,b),-max(a,b));
+float opUnionMat(float a, float b, Material matA, inout Material matB){
+  if(a<b) matB = matA;
+  return min(a,b);
 }
 float opSmoothUnion(float a, float b, float k){
   k *= 4.0;
   float h = max(k-abs(a-b),0.0);
   return min(a, b) - h*h*0.25/k;
 }
+float opSmoothUnionMat(float a, float b, float k, Material matA, inout Material matB){
+  float blend = a/(a+b);
+  matB = lerpMaterial(matA,matB,blend);
+  k *= 4.0;
+  float h = max(k-abs(a-b),0.0);
+  return min(a, b) - h*h*0.25/k;
+}
+
+float opSubtraction(float a, float b){
+  return max(-a,b);
+}
 float opSmoothSubtraction(float a, float b, float k){
   return -opSmoothUnion(a,-b,k);
+}
+
+float opIntersection(float a, float b){
+  return max(a,b);
 }
 float opSmoothIntersection(float a, float b, float k){
   return -opSmoothUnion(-a,-b,k);
 }
 
+float opXor(float a, float b){
+  return max(min(a,b),-max(a,b));
+}
+
 float3 opRepetition(float3 p, float3 spacing) {
   return p - spacing * round(p / max(spacing, 0.00001f));
 }
-
 float3 opLimRepetition(float3 p, float3 spacing, float3 limit) {
   return p - spacing * clamp(round(p / spacing),-limit, limit);
 }
 
 float3 opElongate(float3 p, float3 defP) {
   return p - clamp(p, -defP, defP);
+}
+
+float smin(float a, float b, float k){
+  float h = max(k-abs(a-b),0.0);
+  return min(a, b) - h*h*0.25/k;
+}
+
+float smax(float a, float b, float k){
+  float h = max(k-abs(a-b),0.0);
+  return max(a, b) + h*h*0.25/k;
 }
 
 //---------------------------------------
@@ -135,29 +160,6 @@ float sdSnowMan(float3 point){
   return r * scale;
 }
 
-uint pcgHash(uint x) {
-  x = x * 747796405u + 2891336453u;
-  x = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u;
-  x = (x >> 22u) ^ x;
-  return x;
-}
-
-float3 hash3(float3 p){
-  p = frac(p * 0.1031);
-  p += dot(p, p.yzx + 33.33);
-  return frac((p.xxy + p.yzz) * p.zyx);
-}
-
-float smin(float a, float b, float k){
-  float h = max(k-abs(a-b),0.0);
-  return min(a, b) - h*h*0.25/k;
-}
-
-float smax(float a, float b, float k){
-  float h = max(k-abs(a-b),0.0);
-  return max(a, b) + h*h*0.25/k;
-}
-
 float sphSphere(float3 i,float3 f,float3 c){
   float3 p = 17.0*fract(hash3(i+c)+float3(0.11,0.17,0.13));
   float w = fract( p.x*p.y*p.z*(p.x+p.y+p.z) );
@@ -238,8 +240,6 @@ float evalPrimitive(int primType, float3 p){
     case 3: return sdTorus(p);
     case 4: return sdSnowMan(p);
     case 5: return sdPlane(p);
-    //case 5: return sdFbm(p,sdPlane(p,float3(0,1,0),1.0),tp);
-    //case 5: return sdPlane(p,float3(0,1,0),1.0);
   }
 }
 
@@ -251,6 +251,18 @@ float evalCombOp(int opIndex, float d, float result, float smoothness){
     case 1: return opSubtraction(d,result);
     case 2: return opIntersection(d,result);
     case 3: return opSmoothUnion(d,result,smoothness);
+    case 4: return opSmoothSubtraction(d,result,smoothness);
+    case 5: return opSmoothIntersection(d,result,smoothness);
+  }
+}
+float evalCombOpMat(int opIndex, float d, float result, float smoothness, Material matA, inout Material matB){
+  switch(opIndex)
+  {
+    default:
+    case 0: return opUnionMat(d,result,matA,matB);
+    case 1: return opSubtraction(d,result);
+    case 2: return opIntersection(d,result);
+    case 3: return opSmoothUnionMat(d,result,smoothness,matA,matB);
     case 4: return opSmoothSubtraction(d,result,smoothness);
     case 5: return opSmoothIntersection(d,result,smoothness);
   }
@@ -280,17 +292,15 @@ float applyMorphOp(float3 p, float prevPrim, int morphPrim, float morph, float r
   return lerp(prevPrim,mD,morph);
 }
 
-
 //---------------------------------------
 // Scene evaluation function
 //---------------------------------------
-float map(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs, StructuredBuffer<SceneObject> objects, out uint mat){
+float map(float3 point, int level){
   const float iniD = 10000.0f;
   const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
-  mat = 0;
 
-  for(int obIdx = 0; obIdx < numObjects; obIdx++) {
+  for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
     float3 p = float3(point);
     Bbox bbox = aabbs[obIdx];
 
@@ -315,8 +325,6 @@ float map(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs,
     d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
 
     d *= params.scale;
-
-    mat = d<result? params.mat : mat;
 
     result = evalCombOp(params.combOp, d, result, params.smoothness);
   }
@@ -324,87 +332,13 @@ float map(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs,
   return result;
 }
 
-void updateTopK(uint id, float score, inout uint4 ids, inout float4 scores){
-  int replaceIdx = -1;
-  float worstScore = score;
-  for(int i = 0; i < 4; i++){
-    if(ids[i] == id){
-      scores[i] = min(scores[i],score);
-      replaceIdx = -2;
-      break;
-    }
-    
-    if(scores[i] > worstScore){
-      worstScore = scores[i];
-      replaceIdx = i;
-    }
-  }
-
-  if(replaceIdx >= 0){
-    ids[replaceIdx] = id;
-    scores[replaceIdx] = score;
-  }
-}
-
-float4 scores2Weight(uint4 ids, float4 scores){
-  float4 weights = float4(0.0);
-  float sum = 0.0;
-  float epsilon = 0.0001;
-  float minScore = min(0,min(scores.x,min(scores.y,min(scores.z,scores.w))));
-  
-  [unroll]
-  for(int i = 0; i < 4; i++){
-    if(ids[i] >= 0){
-      float score = scores[i]-minScore;
-      weights[i] = rcp(score * score + epsilon);
-      sum += weights[i];
-    }
-  }
-  
-  if(sum > 0.0)
-    weights *= rcp(sum);
-  
-  return weights;
-}
-
-Material lerpMaterial(Material matA, Material matB, float b){
-  matB.albedo = lerp(matA.albedo,matB.albedo,b);
-  matB.roughness = lerp(matA.roughness,matB.roughness,b);
-  matB.metalness = lerp(matA.metalness,matB.metalness,b);
-  return matB;
-}
-
-float opUnion2(float a, float b, Material matA, inout Material matB){
-  if(a<b) matB = matA;
-  return min(a,b);
-}
-float opSmoothUnion2(float a, float b, float k, Material matA, inout Material matB){
-  float blend = a/(a+b);
-  matB = lerpMaterial(matA,matB,blend);
-  k *= 4.0;
-  float h = max(k-abs(a-b),0.0);
-  return min(a, b) - h*h*0.25/k;
-}
-
-float evalCombOp2(int opIndex, float d, float result, float smoothness, Material matA, inout Material matB){
-  switch(opIndex)
-  {
-    default:
-    case 0: return opUnion2(d,result,matA,matB);
-    case 1: return opSubtraction(d,result);
-    case 2: return opIntersection(d,result);
-    case 3: return opSmoothUnion2(d,result,smoothness,matA,matB);
-    case 4: return opSmoothSubtraction(d,result,smoothness);
-    case 5: return opSmoothIntersection(d,result,smoothness);
-  }
-}
-
-float map2(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs, StructuredBuffer<SceneObject> objects, StructuredBuffer<Material> materials, out Material matResult){
+// Map function with material output
+float map(float3 point, int level, out Material matResult){
   const float iniD = 1e5;
   const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
 
-  for(int obIdx = 0; obIdx < numObjects; obIdx++) {
+  for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
     float3 p = float3(point);
     Bbox bbox = aabbs[obIdx];
 
@@ -430,7 +364,7 @@ float map2(float3 point, int level, int numObjects, StructuredBuffer<Bbox> aabbs
 
     d *= params.scale;
 
-    result = evalCombOp2(params.combOp, d, result, params.smoothness,materials[params.mat],matResult);
+    result = evalCombOpMat(params.combOp, d, result, params.smoothness,materials[params.mat],matResult);
   }
 
   return result;

@@ -1,4 +1,5 @@
 #pragma once
+
 #include "../shaderio.h"             // Shared definitions with CPU
 
 //--------------------------------------
@@ -23,7 +24,7 @@ inline int3 id2index(int3 x){
   return ((x % NUM_BRICKS_PER_AXIS) + NUM_BRICKS_PER_AXIS) % NUM_BRICKS_PER_AXIS;
 }
 
-inline int3 id2voxelIndex(int3 x){
+inline int3 id2voxelIdx(int3 x){
   return ((x % NUM_VOXELS_PER_AXIS) + NUM_VOXELS_PER_AXIS) % NUM_VOXELS_PER_AXIS;
 }
 
@@ -31,7 +32,11 @@ inline int3 voxel2offset(int3 x){
   return ((x % (BRICK_SIZE-1)) + (BRICK_SIZE-1)) % (BRICK_SIZE-1);
 }
 
-// Use this instead of id0>>level vecause shift operator truncates and gets negative ids wrong
-inline int3 id0LevelTransform(int3 id0, int level){
-  return int3(floor(float3(id0)/(1<<level)));
+inline int3 brickIdx2clipIdx(int3 id, int level){
+  id.z += NUM_BRICKS_PER_AXIS * level;
+  return id;
+}
+
+inline int3 pointer2atlasIdx(int pointer){
+  return int3(pointer%BRICK_PER_ATLAS_AXIS,pointer/BRICK_PER_ATLAS_AXIS,0)*BRICK_SIZE;
 }

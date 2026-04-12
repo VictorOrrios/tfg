@@ -717,21 +717,17 @@ std::vector<float> Scene::generateDenseGrid() {
   return data;
 }
 
-inline glm::ivec3 id0LevelTransform(glm::ivec3 id0, int level){
-  return glm::floor(glm::vec3(id0)/float(1<<level));
-}
-
 std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox, glm::ivec3 camId0){
   const glm::ivec3 zeros(0);
   const glm::ivec3 max_index(NUM_BRICKS_PER_AXIS-1);
-  const glm::ivec3 hole_min(NUM_BRICKS_PER_AXIS/4);
-  const glm::ivec3 hole_max(NUM_BRICKS_PER_AXIS*3/4-1);
+  const glm::ivec3 hole_min(NUM_BRICKS_PER_AXIS/4+1);
+  const glm::ivec3 hole_max(NUM_BRICKS_PER_AXIS*3/4);
   
   std::vector<shaderio::BuildJob> jobs;
   
   //for(int level=CLIPMAP_LEVELS-1 ; level>=0; level--){
   for(int level=0 ; level<CLIPMAP_LEVELS; level++){
-    glm::ivec3 camId = id0LevelTransform(camId0, level);
+    glm::ivec3 camId = camId0>>level;
 
     glm::ivec3 min_id = glm::floor(bbox.min()/shaderio::BRICK_SIZES[level]);
     glm::ivec3 max_id = glm::floor(bbox.max()/shaderio::BRICK_SIZES[level]);
@@ -747,7 +743,7 @@ std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox, g
     if(
       level > 0 &&
       glm::all(glm::greaterThanEqual(min_rel_id,hole_min)) &&
-      glm::all(glm::lessThanEqual(max_rel_id,hole_max))
+      glm::all(glm::lessThan(max_rel_id,hole_max))
     )
       continue;
 
@@ -774,17 +770,17 @@ std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0,
   std::vector<shaderio::BuildJob> out;
 
   for(int level=0; level<CLIPMAP_LEVELS; level++){
-    glm::ivec3 currCamId = id0LevelTransform(currCamId0,level);
+    glm::ivec3 currCamId = currCamId0>>level;
     glm::ivec3 currMinId = currCamId - NUM_BRICKS_PER_AXIS/2;
-    glm::ivec3 currMaxId = currCamId + NUM_BRICKS_PER_AXIS/2 - 1;
-    glm::ivec3 currHMinId = currCamId - NUM_BRICKS_PER_AXIS/4;
-    glm::ivec3 currHMaxId = currCamId + NUM_BRICKS_PER_AXIS/4 - 1;
+    glm::ivec3 currMaxId = currCamId + NUM_BRICKS_PER_AXIS/2;
+    glm::ivec3 currHMinId = currCamId - NUM_BRICKS_PER_AXIS/4 + 1;
+    glm::ivec3 currHMaxId = currCamId + NUM_BRICKS_PER_AXIS/4;
 
-    glm::ivec3 prevCamId = id0LevelTransform(prevCamId0,level);
+    glm::ivec3 prevCamId = prevCamId0>>level;
     glm::ivec3 prevMinId = prevCamId - NUM_BRICKS_PER_AXIS/2;
-    glm::ivec3 prevMaxId = prevCamId + NUM_BRICKS_PER_AXIS/2 - 1;
-    glm::ivec3 prevHMinId = prevCamId - NUM_BRICKS_PER_AXIS/4;
-    glm::ivec3 prevHMaxId = prevCamId + NUM_BRICKS_PER_AXIS/4 - 1;
+    glm::ivec3 prevMaxId = prevCamId + NUM_BRICKS_PER_AXIS/2;
+    glm::ivec3 prevHMinId = prevCamId - NUM_BRICKS_PER_AXIS/4 + 1;
+    glm::ivec3 prevHMaxId = prevCamId + NUM_BRICKS_PER_AXIS/4;
 
     for(int axis = 0; axis < 3; ++axis){
       if(prevCamId[axis] == currCamId[axis])
@@ -800,15 +796,15 @@ std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0,
         maxId[axis] = prevMinId[axis];
       }
 
-      glm::ivec3 num_b = glm::abs(minId - maxId) + glm::ivec3(1);
+      glm::ivec3 num_b = glm::abs(minId - maxId);
 
       out.push_back({
         .min_id_level=glm::ivec4(minId,level),
         .num_b=glm::ivec4(num_b,0)
       });
 
-      // Hole area -> Grid inner reach
       if(level > 0){
+        // Hole area -> Grid inner reach
         minId = prevHMinId;
         maxId = prevHMaxId;
 
@@ -818,16 +814,14 @@ std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0,
           minId[axis] = currHMaxId[axis];
         }
 
-        num_b = glm::abs(minId - maxId) + glm::ivec3(1);
+        num_b = glm::abs(minId - maxId);
 
         out.push_back({
           .min_id_level=glm::ivec4(minId,level),
           .num_b=glm::ivec4(num_b,0)
         });
-      }
 
-      // Grid inner reach -> Hole area
-      if(level > 0){
+        // Grid inner reach -> Hole area
         minId = currHMinId;
         maxId = currHMaxId;
 
@@ -837,7 +831,7 @@ std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0,
           maxId[axis] = prevHMinId[axis];
         }
 
-        num_b = glm::abs(minId - maxId) + glm::ivec3(1);
+        num_b = glm::abs(minId - maxId);
 
         out.push_back({
           .min_id_level=glm::ivec4(minId,level),
@@ -853,10 +847,14 @@ std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0,
 
 // Splits BuildJobs into chunks that have a max size of MAX_BUILD_JOB_SIZE³
 std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
-  const glm::ivec3 base_min_id = glm::ivec3(buildJ.min_id_level.x,buildJ.min_id_level.y,buildJ.min_id_level.z);
-  const glm::ivec3 base_num_b = glm::ivec3(buildJ.num_b.x,buildJ.num_b.y,buildJ.num_b.z);
-  const glm::ivec3 max_chunk = glm::ivec3(MAX_BUILD_JOB_SIZE);
+  const glm::ivec3 hole_min(NUM_BRICKS_PER_AXIS/4+1);
+  const glm::ivec3 hole_max(NUM_BRICKS_PER_AXIS*3/4);
 
+  const glm::ivec3 base_min_id(buildJ.min_id_level.x,buildJ.min_id_level.y,buildJ.min_id_level.z);
+  const glm::ivec3 base_num_b(buildJ.num_b.x,buildJ.num_b.y,buildJ.num_b.z);
+  const glm::ivec3 max_chunk(MAX_BUILD_JOB_SIZE);
+
+  int level = buildJ.min_id_level.w;
   std::vector<shaderio::BuildJob> out;
 
   for(int z = 0; z<buildJ.num_b.z; z+= MAX_BUILD_JOB_SIZE)
@@ -866,10 +864,11 @@ std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
     glm::ivec3 offset = glm::ivec3(x,y,z);
     glm::ivec3 num_b = glm::min(base_num_b-offset,max_chunk);
     glm::ivec3 min_id = base_min_id+offset;
+
     out.push_back({
-      .min_id_level = glm::ivec4(min_id,buildJ.min_id_level.w),
-      .num_b = glm::ivec4(num_b,0)
-    });
+        .min_id_level = glm::ivec4(min_id,level),
+        .num_b = glm::ivec4(num_b,0)
+      });
   };
 
   return out;

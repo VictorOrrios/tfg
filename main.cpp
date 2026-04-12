@@ -44,7 +44,7 @@
 #include "utils/scene.hpp"
 #include "utils/rng.hpp"
 
-#include "_autogen/tracing.slang.h"
+#include "_autogen/compute_tracing.slang.h"
 #include "_autogen/lighting.slang.h"
 #include "_autogen/raytracing.slang.h"
 #include "_autogen/brick.slang.h"
@@ -1469,7 +1469,7 @@ public:
   void compileAndCreateShaders(){
     SCOPED_TIMER(__FUNCTION__);
 
-    createShaderModule(&m_tracingModule,"tracing.slang",tracing_slang);
+    createShaderModule(&m_tracingModule,"compute_tracing.slang",compute_tracing_slang);
     createShaderModule(&m_lightingModule,"lighting.slang",lighting_slang);
     createShaderModule(&m_rtModule,"raytracing.slang",raytracing_slang);
     createShaderModule(&m_brickJobModule,"brick.slang",brick_slang);

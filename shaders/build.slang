@@ -1,28 +1,8 @@
-#include "shaderio.h"             // Shared definitions with CPU
-#include "utils/common.slang"     // Shared definitions with shaders
-#include "utils/bbox.slang"       // AABB helpers
-#include "utils/sdf.slang"        // SDF functions, operations and primitives
-
-
-//----------------------------
-// External memory definition
-//----------------------------
-[[vk::push_constant]]  ConstantBuffer<PushConstant> pushConst;
-
-[[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
-[[vk::binding(BindingPoints::objects)]] StructuredBuffer<SceneObject> objects;
-[[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
-
-[[vk::binding(BindingPoints::clipMap)]] RWTexture3D<uint32_t> clipMap;
-[[vk::binding(BindingPoints::matAtlas)]] RWTexture3D<uint> matAtlas;
-
-[[vk::binding(BindingPoints::buildJobQ)]] StructuredBuffer<BuildJob> build_job_queue;
-[[vk::binding(BindingPoints::brickJobQ)]] RWStructuredBuffer<BrickJob> brick_job_queue;
-[[vk::binding(BindingPoints::counters)]] RWStructuredBuffer<uint32_t> counters;
-[[vk::binding(BindingPoints::indirectCommands)]] RWStructuredBuffer<DispatchIndirectCommand> indirect_commands;
-[[vk::binding(BindingPoints::freeList)]] RWStructuredBuffer<uint32_t> free_list;
-
-[[vk::binding(BindingPoints::instances)]] RWStructuredBuffer<InstanceData> instances;
+#include "shaderio.h"               // Shared definitions with CPU
+#include "utils/common.slang"       // Shared definitions with shaders
+#include "utils/bbox.slang"         // AABB helpers
+#include "utils/sdf.slang"          // SDF functions, operations and primitives
+#include "utils/descriptors.slang"  // External memory definitions
 
 
 int allocPointer(){
@@ -54,10 +34,10 @@ inline float3x4 createTransform(int3 id, int level){
   float s = brick_size;
   float3 pos = id*brick_size;
   return float3x4(
-        s, 0, 0, pos.x,
-        0, s, 0, pos.y,
-        0, 0, s, pos.z
-    );
+    s, 0, 0, pos.x,
+    0, s, 0, pos.y,
+    0, 0, s, pos.z
+  );
 }
 
 void updateInstance(int instIdx, int3 id, int level){
@@ -73,8 +53,8 @@ void maskInstance(int instIdx){
 [shader("compute")]
 [numthreads(MAX_BUILD_JOB_SIZE, MAX_BUILD_JOB_SIZE, MAX_BUILD_JOB_SIZE)]
 void computeMain(uint3 tId : SV_DispatchThreadID){
-  const int3 hole_min = int3(NUM_BRICKS_PER_AXIS/4);
-  const int3 hole_max = int3(NUM_BRICKS_PER_AXIS*3/4-1);
+  const int3 hole_min = int3(NUM_BRICKS_PER_AXIS/4 + 1);
+  const int3 hole_max = int3(NUM_BRICKS_PER_AXIS*3/4);
 
   const int jobIdx = tId.z/MAX_BUILD_JOB_SIZE;
   const BuildJob job = build_job_queue[jobIdx]; // TODO: Group shared memory might be faster
@@ -88,18 +68,11 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   const int3 brickId = job.min_id_level.xyz + brickOffset;  
 
   // Transform global id to a relative id to the camera id
-  const int3 camId = id0LevelTransform(sceneInfo.cameraId0.xyz,level);
+  const int3 camId = sceneInfo.cameraId0.xyz>>level;
   const int3 relBrickId = brickId - camId + (NUM_BRICKS_PER_AXIS/2);
   
-  // Might not be necesary
-  // Out of bounds brick for this level
-  //if(any(relBrickId < 0) || any(relBrickId > NUM_BRICKS_PER_AXIS-1))
-  //  return; 
- 
- 
   int3 brickIndex = id2index(brickId);
-  int3 clipIndex = brickIndex;
-  clipIndex.z += NUM_BRICKS_PER_AXIS * level;
+  int3 clipIndex = brickIdx2clipIdx(brickIndex,level);
   
   // Atomic OR of dirty bit into clip pointer. To prevent repeted brick jobs
   int prevClipPointer;
@@ -109,7 +82,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     // Brickjob will be executed and the dirty bit cleaned
     BrickJob brickJob = BrickJob(int4(brickId,level));
 
-    const bool brick_inside_hole = level > 0 && all(relBrickId > hole_min) && all(relBrickId <= hole_max);
+    const bool brick_inside_hole = level > 0 && all(relBrickId >= hole_min) && all(relBrickId < hole_max);
     const bool brick_allocated = prevClipPointer < NUM_BRICKS_IN_ATLAS;
 
     // If brick inside hole => Free brick
@@ -125,8 +98,8 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
 
       // Evaluate scene at brick center
       float3 p = (float3(brickId)+0.5)*brick_size;
-      uint mat;
-      float centerSDF = map(p,level,pushConst.numObjects,aabbs,objects,mat);
+      uint mat = 0;
+      float centerSDF = map(p,level);
       
       // Uniform value brick check
       if(abs(centerSDF) > max_brick_value){
@@ -138,14 +111,16 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
         clipMap[clipIndex] = newPointer | DIRTY_BIT;
       }else if(!brick_allocated){
         int newPointer = allocPointer();
+        updateInstance(newPointer,brickId,level);
         clipMap[clipIndex] = newPointer | DIRTY_BIT;
+
         int3 matIndex = int3(newPointer%BRICK_PER_ATLAS_AXIS,newPointer/BRICK_PER_ATLAS_AXIS,0);
         matAtlas[matIndex] = mat;
-        updateInstance(newPointer,brickId,level);
       }else{
+        updateInstance(prevClipPointer,brickId,level);
+
         int3 matIndex = int3(prevClipPointer%BRICK_PER_ATLAS_AXIS,prevClipPointer/BRICK_PER_ATLAS_AXIS,0);
         matAtlas[matIndex] = mat;
-        updateInstance(prevClipPointer,brickId,level);
       }
     }
 

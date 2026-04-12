@@ -1,8 +1,24 @@
 #pragma once
+
+#include "descriptors.slang"  // External memory definitions
+
+//--------------------------------------
+// Debug constants definitions
+//--------------------------------------
+
+#ifdef NDEBUGSHADER
+  // TODO: Change to false for final release and boost performance
+  const static bool debugActive = true;
+#else
+  const static bool debugActive = true;
+#endif
+
+const static bool debugColor = debugActive && pushConst.debug.mode == DebugModes::dmDebug;
+const static bool bboxColor  = debugActive && pushConst.debug.mode == DebugModes::dmBoundingBox;
+
 //--------------------------
 // Scalar to color palettes
 //--------------------------
-
 
 // Palette of dark blue -> pale yellow -> dark red
 float3 paletteBlueGarnet(float x){
@@ -96,8 +112,8 @@ float3 paletteInferno(float t){
 // Returns a color based on a scalar value, used for debug
 // If x is withing [0,1] => gradient of color
 // If x is outside [0,1] => Pure channel color
-float3 scalarToColor(float x, int palette){
-  switch(palette){
+float3 scalarToColor(float x){
+  switch(pushConst.debug.palette){
     default:
     case 0: return paletteMagma(x);
     case 1: return paletteBlueGarnet(x);
