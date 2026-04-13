@@ -138,12 +138,16 @@ class AppElement : public nvapp::IAppElement
   };
 
 public:
-  struct Info
-  {
+  struct Info{
     nvutils::ProfilerManager*   profilerManager{};
     nvutils::ParameterRegistry* parameterRegistry{};
   };
 
+  struct Pipeline{
+    VkPipeline        pipeline{};
+    VkPipelineLayout  layout{};
+    VkShaderModule    shader{};
+  };
 
   AppElement(const Info& info)
       : m_info(info)
@@ -195,9 +199,8 @@ public:
     create3DTextures();             // Creates the different 3d textures used to store voxel grid data
     createAccelerationStructures(); // Creates the bLas and tLas needed for the rt pipeline 
     createDescriptorSetLayout();    // Create the descriptor set layout for the pipelines
-    createPipelineLayouts();        // Create the pipelines layouts
-    compileAndCreateShaders();      // Compile the shaders and create the shader modules
-    createPipelines();              // Create the pipelines using the layouts and the shaders
+    compileShaders();               // Creates and compiles the shaders modules
+    createPipelines();              // Create the pipelines
 
     // Initialize the tonemapper with proe-compiled shader
     m_tonemapper.init(&m_alloc, std::span<const uint32_t>(tonemapper_slang));
@@ -206,6 +209,12 @@ public:
     m_graphicsTimeline = m_info.profilerManager->createTimeline({"Graphics"});
     m_profilerGpuTimer.init(m_graphicsTimeline, app->getDevice(), app->getPhysicalDevice(), app->getQueue(0).familyIndex, true);
     }
+
+  void destroyPipeline(Pipeline* p){
+    VkDevice device = m_app->getDevice();
+    vkDestroyPipeline(device,p->pipeline,nullptr);
+    vkDestroyPipelineLayout(device,p->layout,nullptr);
+  }
 
   //-------------------------------------------------------------------------------
   // Destroy all elements that were created
@@ -217,21 +226,18 @@ public:
     VkDevice device = m_app->getDevice();
 
     m_descPack.deinit();
-    vkDestroyPipeline(device,m_tracingPipeline,nullptr);
-    vkDestroyPipeline(device,m_lightingPipeline,nullptr);
-    vkDestroyPipeline(device,m_rtPipeline,nullptr);
-    vkDestroyPipeline(device,m_brickJobPipeline,nullptr);
-    vkDestroyPipeline(device,m_buildJobPipeline,nullptr);
-    vkDestroyPipelineLayout(device,m_tracingLayout,nullptr);
-    vkDestroyPipelineLayout(device,m_lightingLayout,nullptr);
-    vkDestroyPipelineLayout(device,m_rtPipelineLayout,nullptr);
-    vkDestroyPipelineLayout(device,m_brickJobLayout,nullptr);
-    vkDestroyPipelineLayout(device,m_buildJobLayout,nullptr);
-    vkDestroyShaderModule(device,m_tracingModule,nullptr);
-    vkDestroyShaderModule(device,m_lightingModule,nullptr);
-    vkDestroyShaderModule(device,m_rtModule,nullptr);
-    vkDestroyShaderModule(device,m_brickJobModule,nullptr);
-    vkDestroyShaderModule(device,m_buildJobModule,nullptr);
+
+    destroyPipeline(&m_tracingPipeline);
+    destroyPipeline(&m_lightingPipeline);
+    destroyPipeline(&m_rtPipeline);
+    destroyPipeline(&m_brickJobPipeline);
+    destroyPipeline(&m_buildJobPipeline);
+
+    vkDestroyShaderModule(device,m_tracingPipeline.shader,nullptr);
+    vkDestroyShaderModule(device,m_lightingPipeline.shader,nullptr);
+    vkDestroyShaderModule(device,m_rtPipeline.shader,nullptr);
+    vkDestroyShaderModule(device,m_brickJobPipeline.shader,nullptr);
+    vkDestroyShaderModule(device,m_buildJobPipeline.shader,nullptr);
 
     m_alloc.destroyAcceleration(m_bLas);
     m_alloc.destroyAcceleration(m_tLas);
@@ -537,12 +543,12 @@ public:
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Tracing");
 
     // Bind pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_tracingPipeline);  
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_tracingPipeline.pipeline);  
     // Bind descriptor sets
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_tracingLayout,
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_tracingPipeline.layout,
                             0, 1, m_descPack.getSetPtr(), 0, nullptr);  
     // Push constants
-    vkCmdPushConstants(cmd, m_tracingLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
+    vkCmdPushConstants(cmd, m_tracingPipeline.layout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     // Dispatch
     VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE_2D);
     vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
@@ -556,12 +562,12 @@ public:
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Lighting");
 
     // Bind pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_lightingPipeline);  
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_lightingPipeline.pipeline);  
     // Bind descriptor sets
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_lightingLayout,
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_lightingPipeline.layout,
                             0, 1, m_descPack.getSetPtr(), 0, nullptr);  
     // Push constants
-    vkCmdPushConstants(cmd, m_lightingLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
+    vkCmdPushConstants(cmd, m_lightingPipeline.layout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     // Dispatch
     VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE_2D);
     vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
@@ -575,12 +581,12 @@ public:
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Tracing");
 
     // Bind pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline);  
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline.pipeline);  
     // Bind descriptor sets
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipelineLayout,
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline.layout,
                             0, 1, m_descPack.getSetPtr(), 0, nullptr);  
     // Push constants
-    vkCmdPushConstants(cmd, m_rtPipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
+    vkCmdPushConstants(cmd, m_rtPipeline.layout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     // Dispatch
     const VkExtent2D& group_counts = m_app->getViewportSize();
     auto& sbt = m_sbtGen.getSBTRegions();
@@ -604,13 +610,13 @@ public:
 
 
     // Bind pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_brickJobPipeline);  
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_brickJobPipeline.pipeline);  
 
     // Bind descriptor sets
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_brickJobLayout,
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_brickJobPipeline.layout,
                             0, 1, m_descPack.getSetPtr(), 0, nullptr);  
     // Push constants
-    vkCmdPushConstants(cmd, m_brickJobLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
+    vkCmdPushConstants(cmd, m_brickJobPipeline.layout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     
     // Dispatch using buffer
     vkCmdDispatchIndirect(
@@ -665,13 +671,13 @@ public:
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
 
     // Bind pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_buildJobPipeline);  
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_buildJobPipeline.pipeline);  
 
     // Bind descriptor sets
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_buildJobLayout,
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_buildJobPipeline.layout,
                             0, 1, m_descPack.getSetPtr(), 0, nullptr);  
     // Push constants
-    vkCmdPushConstants(cmd, m_buildJobLayout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
+    vkCmdPushConstants(cmd, m_buildJobPipeline.layout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     
     // Dispatch
     vkCmdDispatch(cmd, 1, 1, buildJobs.size());
@@ -1409,16 +1415,6 @@ public:
                         writeContainer.data(), 0, nullptr);
   }
 
-  void createPipelineLayouts(){
-    SCOPED_TIMER(__FUNCTION__);
-
-    createPipelineLayout(&m_tracingLayout);
-    createPipelineLayout(&m_lightingLayout);
-    createPipelineLayout(&m_rtPipelineLayout);
-    createPipelineLayout(&m_brickJobLayout);
-    createPipelineLayout(&m_buildJobLayout);
-  }
-
   void createPipelineLayout(VkPipelineLayout* pipelineLayout){
     // Push constant is used to pass data to the shader at each frame
     const VkPushConstantRange pushConstantsRange{
@@ -1466,40 +1462,40 @@ public:
     return shaderCode;
   }
 
-  void compileAndCreateShaders(){
+  void compileShaders(){
     SCOPED_TIMER(__FUNCTION__);
 
-    createShaderModule(&m_tracingModule,"compute_tracing.slang",compute_tracing_slang);
-    createShaderModule(&m_lightingModule,"lighting.slang",lighting_slang);
-    createShaderModule(&m_rtModule,"raytracing.slang",raytracing_slang);
-    createShaderModule(&m_brickJobModule,"brick.slang",brick_slang);
-    createShaderModule(&m_buildJobModule,"build.slang",build_slang);
-
+    createShaderModule(&m_tracingPipeline.shader,"compute_tracing.slang",compute_tracing_slang);
+    createShaderModule(&m_lightingPipeline.shader,"lighting.slang",lighting_slang);
+    createShaderModule(&m_rtPipeline.shader,"raytracing.slang",raytracing_slang);
+    createShaderModule(&m_brickJobPipeline.shader,"brick.slang",brick_slang);
+    createShaderModule(&m_buildJobPipeline.shader,"build.slang",build_slang);
   }
 
   void createPipelines(){
     SCOPED_TIMER(__FUNCTION__);
 
-    createComputePipeline(&m_tracingPipeline,&m_tracingLayout,&m_tracingModule);
-    createComputePipeline(&m_lightingPipeline,&m_lightingLayout,&m_lightingModule);
-    createRTPipeline(&m_rtPipeline,&m_rtPipelineLayout);
-    createComputePipeline(&m_brickJobPipeline,&m_brickJobLayout,&m_brickJobModule);
-    createComputePipeline(&m_buildJobPipeline,&m_buildJobLayout,&m_buildJobModule);
+    createComputePipeline(&m_tracingPipeline);
+    createComputePipeline(&m_lightingPipeline);
+    createRTPipeline(&m_rtPipeline);
+    createComputePipeline(&m_brickJobPipeline);
+    createComputePipeline(&m_buildJobPipeline);
   }
 
-  void createComputePipeline(VkPipeline* pipeline, VkPipelineLayout* pipelineLayout, VkShaderModule* shaderModule){
-    vkDestroyPipeline(m_app->getDevice(),*pipeline,nullptr);
+  void createComputePipeline(Pipeline* pl){
+    destroyPipeline(pl);
+    createPipelineLayout(&pl->layout);
 
     VkPipelineShaderStageCreateInfo stage{};
     stage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stage.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
-    stage.module = *shaderModule;
+    stage.module = pl->shader;
     stage.pName  = "computeMain";
 
     VkComputePipelineCreateInfo cpci{};
     cpci.sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     cpci.stage  = stage;
-    cpci.layout = *pipelineLayout;
+    cpci.layout = pl->layout;
 
     NVVK_CHECK(vkCreateComputePipelines(
         m_app->getDevice(),
@@ -1507,12 +1503,13 @@ public:
         1,
         &cpci,
         nullptr,
-        pipeline));
-    NVVK_DBG_NAME(*pipeline);
+        &pl->pipeline));
   }
 
-  void createRTPipeline(VkPipeline* pipeline, VkPipelineLayout* pipelineLayout){
-    vkDestroyPipeline(m_app->getDevice(),*pipeline,nullptr);
+  void createRTPipeline(Pipeline* pl){
+    destroyPipeline(pl);
+
+    createPipelineLayout(&pl->layout);
 
     // Creating all shaders
     enum StageIndices
@@ -1529,16 +1526,16 @@ public:
       s.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     }
 
-    stages[eRaygen].module        = m_rtModule;
+    stages[eRaygen].module        = pl->shader;
     stages[eRaygen].pName         = "rgenMain";
     stages[eRaygen].stage         = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
-    stages[eMiss].module          = m_rtModule;
+    stages[eMiss].module          = pl->shader;
     stages[eMiss].pName           = "rmissMain";
     stages[eMiss].stage           = VK_SHADER_STAGE_MISS_BIT_KHR;
-    stages[eClosestHit].module    = m_rtModule;
+    stages[eClosestHit].module    = pl->shader;
     stages[eClosestHit].pName     = "rchitMain";
     stages[eClosestHit].stage     = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
-    stages[eIntersection].module  = m_rtModule;
+    stages[eIntersection].module  = pl->shader;
     stages[eIntersection].pName   = "rintMain";
     stages[eIntersection].stage   = VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
     
@@ -1574,20 +1571,19 @@ public:
     rtPipelineInfo.groupCount                   = static_cast<uint32_t>(shader_groups.size());
     rtPipelineInfo.pGroups                      = shader_groups.data();
     rtPipelineInfo.maxPipelineRayRecursionDepth = std::max(3U, m_rtProperties.maxRayRecursionDepth);  // Ray depth
-    rtPipelineInfo.layout                       = m_rtPipelineLayout;
-    NVVK_CHECK(vkCreateRayTracingPipelinesKHR (m_app->getDevice(), {}, {}, 1, &rtPipelineInfo, nullptr, &m_rtPipeline));
-    NVVK_DBG_NAME(m_rtPipeline);
+    rtPipelineInfo.layout                       = pl->layout;
+    NVVK_CHECK(vkCreateRayTracingPipelinesKHR (m_app->getDevice(), {}, {}, 1, &rtPipelineInfo, nullptr, &pl->pipeline));
 
     // Create the shader binding table for this pipeline
-    createShaderBindingTable(rtPipelineInfo);
+    createShaderBindingTable(pl, rtPipelineInfo);
   }
 
-  void createShaderBindingTable(const VkRayTracingPipelineCreateInfoKHR& rtPipelineInfo){
+  void createShaderBindingTable(Pipeline* pl, const VkRayTracingPipelineCreateInfoKHR& rtPipelineInfo){
     SCOPED_TIMER(__FUNCTION__);
 
     m_alloc.destroyBuffer(m_sbtB);
     // Calculate required SBT buffer size
-    size_t bufferSize = m_sbtGen.calculateSBTBufferSize(m_rtPipeline, rtPipelineInfo);
+    size_t bufferSize = m_sbtGen.calculateSBTBufferSize(pl->pipeline, rtPipelineInfo);
 
     // Create SBT buffer using the size from above
     NVVK_CHECK(m_alloc.createBuffer(m_sbtB, bufferSize, VK_BUFFER_USAGE_2_SHADER_BINDING_TABLE_BIT_KHR, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
@@ -1604,7 +1600,7 @@ public:
   // Recompiles and waits for idle time to swap it into the pipeline
   void reloadShaders(){
     SCOPED_TIMER(__FUNCTION__);
-    compileAndCreateShaders();
+    compileShaders();
     vkDeviceWaitIdle(m_app->getDevice());
     createPipelines();
   }
@@ -1646,30 +1642,15 @@ private:
   nvslang::SlangCompiler  m_slangCompiler{};  // The Slang compiler used to compile the shaders
   nvvk::DescriptorPack    m_descPack;         // The descriptor bindings used to create the descriptor set layout and descriptor sets
 
-  // Tracing Pipeline
-  VkPipeline            m_tracingPipeline{};  // Compute pipeline
-  VkPipelineLayout      m_tracingLayout{};    // Compute pipeline layout
-  VkShaderModule        m_tracingModule{};    // Compute shader module for tracing
-
-  // Lighting Pipeline (Deferred)
-  VkPipeline            m_lightingPipeline{}; // Compute pipeline
-  VkPipelineLayout      m_lightingLayout{};   // Compute pipeline layout
-  VkShaderModule        m_lightingModule{};   // Compute shader module for lighting
-
-  // RT Pipeline
-  VkPipeline            m_rtPipeline{};       // Ray tracing pipeline
-  VkPipelineLayout      m_rtPipelineLayout{}; // Ray tracing pipeline layout
-  VkShaderModule        m_rtModule{};         // Raytracing shader module for rt pipeline
-
-  // Brick generation Pipeline
-  VkPipeline            m_brickJobPipeline{}; // Compute pipeline
-  VkPipelineLayout      m_brickJobLayout{};   // Compute pipeline layout
-  VkShaderModule        m_brickJobModule{};   // Compute shader module for brick generation
-
-  // Build job Pipeline
-  VkPipeline            m_buildJobPipeline{}; // Compute pipeline
-  VkPipelineLayout      m_buildJobLayout{};   // Compute pipeline layout
-  VkShaderModule        m_buildJobModule{};   // Compute shader module for build jobs
+  // Pipelines
+  Pipeline m_tracingPipeline{};     // Tracing pipeline, fills the gbuffers with info
+  Pipeline m_lightingPipeline{};    // Lighting pipeline, uses the gbuffers to paint th viewport
+  Pipeline m_rtPipeline{};          // Hardware accelerated ray tracing pipeline
+  Pipeline m_buildJobPipeline{};    // Build job pipeline
+  Pipeline m_brickJobPipeline{};    // Brick job pipeline
+  Pipeline m_ssaoPipeline{};        // SSAO generation pipeline
+  Pipeline m_bilateralHPipeline{};  // Bilateral blur horizontal pass
+  Pipeline m_bilateralVPipeline{};  // Bilateral blur vertical pass
 
   // Shader binding table management
   nvvk::SBTGenerator    m_sbtGen;             // SBT manager

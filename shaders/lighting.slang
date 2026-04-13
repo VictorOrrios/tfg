@@ -95,7 +95,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     float3 direct = (diffuse + specular) * shadow;
     float3 indirect = (ambient + rimLight);
 
-    float3 color = (direct + indirect) * occlussion;
+    float3 color = (direct + indirect) * (occlussion*0.5);
 
     finalColor = lerp(color, pushConst.lp.fogColor, fog);
   }else{
