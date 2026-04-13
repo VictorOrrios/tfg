@@ -127,6 +127,8 @@ enum BindingPoints{
   depthBuffer,
   shadowBuffer,
   positionBuffer,
+  aoBuffer,
+  aoScratchBuffer,
   aabbs,
   objects,
   materials,
@@ -172,6 +174,7 @@ struct LightinParams{
   float  fogDensity     = 0.03F;
   float  ssaoRadius     = 0.5f;
   float  ssaoBias       = 0.025f;
+  int    ssaoTexelSize  = 2;
 };
 
 struct DebugParams{

@@ -17,6 +17,8 @@
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::shadowBuffer)]] RWTexture2D<float> shadowImage;
 [[vk::binding(BindingPoints::positionBuffer)]] RWTexture2D<float4> positionImage;
+[[vk::binding(BindingPoints::aoBuffer)]] RWTexture2D<float> aoImage;
+[[vk::binding(BindingPoints::aoScratchBuffer)]] RWTexture2D<float> aoScratchImage;
 
 // Scene
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;

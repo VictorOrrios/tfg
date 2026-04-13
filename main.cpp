@@ -49,6 +49,9 @@
 #include "_autogen/raytracing.slang.h"
 #include "_autogen/brick.slang.h"
 #include "_autogen/build.slang.h"
+#include "_autogen/ssao.slang.h"
+#include "_autogen/bilateral_h.slang.h"
+#include "_autogen/bilateral_v.slang.h"
 #include "_autogen/sky_simple.slang.h"
 #include "_autogen/tonemapper.slang.h"
 
@@ -135,6 +138,8 @@ class AppElement : public nvapp::IAppElement
     eImgTonemapped,
     eImgShadow,
     eImgPosition,
+    eImgAO,
+    eImgAOScratch,
   };
 
 public:
@@ -232,12 +237,18 @@ public:
     destroyPipeline(&m_rtPipeline);
     destroyPipeline(&m_brickJobPipeline);
     destroyPipeline(&m_buildJobPipeline);
+    destroyPipeline(&m_ssaoPipeline);
+    destroyPipeline(&m_bilateralHPipeline);
+    destroyPipeline(&m_bilateralVPipeline);
 
     vkDestroyShaderModule(device,m_tracingPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_lightingPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_rtPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_brickJobPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_buildJobPipeline.shader,nullptr);
+    vkDestroyShaderModule(device,m_ssaoPipeline.shader,nullptr);
+    vkDestroyShaderModule(device,m_bilateralHPipeline.shader,nullptr);
+    vkDestroyShaderModule(device,m_bilateralVPipeline.shader,nullptr);
 
     m_alloc.destroyAcceleration(m_bLas);
     m_alloc.destroyAcceleration(m_tLas);
@@ -324,6 +335,7 @@ public:
       ImGui::Text("SSAO");
       ImGui::SliderFloat("Radius", &m_pushConst.lp.ssaoRadius, 0.0f, 5.0f);
       ImGui::SliderFloat("Bias", &m_pushConst.lp.ssaoBias, 0.0f, 0.5f);
+      ImGui::SliderInt("Texel size", &m_pushConst.lp.ssaoTexelSize, 1, 20);
     }
     
     if(!ImGui::CollapsingHeader("Debug colors")){
@@ -476,6 +488,14 @@ public:
       m_descPack.makeWrite(shaderio::BindingPoints::positionBuffer), 
       m_gBuffers.getDescriptorImageInfo(eImgPosition));
 
+    writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::aoBuffer), 
+      m_gBuffers.getDescriptorImageInfo(eImgAO));
+
+    writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::aoScratchBuffer), 
+      m_gBuffers.getDescriptorImageInfo(eImgAOScratch));
+
     // Needs to create a descriptor image info because the GBuffer object doesn't expose a function
     VkDescriptorImageInfo depthImageInfo{
         .sampler = VK_NULL_HANDLE,
@@ -538,17 +558,22 @@ public:
     postProcess(cmd);
   }
 
+  void bindComputePipeline(VkCommandBuffer cmd, Pipeline* pl){
+    // Bind pipeline
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pl->pipeline);  
+    // Bind descriptor sets
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pl->layout,
+                            0, 1, m_descPack.getSetPtr(), 0, nullptr);  
+    // Push constants
+    vkCmdPushConstants(cmd, pl->layout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
+  }
+
   void tracingPass(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Tracing");
 
     // Bind pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_tracingPipeline.pipeline);  
-    // Bind descriptor sets
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_tracingPipeline.layout,
-                            0, 1, m_descPack.getSetPtr(), 0, nullptr);  
-    // Push constants
-    vkCmdPushConstants(cmd, m_tracingPipeline.layout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
+    bindComputePipeline(cmd,&m_tracingPipeline);
     // Dispatch
     VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE_2D);
     vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
@@ -561,19 +586,53 @@ public:
     NVVK_DBG_SCOPE(cmd);
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Lighting");
 
-    // Bind pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_lightingPipeline.pipeline);  
-    // Bind descriptor sets
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_lightingPipeline.layout,
-                            0, 1, m_descPack.getSetPtr(), 0, nullptr);  
-    // Push constants
-    vkCmdPushConstants(cmd, m_lightingPipeline.layout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
-    // Dispatch
-    VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE_2D);
-    vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
-    // Wait for render target to be done
-    nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgRendered), VK_IMAGE_LAYOUT_GENERAL,
-                                      VK_IMAGE_LAYOUT_GENERAL});
+    {
+      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "SSAO");
+
+      // Bind pipeline
+      bindComputePipeline(cmd,&m_ssaoPipeline);
+      // Dispatch
+      VkExtent2D viewportSize = m_gBuffers.getSize();
+      viewportSize.width = viewportSize.width/m_pushConst.lp.ssaoTexelSize;
+      viewportSize.height = viewportSize.height/m_pushConst.lp.ssaoTexelSize;
+      VkExtent2D group_counts = nvvk::getGroupCounts(viewportSize, WORKGROUP_SIZE_2D);
+      vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
+      // Wait for AO to be done
+      nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgAO), VK_IMAGE_LAYOUT_GENERAL,
+                                        VK_IMAGE_LAYOUT_GENERAL});
+    }
+
+    {
+      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Bilateral blur");
+      // Bind pipeline
+      bindComputePipeline(cmd,&m_bilateralHPipeline);
+      // Dispatch
+      VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE_2D);
+      vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
+      // Wait for target to be done
+      nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgAOScratch), VK_IMAGE_LAYOUT_GENERAL,
+                                        VK_IMAGE_LAYOUT_GENERAL});
+
+      // Bind pipeline
+      bindComputePipeline(cmd,&m_bilateralVPipeline);
+      // Dispatch
+      vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
+      // Wait for target to be done
+      nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgAO), VK_IMAGE_LAYOUT_GENERAL,
+                                        VK_IMAGE_LAYOUT_GENERAL});
+    }
+
+    {
+      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Shading");
+      // Bind pipeline
+      bindComputePipeline(cmd,&m_lightingPipeline);
+      // Dispatch
+      VkExtent2D group_counts = nvvk::getGroupCounts(m_gBuffers.getSize(), WORKGROUP_SIZE_2D);
+      vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
+      // Wait for render target to be done
+      nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgRendered), VK_IMAGE_LAYOUT_GENERAL,
+                                        VK_IMAGE_LAYOUT_GENERAL});
+    }
   }
 
   void raytracingPass(VkCommandBuffer cmd){
@@ -608,16 +667,8 @@ public:
     NVVK_DBG_SCOPE(cmd);
     const auto profiledSection = m_profilerGpuTimer.cmdAsyncSection(cmd, "Brick job execution");
 
-
     // Bind pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_brickJobPipeline.pipeline);  
-
-    // Bind descriptor sets
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_brickJobPipeline.layout,
-                            0, 1, m_descPack.getSetPtr(), 0, nullptr);  
-    // Push constants
-    vkCmdPushConstants(cmd, m_brickJobPipeline.layout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
-    
+    bindComputePipeline(cmd,&m_brickJobPipeline);
     // Dispatch using buffer
     vkCmdDispatchIndirect(
       cmd,
@@ -671,14 +722,7 @@ public:
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
 
     // Bind pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_buildJobPipeline.pipeline);  
-
-    // Bind descriptor sets
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_buildJobPipeline.layout,
-                            0, 1, m_descPack.getSetPtr(), 0, nullptr);  
-    // Push constants
-    vkCmdPushConstants(cmd, m_buildJobPipeline.layout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
-    
+    bindComputePipeline(cmd,&m_buildJobPipeline);
     // Dispatch
     vkCmdDispatch(cmd, 1, 1, buildJobs.size());
   
@@ -758,12 +802,14 @@ public:
     nvvk::GBufferInitInfo gBufferInit{
         .allocator      = &m_alloc,
         .colorFormats   = {
-          VK_FORMAT_R32G32B32A32_SFLOAT, // Normal buffer
+          VK_FORMAT_R32G32B32A32_SFLOAT,      // Normal buffer
           VK_FORMAT_R8G8B8A8_UNORM,           // Albedo buffer
           VK_FORMAT_R32G32B32A32_SFLOAT,      // Render target
           VK_FORMAT_R8G8B8A8_UNORM,           // Tonemapped
           VK_FORMAT_R8_UNORM,                 // Shadow buffer
-          VK_FORMAT_R32G32B32A32_SFLOAT,            // Position buffer
+          VK_FORMAT_R32G32B32A32_SFLOAT,      // Position buffer
+          VK_FORMAT_R8_UNORM,                 // AO buffer
+          VK_FORMAT_R8_UNORM,                 // AO Scratch buffer
         },          
         .depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
         .imageSampler   = linearSampler,
@@ -1357,6 +1403,8 @@ public:
     bindings.addBinding(shaderio::BindingPoints::depthBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::shadowBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::positionBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::aoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::aoScratchBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     
     bindings.addBinding(shaderio::BindingPoints::aabbs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::objects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
@@ -1470,6 +1518,9 @@ public:
     createShaderModule(&m_rtPipeline.shader,"raytracing.slang",raytracing_slang);
     createShaderModule(&m_brickJobPipeline.shader,"brick.slang",brick_slang);
     createShaderModule(&m_buildJobPipeline.shader,"build.slang",build_slang);
+    createShaderModule(&m_ssaoPipeline.shader,"ssao.slang",ssao_slang);
+    createShaderModule(&m_bilateralHPipeline.shader,"bilateral_h.slang",bilateral_h_slang);
+    createShaderModule(&m_bilateralVPipeline.shader,"bilateral_v.slang",bilateral_v_slang);
   }
 
   void createPipelines(){
@@ -1480,6 +1531,9 @@ public:
     createRTPipeline(&m_rtPipeline);
     createComputePipeline(&m_brickJobPipeline);
     createComputePipeline(&m_buildJobPipeline);
+    createComputePipeline(&m_ssaoPipeline);
+    createComputePipeline(&m_bilateralHPipeline);
+    createComputePipeline(&m_bilateralVPipeline);
   }
 
   void createComputePipeline(Pipeline* pl){

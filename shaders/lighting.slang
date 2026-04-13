@@ -25,30 +25,6 @@
 
 static uint2 iResolution;
 
-
-float ssao(float2 fragCoord, float3 N, float3 fragPos){
-  float3 NView = worldVec2viewSpace(N);
-  float3 noise = float3(noiseImage[int2(fragCoord)%NOISE_TEX_SIZE].xy,0.0);
-  float3 tangent = normalize(noise - NView * dot(noise,NView));
-  float3 bitangent = cross(NView, tangent);
-  float3x3 TBN = float3x3(tangent, bitangent, NView);
-
-  float occlusion = 0.0;
-  for(int i = 0; i < NUM_RAN_HEMI_VECS; i++){
-    float3 randHemiVec = randHemiVecs[i];
-    float3 sampleOffset = mul(randHemiVec, TBN) * pushConst.lp.ssaoRadius;
-    float3 samplePos = fragPos + sampleOffset;
-    int2 sampleCoor = viewPoint2screenCoors(samplePos, iResolution);
-    if(any(sampleCoor < 0)) continue;
-    float sampleDepth = positionImage[sampleCoor].z;
-    float rangeCheck = smoothstep(0.0, 1.0, pushConst.lp.ssaoRadius / abs(fragPos.z - sampleDepth));
-    occlusion += (sampleDepth >= samplePos.z + pushConst.lp.ssaoBias ? 1.0 : 0.0) * rangeCheck;
-  }
-
-  occlusion = 1.0 - (occlusion / NUM_RAN_HEMI_VECS);
-  return occlusion;
-}
-
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE_2D, WORKGROUP_SIZE_2D, 1)]
 void computeMain(uint3 threadIdx : SV_DispatchThreadID)
@@ -62,8 +38,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   float depth = depthImage[int2(fragCoord)];
   float shadow = shadowImage[int2(fragCoord)];
   float3 fragPos = positionImage[int2(fragCoord)].xyz;
+  float occlussion = aoImage[int2(fragCoord)];
   float3 finalColor;
-  float occlussion = 0.0;
 
   if(depth >= 0.0){
     float3 V = uv2worldDir(uv);
@@ -85,9 +61,6 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     float rim = pow(1 - saturate(dot(N, V)), 3);
     float3 rimLight = pushConst.lp.lightColor * rim * 0.25;
 
-    // SSAO
-    occlussion = ssao(fragCoord,N,fragPos);
-
     // Depth based fog
     float fog = 1 - exp(-depth * pushConst.lp.fogDensity);
 
@@ -95,7 +68,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     float3 direct = (diffuse + specular) * shadow;
     float3 indirect = (ambient + rimLight);
 
-    float3 color = (direct + indirect) * (occlussion*0.5);
+    float3 color = (direct + indirect) * occlussion;
 
     finalColor = lerp(color, pushConst.lp.fogColor, fog);
   }else{
