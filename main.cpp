@@ -537,11 +537,20 @@ public:
         generationPass(cmd);
         m_scene.m_needsRefresh = false;
         m_prevCamId0 = m_currCamId0;
+      }else{
+        {
+          const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Build jobs");
+        }
+        {
+          const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Brick jobs");
+        }
       }
       
       if(m_rtxON && (m_updateTlas || sceneRefresh)){
         updateTopLevelAS(cmd,m_rebuildTlas);
         m_rebuildTlas = false;
+      }else{
+        const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Accel struct update");
       }
       m_updateTlas = !m_rtxON;
 
@@ -665,7 +674,7 @@ public:
 
   void executeBrickJobs(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
-    const auto profiledSection = m_profilerGpuTimer.cmdAsyncSection(cmd, "Brick job execution");
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Brick jobs");
 
     // Bind pipeline
     bindComputePipeline(cmd,&m_brickJobPipeline);
@@ -682,7 +691,7 @@ public:
 
   void executeBuildJobs(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
-    const auto profiledSection = m_profilerGpuTimer.cmdAsyncSection(cmd, "Build job execution");
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Build jobs");
 
     // Update the next brick job index
     std::vector<uint32_t> counters(1,0);
@@ -1082,7 +1091,7 @@ public:
   }
 
   void updateTopLevelAS(VkCommandBuffer cmd, bool rebuild){
-    const auto profiledSection = m_profilerGpuTimer.cmdAsyncSection(cmd, "Accel struct update");
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Accel struct update");
 
     if(rebuild)
       LOGI("REBUILDING TLAS\n");
