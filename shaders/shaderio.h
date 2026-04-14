@@ -116,7 +116,7 @@ const static uint UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTE
 
 // Noise texture size
 #define NOISE_TEX_SIZE 1024
-#define NUM_RAN_HEMI_VECS 64
+#define NUM_RAN_HEMI_VECS 100
 
 // Shared between Host and Device
 enum BindingPoints{
@@ -129,6 +129,9 @@ enum BindingPoints{
   positionBuffer,
   aoBuffer,
   aoScratchBuffer,
+  aoSample,
+  aoScratchSample,
+  gSampler,
   aabbs,
   objects,
   materials,

@@ -496,6 +496,23 @@ public:
       m_descPack.makeWrite(shaderio::BindingPoints::aoScratchBuffer), 
       m_gBuffers.getDescriptorImageInfo(eImgAOScratch));
 
+    writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::aoSample), 
+      m_gBuffers.getDescriptorImageInfo(eImgAO));
+
+    writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::aoScratchSample), 
+      m_gBuffers.getDescriptorImageInfo(eImgAOScratch));
+
+    VkDescriptorImageInfo samplerInfo{};
+    samplerInfo.sampler = m_gBuffersSampler;
+    samplerInfo.imageView = VK_NULL_HANDLE;
+    samplerInfo.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::gSampler), 
+      samplerInfo);
+
     // Needs to create a descriptor image info because the GBuffer object doesn't expose a function
     VkDescriptorImageInfo depthImageInfo{
         .sampler = VK_NULL_HANDLE,
@@ -803,9 +820,8 @@ public:
     SCOPED_TIMER(__FUNCTION__);
 
     // Acquiring the texture sampler which will be used for displaying the GBuffer
-    VkSampler linearSampler{};
-    NVVK_CHECK(m_samplerPool.acquireSampler(linearSampler));
-    NVVK_DBG_NAME(linearSampler);
+    NVVK_CHECK(m_samplerPool.acquireSampler(m_gBuffersSampler));
+    NVVK_DBG_NAME(m_gBuffersSampler);
 
     // Create the G-Buffers
     nvvk::GBufferInitInfo gBufferInit{
@@ -821,7 +837,7 @@ public:
           VK_FORMAT_R8_UNORM,                 // AO Scratch buffer
         },          
         .depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
-        .imageSampler   = linearSampler,
+        .imageSampler   = m_gBuffersSampler,
         .descriptorPool = m_app->getTextureDescriptorPool(),
     };
     m_gBuffers.init(gBufferInit);
@@ -1414,6 +1430,10 @@ public:
     bindings.addBinding(shaderio::BindingPoints::positionBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::aoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::aoScratchBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::aoSample, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::aoScratchSample, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    
+    bindings.addBinding(shaderio::BindingPoints::gSampler, VK_DESCRIPTOR_TYPE_SAMPLER, 1, VK_SHADER_STAGE_ALL);
     
     bindings.addBinding(shaderio::BindingPoints::aabbs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::objects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
@@ -1697,13 +1717,14 @@ public:
 
 private:
   // Vulkan and app variables
-  nvapp::Application*     m_app{};            // The application framework
-  nvvk::ResourceAllocator m_alloc{};          // Resource allocator for Vulkan resources, used for buffers and images
-  nvvk::StagingUploader   m_stagingUploader{};// Utility to upload data to the GPU, used for staging buffers and images
-  nvvk::SamplerPool       m_samplerPool{};    // Texture sampler pool, used to acquire texture samplers for images
-  nvvk::GBuffer           m_gBuffers{};       // The G-Buffer: color + depth
-  nvslang::SlangCompiler  m_slangCompiler{};  // The Slang compiler used to compile the shaders
-  nvvk::DescriptorPack    m_descPack;         // The descriptor bindings used to create the descriptor set layout and descriptor sets
+  nvapp::Application*     m_app{};              // The application framework
+  nvvk::ResourceAllocator m_alloc{};            // Resource allocator for Vulkan resources, used for buffers and images
+  nvvk::StagingUploader   m_stagingUploader{};  // Utility to upload data to the GPU, used for staging buffers and images
+  nvvk::SamplerPool       m_samplerPool{};      // Texture sampler pool, used to acquire texture samplers for images
+  VkSampler               m_gBuffersSampler{};  // Sampler used for the gBuffers
+  nvvk::GBuffer           m_gBuffers{};         // The G-Buffers
+  nvslang::SlangCompiler  m_slangCompiler{};    // The Slang compiler used to compile the shaders
+  nvvk::DescriptorPack    m_descPack{};         // The descriptor bindings used to create the descriptor set layout and descriptor sets
 
   // Pipelines
   Pipeline m_tracingPipeline{};     // Tracing pipeline, fills the gbuffers with info

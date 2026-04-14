@@ -19,6 +19,10 @@
 [[vk::binding(BindingPoints::positionBuffer)]] RWTexture2D<float4> positionImage;
 [[vk::binding(BindingPoints::aoBuffer)]] RWTexture2D<float> aoImage;
 [[vk::binding(BindingPoints::aoScratchBuffer)]] RWTexture2D<float> aoScratchImage;
+[[vk::binding(BindingPoints::aoSample)]] Texture2D<float> aoSample;
+[[vk::binding(BindingPoints::aoScratchSample)]] Texture2D<float> aoScratchSample;
+[[vk::binding(BindingPoints::gSampler)]] SamplerState gSampler;
+
 
 // Scene
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;

@@ -66,9 +66,9 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 
     // Color calculation
     float3 direct = (diffuse + specular) * shadow;
-    float3 indirect = (ambient + rimLight);
+    float3 indirect = (ambient + rimLight) * occlussion;
 
-    float3 color = (direct + indirect) * occlussion;
+    float3 color = (direct + indirect);
 
     finalColor = lerp(color, pushConst.lp.fogColor, fog);
   }else{
@@ -91,7 +91,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
       (pushConst.debug.mode == DebugModes::dmDebug || 
         pushConst.debug.mode == DebugModes::dmDepth || 
         pushConst.debug.mode == DebugModes::dmShadow || 
-        DebugModes::dmBoundingBox)){
+        pushConst.debug.mode == DebugModes::dmBoundingBox)){
       // Palette visualizer
       if(uv.x - uv.y > 0.99){
         outImage[int2(fragCoord)] = float4(scalarToColor(-1),1.0);
