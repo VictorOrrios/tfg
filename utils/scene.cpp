@@ -947,7 +947,7 @@ Scene::Scene() {
 
   // Create the scene
   Node *terrain = createNode(NodeType::Plane);
-  terrain->p.position = glm::vec3(0.0,-2.0,0.0);
+  terrain->p.position = glm::vec3(0.0,-1.8,0.0);
   terrain->p.scale = 10.0;
   terrain->p.octaves = 8;
   terrain->p.terrain = glm::vec4(1.5,0.35,0.08,0.28);

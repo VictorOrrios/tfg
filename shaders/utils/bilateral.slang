@@ -35,15 +35,18 @@ float depthWeight(float depth_center, float depth_sample){
   return depthKernel[int(dz*10.0)];
 }
 
-float applyBilateralBlurPass(int2 center_coor, uint2 iResolution, bool horizontal){
-  float2 uv_scale = horizontal? float2(1.0/pushConst.lp.ssaoTexelSize) : float2(1.0,1.0);
+float applyBilateralBlurPass(
+  int2 center_coor, bool horizontal, uint2 iResolution, int texelSize,
+  Texture2D<float> horizImage, Texture2D<float> vertImage
+){
+  float2 uv_scale = horizontal? float2(1.0/texelSize) : float2(1.0,1.0);
 
   float2 center_uv = (float2(center_coor)/iResolution) * uv_scale;
 
-  int2 coor_step = horizontal? int2(pushConst.lp.ssaoTexelSize,0) : int2(0,pushConst.lp.ssaoTexelSize);
-  float2 uv_step = (horizontal? float2(1.0/float(iResolution.x),0.0) : float2(0.0,1.0/float(iResolution.y))) * uv_scale * pushConst.lp.ssaoTexelSize;
+  int2 coor_step = horizontal? int2(texelSize,0) : int2(0,texelSize);
+  float2 uv_step = (horizontal? float2(1.0/float(iResolution.x),0.0) : float2(0.0,1.0/float(iResolution.y))) * uv_scale * texelSize;
   
-  float sample_center = horizontal? aoSample.Sample(gSampler,center_uv) : aoScratchSample.Sample(gSampler,center_uv);
+  float sample_center = horizontal? horizImage.Sample(gSampler,center_uv) : vertImage.Sample(gSampler,center_uv);
   float depth_center = depthImage[center_coor];
 
   float result = sample_center * kernel[0];
@@ -59,9 +62,8 @@ float applyBilateralBlurPass(int2 center_coor, uint2 iResolution, bool horizonta
 
       float2 uv = center_uv + uv_step*i*s;
 
-      float sample = horizontal? aoSample.Sample(gSampler,uv) : aoScratchSample.Sample(gSampler,uv);
+      float sample = horizontal? horizImage.Sample(gSampler,uv) : vertImage.Sample(gSampler,uv);
       float depth = depthImage[coor];
-      float3 normal = normalImage[coor].xyz;
 
       float w = kernel[i] * depthWeight(depth_center, depth);
 

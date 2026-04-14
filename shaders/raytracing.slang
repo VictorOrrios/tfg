@@ -17,6 +17,10 @@ struct HitPayload{
   int level;
 };
 
+struct ShadowPayload{
+  bool occluded;
+};
+
 struct IntersectionPayload{
   float3 debug;
   float depth;
@@ -26,7 +30,7 @@ struct IntersectionPayload{
 
 [shader("raygeneration")]
 void rgenMain(){
-  float depth, shadow; float3 albedo, normal, debug, position;
+  float depth, shadow = 1.0; float3 albedo, normal, debug, position;
 
   // Get the current pixel coordinates and image dimensions
   float2 launchID = (float2)DispatchRaysIndex().xy;        // Current pixel (x,y)
@@ -34,6 +38,7 @@ void rgenMain(){
   float2 uv = launchID/launchSize;
 
   const uint rayFlags = 0;
+  const uint shadowRayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
 
   Ray r = get_ray(uv);
 
@@ -76,27 +81,55 @@ void rgenMain(){
     albedo = debug;
   }
 
-  // Shadow ray experiment. TODO: Make it faster!!
-  if(dot(normal,pushConst.lp.lightDir) > -0.3){
-    HitPayload shadowPayload;
-    shadowPayload.albedo = float3(0);
-    shadowPayload.debug = float3(0);
-    shadowPayload.normal = float3(1);
-    shadowPayload.depth = -1;
-    const float maxSoftDepthShadow = L0_AXIS_WORLD_SIZE;
-    ray.Origin = r.orig + r.dir*depth + normal * 0.1 + pushConst.lp.lightDir*0.1;
-    ray.Direction = pushConst.lp.lightDir;
-    TraceRay(topLevelAS, rayFlags, 0xff, 0,0,0, ray, shadowPayload);
-    hit = shadowPayload.depth >= 0.0;
-    float shadowDepth = shadowPayload.depth;
-    float smoothShadow = 1.0 - min(shadowDepth,maxSoftDepthShadow)/maxSoftDepthShadow;
-    shadow = hit? 0.0 : 1.0;
+  // If  its a shadow pixel sample
+  if(all(launchID % pushConst.lp.shadowTexelSize == pushConst.lp.shadowTexelSize/2)){
+    // If there was a hit and its facing the light => Cast shadow ray
+    if( hit && dot(normal,pushConst.lp.lightDir) > -0.3 ){
+      ShadowPayload shadowPayload;
+      ray.Origin = r.orig + r.dir*depth + normal * 0.05;
+      float occlussion = 0.0;
+
+      
+      float3 lightDir = pushConst.lp.lightDir;
+      float3 aux = float3(0,0,1);
+      if(dot(aux,lightDir)>0.99){
+        aux = float3(1,0,0);
+      }
+      float3 tangent = normalize(cross(lightDir,aux));
+      float3 bitangent = cross(lightDir, tangent);
+      float3x3 TBN = float3x3(tangent, bitangent, lightDir);
+
+      for(int i = 0; i<pushConst.lp.shadowSamples; i++){
+        float3 randUnitVec = shadowKernels[i];
+        randUnitVec = mul(randUnitVec,TBN);
+        ray.Direction = randUnitVec;
+        shadowPayload.occluded = false;
+        TraceRay(topLevelAS, shadowRayFlags, 0xff, 1, 0, 1, ray, shadowPayload);
+        if(shadowPayload.occluded)
+          occlussion++;
+      }
+ 
+      
+/* 
+      for(int i = 0; i<pushConst.lp.shadowRays; i++){
+        float3 noise = noiseImage[(int2(launchID)+i)%NOISE_TEX_SIZE].xyz;
+        float3 dir = normalize(pushConst.lp.lightDir*pushConst.lp.shadowSharpness + noise);
+        ray.Direction = dir;
+        shadowPayload.occluded = false;
+        TraceRay(topLevelAS, shadowRayFlags, 0xff, 1, 0, 1, ray, shadowPayload);
+        if(shadowPayload.occluded)
+          occlussion++;
+      }
+       */
+
+      shadow = 1.0 - occlussion/pushConst.lp.shadowSamples;
+    }
+    shadowImage[int2(launchID/pushConst.lp.shadowTexelSize)] = shadow;
   }
 
   normalImage[int2(launchID)] = float4(normal, 0.0F);
   albedoImage[int2(launchID)] = float4(albedo,1.0F);
   depthImage[int2(launchID)] = depth;
-  shadowImage[int2(launchID)] = shadow;
   positionImage[int2(launchID)] = float4(position,0.0);
 }
 
@@ -136,6 +169,36 @@ void rintMain(){
   }
 }
 
+[shader("intersection")]
+void rintShadow() {
+  const float eps = VOXEL_SIZES[0]/2.0;
+
+  ShadowPayload payload;
+  Ray r; 
+  r.orig = WorldRayOrigin();
+  r.dir  = WorldRayDirection();
+
+  uint instanceID = InstanceIndex();
+
+  float3x4 objToWorld = ObjectToWorld();
+  float3 pos = float3(objToWorld[0][3],objToWorld[1][3],objToWorld[2][3]);
+
+  float size = objToWorld[0][0];
+  int level = InstanceID();
+  Bbox bbox = Bbox(pos,pos+size);
+
+  float3 nearP, farP;
+  if(intersectCube(r,bbox,nearP,farP)){
+    nearP += r.dir * eps; // floating point error correction
+    Ray brickRay = Ray(nearP,r.dir);
+
+    if(sphereTraceBrickShadow(brickRay,instanceID,pos,level)){
+      payload.occluded = true;
+      ReportHit(1.0, 0, payload);
+    }
+  }
+}
+
 // Closest hit shader - called when ray hits geometry
 [shader("closesthit")]
 void rchitMain(inout HitPayload payload, in IntersectionPayload attr){
@@ -152,9 +215,19 @@ void rchitMain(inout HitPayload payload, in IntersectionPayload attr){
   //payload.normal = evalNormal(p);
 }
 
+[shader("closesthit")]
+void rchitShadow(inout ShadowPayload payload, in ShadowPayload attr){
+  payload.occluded = attr.occluded;
+}
+
 // Miss shader - called when ray doesn't hit any geometry
 [shader("miss")]
 void rmissMain(inout HitPayload payload){
   //payload.depth = -1;
   // Do nothing
+}
+
+[shader("miss")]
+void rmissShadow(inout ShadowPayload payload){   
+  payload.occluded = false;
 }

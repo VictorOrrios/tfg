@@ -38,6 +38,9 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   normalImage.GetDimensions(iResolution.x, iResolution.y);
   float2 uv = fragCoord/iResolution;
   
+  if(any(fragCoord >= iResolution))
+    return;
+
   Ray r = get_ray(uv);
 
   float3 p1, p2;
@@ -50,7 +53,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   bbox.bMax = bbox.bMax*bboxSize+bboxPos;
   
   //depth = rayMarchAmaWoo(r,bbox,normal);
-  depth = traceScene(r,normal,albedo,shadow,debug);
+  depth = traceScene(r,normal,albedo,debug);
 
   bool hit = depth >= 0.0;
   if(!hit){
@@ -59,6 +62,19 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
     position = float3(0.0,0.0,-1000000.0);
   }else{
     position = worldPoint2viewSpace(r.orig + r.dir*depth);
+
+    if(all(fragCoord % pushConst.lp.shadowTexelSize == pushConst.lp.shadowTexelSize/2)){
+      if(dot(normal,pushConst.lp.lightDir) > -0.3){
+        const float k = 180.0;
+        float3 p = r.orig + r.dir*depth;
+        p += normal * 0.03;
+        //shadow = evalShadow(p,k);
+        shadow = traceShadow(p,k);
+      }else{
+        shadow = 0.0;
+      }
+      shadowImage[int2(fragCoord/pushConst.lp.shadowTexelSize)] = shadow;
+    }
   }
 
   if(debugColor){
@@ -82,44 +98,5 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   albedoImage[int2(fragCoord)] = float4(albedo,1.0F);
   normalImage[int2(fragCoord)] = float4(normal, 0.0F);
   depthImage[int2(fragCoord)] = depth;
-  shadowImage[int2(fragCoord)] = shadow;
   positionImage[int2(fragCoord)] = float4(position,0.0);
-
-  if(all(threadIdx == 0) && false){
-    const int W = 64;
-    for(int i = -5; i<20; i++){
-      int3 camId0 = sceneInfo.cameraId0.xyz;
-      float3 p = float3(2.000927,-1.688187,1.994390);
-      p.x += VOXEL_SIZES[0]*i;
-      int3 pId0 = int3(floor(p / BRICK_SIZES[0]));
-
-      
-      int3 diff = pId0 - camId0;
-      diff += max(0,sign(diff));
-      diff = abs(diff);
-      int maxDiff = max(diff.x,max(diff.y,diff.z));
-      
-      const int HALF = W/2;
-      const float GRID_OFFSET = 2.0 / W;
-      float logVal = log2((float)(maxDiff) * GRID_OFFSET);
-      int level = int(ceil(max(0,logVal)));
-
-      level = clamp(level,0,CLIPMAP_LEVELS - 1);
-      int3 camId = camId0 >> level;
-      int3 pId = pId0 >> level;
-      int3 rel_id = pId - camId + HALF;
-      if (all(rel_id >= 0) && all(rel_id < W)) {
-      }else{
-        //level = min(level+1,CLIPMAP_LEVELS - 1);
-      }
-      printf("iteration %i | p %f,%f,%f | pId0 %i,%i,%i | pId %i,%i,%i | camId %i,%i,%i | rel_id %i,%i,%i | level %i\n",
-        i,
-        p.x,p.y,p.z,
-        pId0.x,pId0.y,pId0.z,
-        pId.x,pId.y,pId.z,
-        camId.x,camId.y,camId.z,
-        rel_id.x,rel_id.y,rel_id.z,
-        level);
-    }
-  }
 }

@@ -13,9 +13,9 @@ float ssao(float2 fragCoord, float3 N, float3 fragPos){
   float3x3 TBN = float3x3(tangent, bitangent, NView);
 
   float occlusion = 0.0;
-  for(int i = 0; i < NUM_RAN_HEMI_VECS; i++){
-    float3 randHemiVec = randHemiVecs[i];
-    float3 sampleOffset = mul(randHemiVec, TBN) * pushConst.lp.ssaoRadius;
+  for(int i = 0; i < pushConst.lp.ssaoSamples; i++){
+    float3 randHemiVec = ssaoKernels[i];
+    float3 sampleOffset = mul(randHemiVec, TBN);
     float3 samplePos = fragPos + sampleOffset;
     int2 sampleCoor = viewPoint2screenCoors(samplePos, iResolution);
     if(any(sampleCoor < 0)) continue;
@@ -24,8 +24,7 @@ float ssao(float2 fragCoord, float3 N, float3 fragPos){
     occlusion += (sampleDepth >= samplePos.z + pushConst.lp.ssaoBias ? 1.0 : 0.0) * rangeCheck;
   }
 
-  occlusion = 1.0 - (occlusion / NUM_RAN_HEMI_VECS);
-  return occlusion;
+  return 1.0 - (occlusion / pushConst.lp.ssaoSamples);
 }
 
 [shader("compute")]
@@ -34,13 +33,15 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 {
   int2 fragCoord = threadIdx.xy;
   outImage.GetDimensions(iResolution.x, iResolution.y);
-  float2 uv = fragCoord/iResolution;
 
   int2 sampleCoord = fragCoord * pushConst.lp.ssaoTexelSize + (pushConst.lp.ssaoTexelSize/2);
 
+  if(any(fragCoord >= iResolution))
+    return;
+
   float occlussion = 1.0;
   float depth = depthImage[int2(sampleCoord)];
-  if(depth >= 0 && all(fragCoord >= 0) && all(fragCoord < iResolution)){
+  if(depth >= 0){
     float3 N = normalImage[int2(sampleCoord)].xyz;
     float3 fragPos = positionImage[int2(sampleCoord)].xyz;
     occlussion = ssao(sampleCoord,N,fragPos);

@@ -32,6 +32,9 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   float2 fragCoord = threadIdx.xy;
   outImage.GetDimensions(iResolution.x, iResolution.y);
   float2 uv = fragCoord/iResolution;
+
+  if(any(fragCoord >= iResolution))
+    return;
   
   float3 N = normalImage[int2(fragCoord)].xyz;
   float3 albedo = albedoImage[int2(fragCoord)].xyz;

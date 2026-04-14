@@ -26,6 +26,7 @@
 
 
 #include "glm/common.hpp"
+#include "glm/ext/scalar_constants.hpp"
 #include "nvvk/barriers.hpp"
 #include <string>
 #define VMA_IMPLEMENTATION
@@ -137,6 +138,7 @@ class AppElement : public nvapp::IAppElement
     eImgRendered,
     eImgTonemapped,
     eImgShadow,
+    eImgShadowScratch,
     eImgPosition,
     eImgAO,
     eImgAOScratch,
@@ -266,7 +268,8 @@ public:
     m_alloc.destroyBuffer(m_freeListB);
 
     m_alloc.destroyImage(m_noiseTex);
-    m_alloc.destroyBuffer(m_randomHemiVecB);
+    m_alloc.destroyBuffer(m_ssaoKernelsB);
+    m_alloc.destroyBuffer(m_shadowKernelsB);
 
     m_alloc.destroyImage(m_clipMap);
     m_alloc.destroyImage(m_brickAtlas);
@@ -333,9 +336,16 @@ public:
      
       ImGui::Separator();
       ImGui::Text("SSAO");
-      ImGui::SliderFloat("Radius", &m_pushConst.lp.ssaoRadius, 0.0f, 5.0f);
+      m_refreshSSAOkernels |= ImGui::SliderFloat("Radius", &m_pushConst.lp.ssaoRadius, 0.0f, 5.0f);
       ImGui::SliderFloat("Bias", &m_pushConst.lp.ssaoBias, 0.0f, 0.5f);
-      ImGui::SliderInt("Texel size", &m_pushConst.lp.ssaoTexelSize, 1, 20);
+      ImGui::SliderInt("Samples##SSAO", &m_pushConst.lp.ssaoSamples, 1, MAX_NUM_SSAO_KERNELS);
+      ImGui::SliderInt("Texel size##SSAO", &m_pushConst.lp.ssaoTexelSize, 1, 20);
+
+      ImGui::Separator();
+      ImGui::Text("Shadows");
+      m_refreshShadowKernels |= ImGui::SliderFloat("Sharpness", &m_pushConst.lp.shadowSharpness, 20.0f, 1000.0f);
+      ImGui::SliderInt("Samples##Shadow", &m_pushConst.lp.shadowSamples, 1, MAX_NUM_SHADOW_KERNELS);
+      ImGui::SliderInt("Texel size##Shadow", &m_pushConst.lp.shadowTexelSize, 1, 20);
     }
     
     if(!ImGui::CollapsingHeader("Debug colors")){
@@ -485,6 +495,18 @@ public:
       m_gBuffers.getDescriptorImageInfo(eImgShadow));
 
     writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::shadowSampler), 
+      m_gBuffers.getDescriptorImageInfo(eImgShadow));
+
+    writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::shadowScratchBuffer), 
+      m_gBuffers.getDescriptorImageInfo(eImgShadowScratch));
+
+    writeContainer.append(
+      m_descPack.makeWrite(shaderio::BindingPoints::shadowScratchSampler), 
+      m_gBuffers.getDescriptorImageInfo(eImgShadowScratch));
+
+    writeContainer.append(
       m_descPack.makeWrite(shaderio::BindingPoints::positionBuffer), 
       m_gBuffers.getDescriptorImageInfo(eImgPosition));
 
@@ -542,7 +564,16 @@ public:
       const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Scene buffer update");
       m_pushConst.time = static_cast<float>(ImGui::GetTime());
       m_pushConst.lp.lightDir = glm::normalize(m_pushConst.lp.lightDir);
+
       updateSceneBuffer(cmd);
+      if(m_refreshSSAOkernels){
+        updateSSAOkernels(cmd);
+        m_refreshSSAOkernels = false;
+      }
+      if(m_refreshShadowKernels){
+        updateShadowKernels(cmd);
+        m_refreshShadowKernels = false;
+      }
     }
 
     {
@@ -638,6 +669,8 @@ public:
       // Wait for target to be done
       nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgAOScratch), VK_IMAGE_LAYOUT_GENERAL,
                                         VK_IMAGE_LAYOUT_GENERAL});
+      nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgShadowScratch), VK_IMAGE_LAYOUT_GENERAL,
+                                        VK_IMAGE_LAYOUT_GENERAL});
 
       // Bind pipeline
       bindComputePipeline(cmd,&m_bilateralVPipeline);
@@ -645,6 +678,8 @@ public:
       vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
       // Wait for target to be done
       nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgAO), VK_IMAGE_LAYOUT_GENERAL,
+                                        VK_IMAGE_LAYOUT_GENERAL});
+      nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgShadow), VK_IMAGE_LAYOUT_GENERAL,
                                         VK_IMAGE_LAYOUT_GENERAL});
     }
 
@@ -832,6 +867,7 @@ public:
           VK_FORMAT_R32G32B32A32_SFLOAT,      // Render target
           VK_FORMAT_R8G8B8A8_UNORM,           // Tonemapped
           VK_FORMAT_R8_UNORM,                 // Shadow buffer
+          VK_FORMAT_R8_UNORM,                 // Shadow Scratch buffer
           VK_FORMAT_R32G32B32A32_SFLOAT,      // Position buffer
           VK_FORMAT_R8_UNORM,                 // AO buffer
           VK_FORMAT_R8_UNORM,                 // AO Scratch buffer
@@ -1238,6 +1274,66 @@ public:
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
 
+  void updateSSAOkernels(VkCommandBuffer cmd){
+    int size = MAX_NUM_SSAO_KERNELS;
+    std::vector<glm::vec3> kernels;
+    kernels.reserve(size);
+    for(int i = 0; i < size; i++){
+      glm::vec3 sample;
+      bool degenerate = true;
+      
+      while(degenerate) {
+        sample = glm::vec3(
+            randomFloat2(),
+            randomFloat2(),
+            randomFloat1()
+        );
+
+        if(abs(sample.x) < 0.01f || abs(sample.y) < 0.01f || abs(sample.z) < 0.1f) degenerate = true;
+        else degenerate = false;
+      }
+      
+      sample = glm::normalize(sample);
+      float scale = float(i) / size;
+      scale = glm::mix(0.1f, 1.0f, scale * scale);
+      sample *= scale;
+      sample *= m_pushConst.lp.ssaoRadius;
+      sample.z = glm::max(1e-4f,sample.z);
+
+      kernels.push_back(sample);
+    }
+    vkCmdUpdateBuffer(cmd, m_ssaoKernelsB.buffer, 0, size*sizeof(glm::vec3), kernels.data());
+  
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_ssaoKernelsB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
+  }
+  
+  void updateShadowKernels(VkCommandBuffer cmd){
+    int size = MAX_NUM_SHADOW_KERNELS;
+    std::vector<glm::vec3> kernels;
+    kernels.reserve(size);
+    for(int i = 0; i < size; i++){
+      glm::vec3 sample;
+
+      float alpha = randomFloat1()*2.0*glm::pi<float>();
+      float distance = randomFloat1();
+
+      sample = glm::vec3(
+        glm::cos(alpha)*distance,
+        glm::sin(alpha)*distance,
+        m_pushConst.lp.shadowSharpness
+      );
+        
+      sample = glm::normalize(sample);
+
+      kernels.push_back(sample);
+    }
+    vkCmdUpdateBuffer(cmd, m_shadowKernelsB.buffer, 0, size*sizeof(glm::vec3), kernels.data());
+  
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_shadowKernelsB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
+  }
+
   void createScene(){
     SCOPED_TIMER(__FUNCTION__);
     nvvk::ResourceAllocator* allocator = m_stagingUploader.getResourceAllocator();
@@ -1361,46 +1457,20 @@ public:
       // ------------------
       // Random
       // ------------------
-      int size = NUM_RAN_HEMI_VECS;
-      std::vector<glm::vec3> randomVecs;
-      randomVecs.reserve(size);
-      for(int i = 0; i < size; i++){
-        glm::vec3 sample;
-        bool degenerate = true;
-        
-        while(degenerate) {
-          sample = glm::vec3(
-              randomFloat2(),
-              randomFloat2(),
-              randomFloat1()
-          );
-
-          if(abs(sample.x) < 0.01f || abs(sample.y) < 0.01f || abs(sample.z) < 0.1f) degenerate = true;
-          else degenerate = false;
-        }
-        
-        sample = glm::normalize(sample);
-        float scale = float(i) / size;
-        scale = glm::mix(0.1f, 1.0f, scale * scale);
-        sample *= scale;
-        sample.z = glm::max(1e-4f,sample.z);
-
-        randomVecs.push_back(sample);
-      }
-      /*
-      int i = 0;
-      for(auto x: randomVecs){
-        LOGI("RH: %f,%f,%f %i\n",x.x,x.y,x.z,i);
-        i++;
-      }
-        */
-      NVVK_CHECK(allocator->createBuffer(m_randomHemiVecB,
-                                     size*sizeof(glm::vec3),
-                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+      NVVK_CHECK(m_alloc.createBuffer(m_ssaoKernelsB,
+                                      MAX_NUM_SSAO_KERNELS*sizeof(glm::vec3),
+                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
                                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
-                                        ));
-      NVVK_DBG_NAME(m_randomHemiVecB.buffer);
-      NVVK_CHECK(m_stagingUploader.appendBuffer(m_randomHemiVecB, 0,std::span(randomVecs)));
+                                      ));
+      NVVK_DBG_NAME(m_ssaoKernelsB.buffer);
+
+      NVVK_CHECK(m_alloc.createBuffer(m_shadowKernelsB,
+                                      MAX_NUM_SHADOW_KERNELS*sizeof(glm::vec3),
+                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                      ));
+      NVVK_DBG_NAME(m_shadowKernelsB.buffer);
+
 
       m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
 
@@ -1427,6 +1497,9 @@ public:
     bindings.addBinding(shaderio::BindingPoints::albedoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::depthBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::shadowBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::shadowSampler, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::shadowScratchBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::shadowScratchSampler, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::positionBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::aoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::aoScratchBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
@@ -1454,7 +1527,8 @@ public:
     bindings.addBinding(shaderio::BindingPoints::freeList, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
     bindings.addBinding(shaderio::BindingPoints::noise, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_ALL);
-    bindings.addBinding(shaderio::BindingPoints::randHemiVecs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::ssaoKernels, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::shadowKernels, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
 
     // Creating the descriptor set and set layout from the bindings
@@ -1485,7 +1559,8 @@ public:
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::freeList), m_freeListB.buffer);
     
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::noise), m_noiseTex.descriptor);
-    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::randHemiVecs), m_randomHemiVecB.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::ssaoKernels), m_ssaoKernelsB.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::shadowKernels), m_shadowKernelsB.buffer);
     
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
@@ -1599,8 +1674,11 @@ public:
     {
       eRaygen,
       eMiss,
+      eMissShadow,
       eClosestHit,
+      eClosestHitShadow,
       eIntersection,
+      eIntersectionShadow,
       eShaderGroupCount
     };
     std::array<VkPipelineShaderStageCreateInfo, eShaderGroupCount> stages{};
@@ -1609,18 +1687,28 @@ public:
       s.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     }
 
-    stages[eRaygen].module        = pl->shader;
-    stages[eRaygen].pName         = "rgenMain";
-    stages[eRaygen].stage         = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
-    stages[eMiss].module          = pl->shader;
-    stages[eMiss].pName           = "rmissMain";
-    stages[eMiss].stage           = VK_SHADER_STAGE_MISS_BIT_KHR;
-    stages[eClosestHit].module    = pl->shader;
-    stages[eClosestHit].pName     = "rchitMain";
-    stages[eClosestHit].stage     = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
-    stages[eIntersection].module  = pl->shader;
-    stages[eIntersection].pName   = "rintMain";
-    stages[eIntersection].stage   = VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+    stages[eRaygen].module              = pl->shader;
+    stages[eRaygen].pName               = "rgenMain";
+    stages[eRaygen].stage               = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    stages[eMiss].module                = pl->shader;
+    stages[eMiss].pName                 = "rmissMain";
+    stages[eMiss].stage                 = VK_SHADER_STAGE_MISS_BIT_KHR;
+    stages[eMissShadow].module          = pl->shader;
+    stages[eMissShadow].pName           = "rmissShadow";
+    stages[eMissShadow].stage           = VK_SHADER_STAGE_MISS_BIT_KHR;
+    stages[eClosestHit].module          = pl->shader;
+    stages[eClosestHit].pName           = "rchitMain";
+    stages[eClosestHit].stage           = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+    stages[eClosestHitShadow].module    = pl->shader;
+    stages[eClosestHitShadow].pName     = "rchitMain";
+    stages[eClosestHitShadow].stage     = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+    stages[eIntersection].module        = pl->shader;
+    stages[eIntersection].pName         = "rintMain";
+    stages[eIntersection].stage         = VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+    stages[eIntersectionShadow].module  = pl->shader;
+    stages[eIntersectionShadow].pName   = "rintShadow";
+    stages[eIntersectionShadow].stage   = VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+    
     
     // Shader groups
     VkRayTracingShaderGroupCreateInfoKHR group{VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR};
@@ -1640,11 +1728,22 @@ public:
     group.generalShader = eMiss;
     shader_groups.push_back(group);
 
-    // closest hit shader
+    // Shadow miss
+    group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+    group.generalShader = eMissShadow;
+    shader_groups.push_back(group);
+
+    // Closest hit shader
     group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR;
     group.generalShader = VK_SHADER_UNUSED_KHR;
     group.closestHitShader = eClosestHit;
     group.intersectionShader = eIntersection;
+    shader_groups.push_back(group);
+
+    // Shadow intersection
+    group.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR;
+    group.closestHitShader = eClosestHitShadow;
+    group.intersectionShader = eIntersectionShadow;
     shader_groups.push_back(group);
 
     // Assemble the shader stages and recursion depth info into the ray tracing pipeline
@@ -1771,8 +1870,9 @@ private:
   nvvk::Buffer m_freeListB{};       // List of free pointers to the brick atlas
 
   // RNG
-  nvvk::Image m_noiseTex{};         // Rgb noise texture
-  nvvk::Buffer m_randomHemiVecB{};   // Buffer containing random vectors on +Y hemisphere
+  nvvk::Image  m_noiseTex{};        // Rgb noise texture
+  nvvk::Buffer m_ssaoKernelsB{};  // Buffer containing random vectors on +Y hemisphere
+  nvvk::Buffer m_shadowKernelsB{};  // Buffer containing random unit vectors on +Y hemisphere
 
   // 3D textures
   nvvk::Image m_clipMap{};          // 3D map of pointers to the brick atlas
@@ -1794,6 +1894,8 @@ private:
   int m_debugMode = 0;
   bool m_rtxON = false;
   bool m_rebuildTlas = false;
+  bool m_refreshSSAOkernels = true;
+  bool m_refreshShadowKernels = true;
   bool m_updateTlas = true;
   glm::vec3 m_zenithColor = glm::vec3(0.644, 0.635, 0.608);
   glm::vec3 m_horizonColor = glm::vec3(0.628, 0.495, 0.279);

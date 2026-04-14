@@ -36,7 +36,7 @@
 NAMESPACE_SHADERIO_BEGIN()
 
 // Dispatch group counts
-#define WORKGROUP_SIZE_2D 32
+#define WORKGROUP_SIZE_2D 16
 #define WORKGROUP_SIZE_3D 8
 
 // Buffers static max limit
@@ -116,7 +116,8 @@ const static uint UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTE
 
 // Noise texture size
 #define NOISE_TEX_SIZE 1024
-#define NUM_RAN_HEMI_VECS 100
+#define MAX_NUM_SSAO_KERNELS 256
+#define MAX_NUM_SHADOW_KERNELS 25
 
 // Shared between Host and Device
 enum BindingPoints{
@@ -126,6 +127,9 @@ enum BindingPoints{
   albedoBuffer,
   depthBuffer,
   shadowBuffer,
+  shadowSampler,
+  shadowScratchBuffer,
+  shadowScratchSampler,
   positionBuffer,
   aoBuffer,
   aoScratchBuffer,
@@ -147,7 +151,8 @@ enum BindingPoints{
   indirectCommands,
   freeList,
   noise,
-  randHemiVecs,
+  ssaoKernels,
+  shadowKernels,
 };
 
 enum Counters{
@@ -169,15 +174,19 @@ enum DebugModes{
 };
 
 struct LightinParams{
-  float3 lightDir       = normalize(float3(0.9f,0.2f,0.2f));
-  float3 lightColor     = float3(0.644, 0.635, 0.608);
-  float3 ambientTop     = float3(0.3f, 0.35f, 0.5f);
-  float3 ambientBottom  = float3(0.1f, 0.1f, 0.1f);
-  float3 fogColor       = float3(0.5f, 0.6f, 0.7f);
-  float  fogDensity     = 0.03F;
-  float  ssaoRadius     = 0.5f;
-  float  ssaoBias       = 0.025f;
-  int    ssaoTexelSize  = 2;
+  float3 lightDir         = normalize(float3(0.9f,0.2f,0.2f));
+  float3 lightColor       = float3(0.644, 0.635, 0.608);
+  float3 ambientTop       = float3(0.3f, 0.35f, 0.5f);
+  float3 ambientBottom    = float3(0.1f, 0.1f, 0.1f);
+  float3 fogColor         = float3(0.5f, 0.6f, 0.7f);
+  float  fogDensity       = 0.03F;
+  float  ssaoRadius       = 0.5f;
+  float  ssaoBias         = 0.025f;
+  int    ssaoSamples      = 100;
+  int    ssaoTexelSize    = 2;
+  int    shadowSamples    = 2;
+  int    shadowTexelSize  = 4;
+  float  shadowSharpness  = 50.0f;
 };
 
 struct DebugParams{

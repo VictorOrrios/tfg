@@ -11,7 +11,18 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   int2 iResolution;
   outImage.GetDimensions(iResolution.x, iResolution.y);
 
-  float result = applyBilateralBlurPass(fragCoord,iResolution,true);
+  if(any(fragCoord >= iResolution))
+    return;
 
-  aoScratchImage[fragCoord] = result;
+  float ao_result = applyBilateralBlurPass(
+    fragCoord,true,iResolution,
+    pushConst.lp.ssaoTexelSize,aoSample,aoScratchSample);
+
+  aoScratchImage[fragCoord] = ao_result;
+
+  float shadow_result = applyBilateralBlurPass(
+    fragCoord,true,iResolution,
+    pushConst.lp.shadowTexelSize,shadowSample,shadowScratchSample);
+
+  shadowScratchImage[fragCoord] = shadow_result;
 }

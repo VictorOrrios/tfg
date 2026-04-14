@@ -29,7 +29,6 @@ void fetchBrickValue(int pointer, int3 voxel_offset, float max_voxel_value, out 
 
 bool sphereTraceBrick(Ray r, int pointer, float3 brickPos, int level, out float depth){
   const int MAX_ITERATIONS = BRICK_SIZE * 5;
-  const float eps = 1e-4;
   depth = 0.0;
 
   const float brick_size = BRICK_SIZES[level];
@@ -41,13 +40,11 @@ bool sphereTraceBrick(Ray r, int pointer, float3 brickPos, int level, out float 
   int3 prev_voxel_offset = int3(-1);
 
   for(int step = 0; step<MAX_ITERATIONS; step++){
-    //if(getLevelOfPoint(p) != level) break;
     if(any(diff<0.0) || any(diff>brick_size))
       break;
     
     float3 diffNorm = diff/voxel_size;
     int3 voxel_offset = int3(floor(diffNorm));
-    //voxel_offset = clamp(voxel_offset, int3(0), int3(BRICK_SIZE - 1));
     float3 voxel_coor = frac(diffNorm);
 
     if(step == 0 || any(prev_voxel_offset != voxel_offset)){
@@ -63,6 +60,44 @@ bool sphereTraceBrick(Ray r, int pointer, float3 brickPos, int level, out float 
     }
 
     p += r.dir*t;
+
+    diff = p - brickPos;
+  }
+
+  return false;
+}
+
+bool sphereTraceBrickShadow(Ray r, int pointer, float3 brickPos, int level){
+  const int MAX_ITERATIONS = BRICK_SIZE * 2;
+
+  const float brick_size = BRICK_SIZES[level];
+  const float voxel_size = VOXEL_SIZES[level];
+  const float max_voxel_value = MAX_VOXEL_VALUES[level];
+  float3 p = r.orig;
+  float3 diff = p - brickPos;
+  float4 sBottom,sTop;
+  int3 prev_voxel_offset = int3(-1);
+
+  for(int step = 0; step<MAX_ITERATIONS; step++){
+    if(any(diff<0.0) || any(diff>brick_size))
+      break;
+    
+    float3 diffNorm = diff/voxel_size;
+    int3 voxel_offset = int3(floor(diffNorm));
+    float3 voxel_coor = frac(diffNorm);
+
+    if(step == 0 || any(prev_voxel_offset != voxel_offset)){
+      fetchBrickValue(pointer,voxel_offset,max_voxel_value,sBottom,sTop);
+      prev_voxel_offset = voxel_offset;
+    }
+
+    float t = triLerp(voxel_coor,sBottom,sTop);
+
+    if(t < voxel_size/10){
+      return true;
+    }
+
+    p += r.dir * max(t, voxel_size * 0.5f);
 
     diff = p - brickPos;
   }
@@ -255,7 +290,7 @@ float traceShadow(float3 p, float k){
   return shadow;
 }
 
-float traceScene(Ray r, out float3 normal, out float3 albedo, out float shadow, out float3 debug){
+float traceScene(Ray r, out float3 normal, out float3 albedo, out float3 debug){
   const int3 camIdN = sceneInfo.cameraId0.xyz >> (CLIPMAP_LEVELS-1);
   const float3 camIdNPos = camIdN * BRICK_SIZES[CLIPMAP_LEVELS-1];
   const float3 worldMin = camIdNPos - AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
@@ -312,15 +347,6 @@ float traceScene(Ray r, out float3 normal, out float3 albedo, out float shadow, 
 
     normal = analyticNormal(p);
     //normal = evalNormal(p);
-
-    if(dot(normal,pushConst.lp.lightDir) > -0.5){
-      const float k = 180.0;
-      p += normal * 0.03;
-      //shadow = evalShadow(p,k);
-      shadow = traceShadow(p,k);
-    }else{
-      shadow = 0.0;
-    }
   }
 
   return depth;

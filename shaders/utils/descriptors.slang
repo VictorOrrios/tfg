@@ -16,13 +16,15 @@
 [[vk::binding(BindingPoints::albedoBuffer)]] RWTexture2D<float4> albedoImage;
 [[vk::binding(BindingPoints::depthBuffer)]] RWTexture2D<float> depthImage;
 [[vk::binding(BindingPoints::shadowBuffer)]] RWTexture2D<float> shadowImage;
+[[vk::binding(BindingPoints::shadowSampler)]] Texture2D<float> shadowSample;
+[[vk::binding(BindingPoints::shadowScratchBuffer)]] RWTexture2D<float> shadowScratchImage;
+[[vk::binding(BindingPoints::shadowScratchSampler)]] Texture2D<float> shadowScratchSample;
 [[vk::binding(BindingPoints::positionBuffer)]] RWTexture2D<float4> positionImage;
 [[vk::binding(BindingPoints::aoBuffer)]] RWTexture2D<float> aoImage;
 [[vk::binding(BindingPoints::aoScratchBuffer)]] RWTexture2D<float> aoScratchImage;
 [[vk::binding(BindingPoints::aoSample)]] Texture2D<float> aoSample;
 [[vk::binding(BindingPoints::aoScratchSample)]] Texture2D<float> aoScratchSample;
 [[vk::binding(BindingPoints::gSampler)]] SamplerState gSampler;
-
 
 // Scene
 [[vk::binding(BindingPoints::sceneInfo)]] ConstantBuffer<SceneInfo> sceneInfo;
@@ -48,4 +50,5 @@
 
 // RNG
 [[vk::binding(BindingPoints::noise)]] Texture2D<float4> noiseImage;
-[[vk::binding(BindingPoints::randHemiVecs)]] StructuredBuffer<float3> randHemiVecs;
+[[vk::binding(BindingPoints::ssaoKernels)]] StructuredBuffer<float3> ssaoKernels;
+[[vk::binding(BindingPoints::shadowKernels)]] StructuredBuffer<float3> shadowKernels;
