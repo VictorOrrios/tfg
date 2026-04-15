@@ -116,7 +116,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
         case DebugModes::dmDepth: outImage[int2(fragCoord)] = float4(scalarToColor(depth), 1.0F); break;
         case DebugModes::dmShadow: outImage[int2(fragCoord)] = float4(scalarToColor(shadow),1.0F); break;
         case DebugModes::dmPosition: outImage[int2(fragCoord)] = float4(fragPos*float3(1,1,-1 ),1.0F); break;
-        case DebugModes::dmSSAO: outImage[int2(fragCoord)] = float4(float3(occlussion),1.0F); break;
+        case DebugModes::dmAO: outImage[int2(fragCoord)] = float4(float3(occlussion),1.0F); break;
       }
     }
   }else{
@@ -125,9 +125,10 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   
 /* 
   float3 final;
+    float3 p = viewPoint2worldPoint(fragPos);
 
-  final = occlusion;
+  final = p;
   outImage[int2(fragCoord)] = float4(final,1.0);
- */
- 
+
+  */
 }

@@ -73,8 +73,6 @@ void fetchBrickValue(int pointer, int3 voxel_offset, int level, out float4 sBott
   }
 }
 
-
-
 void getkConstants(float4 sBottom, float4 sTop, out float4 k0123, out float4 k4567){
   float aux1 = sBottom.a - sBottom.r; // s001 - s000
   float aux2 = sTop.a - sTop.r;       // s011 - s010
@@ -268,4 +266,33 @@ int getLevelOfPoint(float3 p) {
   }
 
   return clamp(level,0,CLIPMAP_LEVELS - 1);
+}
+
+float sampleInterpolatedPoint(float3 p){
+  float4 sBottom, sTop;
+  int level = getLevelOfPoint(p);
+  const float brick_size = BRICK_SIZES[level];
+  const float voxel_size = VOXEL_SIZES[level];
+
+  // Scale normalization
+  float3 pBrickNorm = p/brick_size;
+  // Truncate normalized coordinates to get the id
+  int3 brickId = int3(floor(pBrickNorm));
+  // Get coordinates inside brick
+  float3 brickCoor = frac(pBrickNorm);
+
+  // Get de voxel params
+  float3 relVoxelCoor = brickCoor * (BRICK_SIZE-1);
+  int3 voxelOffset = int3(relVoxelCoor); // No floor needed, brickCoor ∈ [0,1]
+  float3 voxelCoor = fract(relVoxelCoor);
+
+  // Get pointer of allocated brick
+  int3 brickIndex = id2index(brickId);
+  int3 clipIndex = brickIdx2clipIdx(brickIndex, level);
+  int clipPointer = clipMap[clipIndex] & NOT_DIRTY_BIT;
+
+  // Update current voxel data and index
+  fetchBrickValue(clipPointer,voxelOffset,level,sBottom,sTop);
+  // Interpolate current sdf value of the voxel2
+  return triLerp(voxelCoor,sBottom,sTop);
 }

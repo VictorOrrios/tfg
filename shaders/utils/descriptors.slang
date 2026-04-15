@@ -50,5 +50,5 @@
 
 // RNG
 [[vk::binding(BindingPoints::noise)]] Texture2D<float4> noiseImage;
-[[vk::binding(BindingPoints::ssaoKernels)]] StructuredBuffer<float3> ssaoKernels;
+[[vk::binding(BindingPoints::aoKernels)]] StructuredBuffer<float3> aoKernels;
 [[vk::binding(BindingPoints::shadowKernels)]] StructuredBuffer<float3> shadowKernels;

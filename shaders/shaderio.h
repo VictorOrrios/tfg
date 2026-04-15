@@ -116,7 +116,7 @@ const static uint UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTE
 
 // Noise texture size
 #define NOISE_TEX_SIZE 1024
-#define MAX_NUM_SSAO_KERNELS 256
+#define MAX_NUM_AO_KERNELS 256
 #define MAX_NUM_SHADOW_KERNELS 25
 
 // Shared between Host and Device
@@ -151,7 +151,7 @@ enum BindingPoints{
   indirectCommands,
   freeList,
   noise,
-  ssaoKernels,
+  aoKernels,
   shadowKernels,
 };
 
@@ -169,7 +169,7 @@ enum DebugModes{
   dmDepth,
   dmShadow,
   dmPosition,
-  dmSSAO,
+  dmAO,
   dmBoundingBox
 };
 
@@ -180,10 +180,10 @@ struct LightinParams{
   float3 ambientBottom    = float3(0.1f, 0.1f, 0.1f);
   float3 fogColor         = float3(0.5f, 0.6f, 0.7f);
   float  fogDensity       = 0.03F;
-  float  ssaoRadius       = 0.5f;
-  float  ssaoBias         = 0.025f;
-  int    ssaoSamples      = 100;
-  int    ssaoTexelSize    = 2;
+  float  aoRadius         = 0.5f;
+  float  aoBias           = 0.001f;
+  int    aoSamples        = 80;
+  int    aoTexelSize      = 2;
   int    shadowSamples    = 2;
   int    shadowTexelSize  = 4;
   float  shadowSharpness  = 50.0f;

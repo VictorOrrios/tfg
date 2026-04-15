@@ -16,7 +16,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 
   float ao_result = applyBilateralBlurPass(
     fragCoord,true,iResolution,
-    pushConst.lp.ssaoTexelSize,aoSample,aoScratchSample);
+    pushConst.lp.aoTexelSize,aoSample,aoScratchSample);
 
   aoScratchImage[fragCoord] = ao_result;
 

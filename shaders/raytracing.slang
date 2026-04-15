@@ -89,19 +89,9 @@ void rgenMain(){
       ray.Origin = r.orig + r.dir*depth + normal * 0.05;
       float occlussion = 0.0;
 
-      
-      float3 lightDir = pushConst.lp.lightDir;
-      float3 aux = float3(0,0,1);
-      if(dot(aux,lightDir)>0.99){
-        aux = float3(1,0,0);
-      }
-      float3 tangent = normalize(cross(lightDir,aux));
-      float3 bitangent = cross(lightDir, tangent);
-      float3x3 TBN = float3x3(tangent, bitangent, lightDir);
 
       for(int i = 0; i<pushConst.lp.shadowSamples; i++){
         float3 randUnitVec = shadowKernels[i];
-        randUnitVec = mul(randUnitVec,TBN);
         ray.Direction = randUnitVec;
         shadowPayload.occluded = false;
         TraceRay(topLevelAS, shadowRayFlags, 0xff, 1, 0, 1, ray, shadowPayload);

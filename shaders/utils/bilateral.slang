@@ -12,7 +12,7 @@ const static float kernel[5] = float[](
   0.016216
 );
 
-const static float depthKernel[10] = float[](
+const static float depthKernel[11] = float[](
   1.000000,
   0.606531,
   0.367879,
@@ -22,7 +22,8 @@ const static float depthKernel[10] = float[](
   0.049787,
   0.030197,
   0.018316,
-  0.011109
+  0.011109,
+  0.0,
 );
 
 
@@ -32,7 +33,7 @@ float gaussian(float x, float sigma){
 
 float depthWeight(float depth_center, float depth_sample){
   float dz = abs(depth_center - depth_sample);
-  return depthKernel[int(dz*10.0)];
+  return depthKernel[int(dz*1.0)];
 }
 
 float applyBilateralBlurPass(

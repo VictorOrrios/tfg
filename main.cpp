@@ -50,7 +50,7 @@
 #include "_autogen/raytracing.slang.h"
 #include "_autogen/brick.slang.h"
 #include "_autogen/build.slang.h"
-#include "_autogen/ssao.slang.h"
+#include "_autogen/ao.slang.h"
 #include "_autogen/bilateral_h.slang.h"
 #include "_autogen/bilateral_v.slang.h"
 #include "_autogen/sky_simple.slang.h"
@@ -105,7 +105,7 @@ const char* DebugModes[] = {
     "Depth",
     "Shadow",
     "Position",
-    "SSAO",
+    "AO",
     "Bounding boxes",
 };
 
@@ -239,7 +239,7 @@ public:
     destroyPipeline(&m_rtPipeline);
     destroyPipeline(&m_brickJobPipeline);
     destroyPipeline(&m_buildJobPipeline);
-    destroyPipeline(&m_ssaoPipeline);
+    destroyPipeline(&m_aoPipeline);
     destroyPipeline(&m_bilateralHPipeline);
     destroyPipeline(&m_bilateralVPipeline);
 
@@ -248,7 +248,7 @@ public:
     vkDestroyShaderModule(device,m_rtPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_brickJobPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_buildJobPipeline.shader,nullptr);
-    vkDestroyShaderModule(device,m_ssaoPipeline.shader,nullptr);
+    vkDestroyShaderModule(device,m_aoPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_bilateralHPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_bilateralVPipeline.shader,nullptr);
 
@@ -268,7 +268,7 @@ public:
     m_alloc.destroyBuffer(m_freeListB);
 
     m_alloc.destroyImage(m_noiseTex);
-    m_alloc.destroyBuffer(m_ssaoKernelsB);
+    m_alloc.destroyBuffer(m_aoKernelsB);
     m_alloc.destroyBuffer(m_shadowKernelsB);
 
     m_alloc.destroyImage(m_clipMap);
@@ -335,15 +335,15 @@ public:
       ImGui::ColorEdit3("Fog Color", &m_pushConst.lp.fogColor.x);
      
       ImGui::Separator();
-      ImGui::Text("SSAO");
-      m_refreshSSAOkernels |= ImGui::SliderFloat("Radius", &m_pushConst.lp.ssaoRadius, 0.0f, 5.0f);
-      ImGui::SliderFloat("Bias", &m_pushConst.lp.ssaoBias, 0.0f, 0.5f);
-      ImGui::SliderInt("Samples##SSAO", &m_pushConst.lp.ssaoSamples, 1, MAX_NUM_SSAO_KERNELS);
-      ImGui::SliderInt("Texel size##SSAO", &m_pushConst.lp.ssaoTexelSize, 1, 20);
+      ImGui::Text("Ambient occlussion");
+      m_refreshAOkernels |= ImGui::SliderFloat("Radius", &m_pushConst.lp.aoRadius, 0.0f, 5.0f);
+      ImGui::SliderFloat("Bias", &m_pushConst.lp.aoBias, 0.0f, 0.01f);
+      ImGui::SliderInt("Samples##AO", &m_pushConst.lp.aoSamples, 1, MAX_NUM_AO_KERNELS);
+      ImGui::SliderInt("Texel size##AO", &m_pushConst.lp.aoTexelSize, 1, 20);
 
       ImGui::Separator();
       ImGui::Text("Shadows");
-      m_refreshShadowKernels |= ImGui::SliderFloat("Sharpness", &m_pushConst.lp.shadowSharpness, 20.0f, 1000.0f);
+      m_refreshShadowKernels |= ImGui::SliderFloat("Sharpness", &m_pushConst.lp.shadowSharpness, 1.0f, 500.0f);
       ImGui::SliderInt("Samples##Shadow", &m_pushConst.lp.shadowSamples, 1, MAX_NUM_SHADOW_KERNELS);
       ImGui::SliderInt("Texel size##Shadow", &m_pushConst.lp.shadowTexelSize, 1, 20);
     }
@@ -566,9 +566,9 @@ public:
       m_pushConst.lp.lightDir = glm::normalize(m_pushConst.lp.lightDir);
 
       updateSceneBuffer(cmd);
-      if(m_refreshSSAOkernels){
-        updateSSAOkernels(cmd);
-        m_refreshSSAOkernels = false;
+      if(m_refreshAOkernels){
+        updateAOkernels(cmd);
+        m_refreshAOkernels = false;
       }
       if(m_refreshShadowKernels){
         updateShadowKernels(cmd);
@@ -644,14 +644,14 @@ public:
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Lighting");
 
     {
-      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "SSAO");
+      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "AO");
 
       // Bind pipeline
-      bindComputePipeline(cmd,&m_ssaoPipeline);
+      bindComputePipeline(cmd,&m_aoPipeline);
       // Dispatch
       VkExtent2D viewportSize = m_gBuffers.getSize();
-      viewportSize.width = viewportSize.width/m_pushConst.lp.ssaoTexelSize;
-      viewportSize.height = viewportSize.height/m_pushConst.lp.ssaoTexelSize;
+      viewportSize.width = viewportSize.width/m_pushConst.lp.aoTexelSize;
+      viewportSize.height = viewportSize.height/m_pushConst.lp.aoTexelSize;
       VkExtent2D group_counts = nvvk::getGroupCounts(viewportSize, WORKGROUP_SIZE_2D);
       vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
       // Wait for AO to be done
@@ -1274,8 +1274,8 @@ public:
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
 
-  void updateSSAOkernels(VkCommandBuffer cmd){
-    int size = MAX_NUM_SSAO_KERNELS;
+  void updateAOkernels(VkCommandBuffer cmd){
+    int size = MAX_NUM_AO_KERNELS;
     std::vector<glm::vec3> kernels;
     kernels.reserve(size);
     for(int i = 0; i < size; i++){
@@ -1297,22 +1297,34 @@ public:
       float scale = float(i) / size;
       scale = glm::mix(0.1f, 1.0f, scale * scale);
       sample *= scale;
-      sample *= m_pushConst.lp.ssaoRadius;
+      sample *= m_pushConst.lp.aoRadius;
       sample.z = glm::max(1e-4f,sample.z);
 
       kernels.push_back(sample);
     }
-    vkCmdUpdateBuffer(cmd, m_ssaoKernelsB.buffer, 0, size*sizeof(glm::vec3), kernels.data());
+    vkCmdUpdateBuffer(cmd, m_aoKernelsB.buffer, 0, size*sizeof(glm::vec3), kernels.data());
   
-    nvvk::cmdBufferMemoryBarrier(cmd, {m_ssaoKernelsB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_aoKernelsB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
   
   void updateShadowKernels(VkCommandBuffer cmd){
+    glm::vec3 lightDir = m_pushConst.lp.lightDir;
+    glm::vec3 aux = glm::vec3(0,0,1);
+    if(glm::dot(aux,lightDir)>0.99){
+      aux = glm::vec3(1,0,0);
+    }
+    glm::vec3 tangent = glm::normalize(glm::cross(lightDir,aux));
+    glm::vec3 bitangent = glm::cross(lightDir, tangent);
+    glm::mat3 TBN = glm::mat3(tangent, bitangent, lightDir);
+
     int size = MAX_NUM_SHADOW_KERNELS;
     std::vector<glm::vec3> kernels;
     kernels.reserve(size);
-    for(int i = 0; i < size; i++){
+
+    kernels.push_back(TBN * glm::vec3(0,0,1));
+
+    for(int i = 1; i < size; i++){
       glm::vec3 sample;
 
       float alpha = randomFloat1()*2.0*glm::pi<float>();
@@ -1325,6 +1337,8 @@ public:
       );
         
       sample = glm::normalize(sample);
+
+      sample = TBN*sample;
 
       kernels.push_back(sample);
     }
@@ -1457,12 +1471,12 @@ public:
       // ------------------
       // Random
       // ------------------
-      NVVK_CHECK(m_alloc.createBuffer(m_ssaoKernelsB,
-                                      MAX_NUM_SSAO_KERNELS*sizeof(glm::vec3),
+      NVVK_CHECK(m_alloc.createBuffer(m_aoKernelsB,
+                                      MAX_NUM_AO_KERNELS*sizeof(glm::vec3),
                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
                                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
                                       ));
-      NVVK_DBG_NAME(m_ssaoKernelsB.buffer);
+      NVVK_DBG_NAME(m_aoKernelsB.buffer);
 
       NVVK_CHECK(m_alloc.createBuffer(m_shadowKernelsB,
                                       MAX_NUM_SHADOW_KERNELS*sizeof(glm::vec3),
@@ -1527,7 +1541,7 @@ public:
     bindings.addBinding(shaderio::BindingPoints::freeList, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
     bindings.addBinding(shaderio::BindingPoints::noise, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_ALL);
-    bindings.addBinding(shaderio::BindingPoints::ssaoKernels, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::aoKernels, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::shadowKernels, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
 
@@ -1559,7 +1573,7 @@ public:
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::freeList), m_freeListB.buffer);
     
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::noise), m_noiseTex.descriptor);
-    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::ssaoKernels), m_ssaoKernelsB.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::aoKernels), m_aoKernelsB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::shadowKernels), m_shadowKernelsB.buffer);
     
     vkUpdateDescriptorSets(m_app->getDevice(),  
@@ -1622,7 +1636,7 @@ public:
     createShaderModule(&m_rtPipeline.shader,"raytracing.slang",raytracing_slang);
     createShaderModule(&m_brickJobPipeline.shader,"brick.slang",brick_slang);
     createShaderModule(&m_buildJobPipeline.shader,"build.slang",build_slang);
-    createShaderModule(&m_ssaoPipeline.shader,"ssao.slang",ssao_slang);
+    createShaderModule(&m_aoPipeline.shader,"ao.slang",ao_slang);
     createShaderModule(&m_bilateralHPipeline.shader,"bilateral_h.slang",bilateral_h_slang);
     createShaderModule(&m_bilateralVPipeline.shader,"bilateral_v.slang",bilateral_v_slang);
   }
@@ -1635,7 +1649,7 @@ public:
     createRTPipeline(&m_rtPipeline);
     createComputePipeline(&m_brickJobPipeline);
     createComputePipeline(&m_buildJobPipeline);
-    createComputePipeline(&m_ssaoPipeline);
+    createComputePipeline(&m_aoPipeline);
     createComputePipeline(&m_bilateralHPipeline);
     createComputePipeline(&m_bilateralVPipeline);
   }
@@ -1831,7 +1845,7 @@ private:
   Pipeline m_rtPipeline{};          // Hardware accelerated ray tracing pipeline
   Pipeline m_buildJobPipeline{};    // Build job pipeline
   Pipeline m_brickJobPipeline{};    // Brick job pipeline
-  Pipeline m_ssaoPipeline{};        // SSAO generation pipeline
+  Pipeline m_aoPipeline{};          // Ambient occlussion generation pipeline
   Pipeline m_bilateralHPipeline{};  // Bilateral blur horizontal pass
   Pipeline m_bilateralVPipeline{};  // Bilateral blur vertical pass
 
@@ -1871,7 +1885,7 @@ private:
 
   // RNG
   nvvk::Image  m_noiseTex{};        // Rgb noise texture
-  nvvk::Buffer m_ssaoKernelsB{};  // Buffer containing random vectors on +Y hemisphere
+  nvvk::Buffer m_aoKernelsB{};  // Buffer containing random vectors on +Y hemisphere
   nvvk::Buffer m_shadowKernelsB{};  // Buffer containing random unit vectors on +Y hemisphere
 
   // 3D textures
@@ -1894,7 +1908,7 @@ private:
   int m_debugMode = 0;
   bool m_rtxON = false;
   bool m_rebuildTlas = false;
-  bool m_refreshSSAOkernels = true;
+  bool m_refreshAOkernels = true;
   bool m_refreshShadowKernels = true;
   bool m_updateTlas = true;
   glm::vec3 m_zenithColor = glm::vec3(0.644, 0.635, 0.608);
