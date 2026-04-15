@@ -50,6 +50,7 @@ const static int NUM_BRICKS_IN_ATLAS = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS
 #define L0_AXIS_WORLD_SIZE  2.0 // Axis size of the first clip map level
 #define CLIPMAP_LEVELS      5   // How many levels are in the clip map | WARNING: If updated then all sizes MUST BE UPDATED TO
 #define BRICK_SIZE          8   // How many values per axis does a brick store
+#define MAT_PER_BRICK_AXIS  4   // How many materials are stored per brick axis
 CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS) // Power of two needed for faster calculations
 
 // Extent calculations
@@ -114,10 +115,10 @@ const static uint MAX_NUM_BRICK_JOBS = MAX_NUM_BUILD_JOBS*MAX_BUILD_JOB_SIZE*MAX
 const static uint UNIFORM_POSITIVE_BRICK_POINTER = NUM_BRICKS_IN_ATLAS+1;
 const static uint UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTER+1;
 
-// Noise texture size
+// Rng buffers and images sizes
 #define NOISE_TEX_SIZE 1024
 #define MAX_NUM_AO_KERNELS 256
-#define MAX_NUM_SHADOW_KERNELS 25
+#define MAX_NUM_SHADOW_KERNELS 24
 
 // Shared between Host and Device
 enum BindingPoints{

@@ -73,6 +73,45 @@ void fetchBrickValue(int pointer, int3 voxel_offset, int level, out float4 sBott
   }
 }
 
+float3 interpolateMat(int pointer, int3 voxel_offset, float3 coor){
+
+  if(pointer < NUM_BRICKS_IN_ATLAS){
+    int3 base = pointer2matAtlasIdx(pointer);
+    base += voxel_offset;
+    return lerp(
+      lerp(
+        lerp(
+          matAtlas[base + int3(0,0,0)],
+          matAtlas[base + int3(0,0,1)],
+          coor.z
+        ),
+        lerp(
+          matAtlas[base + int3(1,0,0)],
+          matAtlas[base + int3(1,0,1)],
+          coor.z
+        ),
+        coor.x
+      ),
+      lerp(
+        lerp(
+          matAtlas[base + int3(0,1,0)],
+          matAtlas[base + int3(0,1,1)],
+          coor.z
+        ),
+        lerp(
+          matAtlas[base + int3(1,1,0)],
+          matAtlas[base + int3(1,1,1)],
+          coor.z
+        ),
+        coor.x
+      ),
+      coor.y
+    ).xyz;
+  }else{
+    return float3(1.0);
+  }
+}
+
 void getkConstants(float4 sBottom, float4 sTop, out float4 k0123, out float4 k4567){
   float aux1 = sBottom.a - sBottom.r; // s001 - s000
   float aux2 = sTop.a - sTop.r;       // s011 - s010
@@ -266,6 +305,31 @@ int getLevelOfPoint(float3 p) {
   }
 
   return clamp(level,0,CLIPMAP_LEVELS - 1);
+}
+
+float3 sampleInterpolatedMat(float3 p){
+  float4 sBottom, sTop;
+  int level = getLevelOfPoint(p);
+  const float brick_size = BRICK_SIZES[level];
+
+  // Scale normalization
+  float3 pBrickNorm = p/brick_size;
+  // Truncate normalized coordinates to get the id
+  int3 brickId = int3(floor(pBrickNorm));
+  // Get coordinates inside brick
+  float3 brickCoor = frac(pBrickNorm);
+
+  // Get de mat voxel params
+  float3 relMatVoxelCoor = brickCoor * (MAT_PER_BRICK_AXIS-1);
+  int3 matVoxelOffset = int3(relMatVoxelCoor); // No floor needed, brickCoor ∈ [0,1]
+  float3 matVoxelCoor = fract(relMatVoxelCoor);
+
+  // Get pointer of allocated brick
+  int3 brickIndex = id2index(brickId);
+  int3 clipIndex = brickIdx2clipIdx(brickIndex, level);
+  int clipPointer = clipMap[clipIndex] & NOT_DIRTY_BIT;
+
+  return interpolateMat(clipPointer,matVoxelOffset,matVoxelCoor);
 }
 
 float sampleInterpolatedPoint(float3 p){

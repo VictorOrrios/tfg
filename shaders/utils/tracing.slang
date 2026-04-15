@@ -342,8 +342,9 @@ float traceScene(Ray r, out float3 normal, out float3 albedo, out float3 debug){
   if(depth >= 0){
     float3 p = r.orig + r.dir*depth;
     
-    Material mat = evalMat(p);
-    albedo = mat.albedo.xyz;
+    //Material mat = evalMat(p);
+    //albedo = mat.albedo.xyz;
+    albedo = sampleInterpolatedMat(p);
 
     normal = analyticNormal(p);
     //normal = evalNormal(p);

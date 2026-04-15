@@ -38,5 +38,9 @@ inline int3 brickIdx2clipIdx(int3 id, int level){
 }
 
 inline int3 pointer2atlasIdx(int pointer){
-  return int3(pointer%BRICK_PER_ATLAS_AXIS,pointer/BRICK_PER_ATLAS_AXIS,0)*BRICK_SIZE;
+  return int3(pointer % BRICK_PER_ATLAS_AXIS, pointer / BRICK_PER_ATLAS_AXIS, 0) * BRICK_SIZE;
+}
+
+inline int3 pointer2matAtlasIdx(int pointer){
+  return int3(pointer % BRICK_PER_ATLAS_AXIS, pointer / BRICK_PER_ATLAS_AXIS, 0) * MAT_PER_BRICK_AXIS;
 }

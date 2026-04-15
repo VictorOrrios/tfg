@@ -1009,9 +1009,10 @@ public:
     NVVK_DBG_NAME(m_brickAtlas.image);
 
     // Material atlas
-    extent = {BRICK_PER_ATLAS_AXIS,BRICK_PER_ATLAS_AXIS,1};  // XYZ size
-    format = VK_FORMAT_R8_UINT;  // Texel format
-    clearValueF = 0.0f;
+    const int mat_atlas_axis_size = BRICK_PER_ATLAS_AXIS*MAT_PER_BRICK_AXIS;
+    extent = {mat_atlas_axis_size,mat_atlas_axis_size,MAT_PER_BRICK_AXIS};  // XYZ size
+    format = VK_FORMAT_R8G8B8A8_UNORM;  // Texel format
+    clearValueF = 1.0f;
     clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
     create3DStorageTexture(m_matAtlas, extent, format, clearColor);
     NVVK_DBG_NAME(m_matAtlas.image);

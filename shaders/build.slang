@@ -113,14 +113,8 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
         int newPointer = allocPointer();
         updateInstance(newPointer,brickId,level);
         clipMap[clipIndex] = newPointer | DIRTY_BIT;
-
-        int3 matIndex = int3(newPointer%BRICK_PER_ATLAS_AXIS,newPointer/BRICK_PER_ATLAS_AXIS,0);
-        matAtlas[matIndex] = mat;
       }else{
         updateInstance(prevClipPointer,brickId,level);
-
-        int3 matIndex = int3(prevClipPointer%BRICK_PER_ATLAS_AXIS,prevClipPointer/BRICK_PER_ATLAS_AXIS,0);
-        matAtlas[matIndex] = mat;
       }
     }
 

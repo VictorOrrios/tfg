@@ -91,7 +91,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
         outImage[int2(fragCoord)] = float4(0,0,0,1);
       }
     }else if(uv.x > 0.98 && 
-      (pushConst.debug.mode == DebugModes::dmDebug || 
+      ( pushConst.debug.brickPercent ||
+        pushConst.debug.mode == DebugModes::dmDebug || 
         pushConst.debug.mode == DebugModes::dmDepth || 
         pushConst.debug.mode == DebugModes::dmShadow || 
         pushConst.debug.mode == DebugModes::dmBoundingBox)){

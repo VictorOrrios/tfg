@@ -338,6 +338,8 @@ float map(float3 point, int level, out Material matResult){
   const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
 
+  matResult.albedo.xyz = float3(0,0,1);
+
   for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
     float3 p = float3(point);
     Bbox bbox = aabbs[obIdx];

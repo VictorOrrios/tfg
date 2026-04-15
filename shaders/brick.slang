@@ -29,19 +29,50 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
 
   // If not a uniform value brick
   if(clipPointer < NUM_BRICKS_IN_ATLAS){
-    int3 voxelId = tId % BRICK_SIZE;
-    int3 atlasIndex = pointer2atlasIdx(clipPointer) + voxelId;
-
     const float brick_size = BRICK_SIZES[level];
     const float voxel_size = VOXEL_SIZES[level];
     const float max_voxel_value = MAX_VOXEL_VALUES[level];
 
+    int3 brixelOffset = tId % BRICK_SIZE;
+    int3 brickPointer = pointer2atlasIdx(clipPointer);
+    int3 atlasIndex = brickPointer + brixelOffset;
+
     float3 brickPos = float3(brickId)*brick_size;
-    float3 p = brickPos + float3(voxelId)*voxel_size;
+    float3 p = brickPos + float3(brixelOffset)*voxel_size;
 
-    float mapValue = map(p,level);
-    float sdfValue = clamp(mapValue/max_voxel_value,-1.0,1.0);
+    float sdfValue;
+    bool inMatPlace = all(brixelOffset % (BRICK_SIZE-1) == 0);
+    bool outMatPlace = !inMatPlace && all(brixelOffset < MAT_PER_BRICK_AXIS-1);
 
+    if(inMatPlace){
+      int3 matBrickIdx = pointer2matAtlasIdx(clipPointer);
+      int3 matBrixelOffset = min(1,brixelOffset);
+      int3 matAtlasIndex = matBrickIdx + matBrixelOffset;
+
+      Material mat;
+      sdfValue = map(p,level,mat);
+
+      matAtlas[matAtlasIndex].xyz = mat.albedo.xyz;
+    }else{
+      sdfValue = map(p,level);
+    }
+
+    if(outMatPlace){
+      float mat_voxel_size = brick_size / (MAT_PER_BRICK_AXIS-1);
+      p = brickPos + float3(brixelOffset) * mat_voxel_size;
+
+      int3 matBrickIdx = pointer2matAtlasIdx(clipPointer);
+      int3 matBrixelOffset = brixelOffset;
+      int3 matAtlasIndex = matBrickIdx + matBrixelOffset;
+
+      Material mat;
+      map(p,level,mat);
+
+      matAtlas[matAtlasIndex].xyz = mat.albedo.xyz;
+    }
+
+
+    sdfValue = clamp(sdfValue/max_voxel_value,-1.0,1.0);
     brickAtlas[atlasIndex] = sdfValue;
   }
 }
