@@ -199,8 +199,10 @@ void rchitMain(inout HitPayload payload, in IntersectionPayload attr){
   r.orig = WorldRayOrigin();
   r.dir  = WorldRayDirection();
   float3 p = r.orig + r.dir*payload.depth;
-  Material mat = evalMat(p);
-  payload.albedo = mat.albedo.xyz;
+  //Material mat = evalMat(p);
+  //payload.albedo = mat.albedo.xyz;
+  payload.albedo = sampleInterpolatedMat(p);
+
   payload.normal = analyticNormal(p);
   //payload.normal = evalNormal(p);
 }

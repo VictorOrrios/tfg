@@ -41,8 +41,8 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     float3 p = brickPos + float3(brixelOffset)*voxel_size;
 
     float sdfValue;
-    bool inMatPlace = all(brixelOffset % (BRICK_SIZE-1) == 0);
-    bool outMatPlace = !inMatPlace && all(brixelOffset < MAT_PER_BRICK_AXIS-1);
+    bool inMatPlace = all(brixelOffset % (BRICK_SIZE-1) == 0) && false;
+    bool outMatPlace = !inMatPlace && all(brixelOffset < MAT_PER_BRICK_AXIS);
 
     if(inMatPlace){
       int3 matBrickIdx = pointer2matAtlasIdx(clipPointer);
