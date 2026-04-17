@@ -290,7 +290,7 @@ float traceShadow(float3 p, float k){
   return shadow;
 }
 
-float traceScene(Ray r, out float3 normal, out float3 albedo, out float3 debug){
+float traceScene(Ray r, out float3 normal, out Material mat, out float3 debug){
   const int3 camIdN = sceneInfo.cameraId0.xyz >> (CLIPMAP_LEVELS-1);
   const float3 camIdNPos = camIdN * BRICK_SIZES[CLIPMAP_LEVELS-1];
   const float3 worldMin = camIdNPos - AXIS_SIZES[CLIPMAP_LEVELS-1]/2;
@@ -342,9 +342,8 @@ float traceScene(Ray r, out float3 normal, out float3 albedo, out float3 debug){
   if(depth >= 0){
     float3 p = r.orig + r.dir*depth;
     
-    //Material mat = evalMat(p);
-    //albedo = mat.albedo.xyz;
-    albedo = sampleInterpolatedMat(p);
+    mat = evalMat(p);
+    //mat = sampleInterpolatedMat(p);
 
     normal = analyticNormal(p);
     //normal = evalNormal(p);

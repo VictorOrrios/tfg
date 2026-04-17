@@ -50,8 +50,7 @@ public:
     uint32_t id;
     std::string name;
     glm::vec3 albedo;
-    float roughness;
-    float metalness;
+    float shininess;
   };
 
   struct Node {

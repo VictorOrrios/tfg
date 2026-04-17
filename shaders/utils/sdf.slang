@@ -200,31 +200,6 @@ float sdBaseOctahedron(float3 p){
                     sphOctahedron(i,f,int3(1,1,1)))));
 }
 
-float applyTerrainOp(float3 p, float d, int octaves, float4 terrain, float minD){
-  float s = terrain.x, n;
-  for(int i=0; i<octaves; i++){
-
-    if(i==0){
-      n = s*sdBaseOctahedron(p);
-      n = smax(n, d - terrain.z * s*2, terrain.w * s);
-      d = smin(n, d,               terrain.w/4.0 * s);
-    }else{
-      n = s*sdBaseSphere(p);
-      n = smax(n, d - terrain.z * s, terrain.w * s);
-      d = smin(n, d,               terrain.w * s);
-    }
-
-    // prepare next octave
-    p = mul(float3x3( 0.00, 1.60, 1.20,
-            -1.60, 0.72,-0.96,
-            -1.20,-0.96, 1.28 ),p);
-    s = terrain.y*s;
-
-    if(s<minD) break;
-  }
-  return d;
-}
-
 
 //---------------------------------------
 // Int to sdf op/primitive
@@ -292,6 +267,32 @@ float applyMorphOp(float3 p, float prevPrim, int morphPrim, float morph, float r
   return lerp(prevPrim,mD,morph);
 }
 
+float applyTerrainOp(float3 p, float d, int octaves, float4 terrain, float minD){
+  float s = terrain.x, n;
+  for(int i=0; i<octaves; i++){
+
+    if(i==0){
+      n = s*sdBaseOctahedron(p);
+      n = smax(n, d - terrain.z * s*2, terrain.w * s);
+      d = smin(n, d,               terrain.w/4.0 * s);
+    }else{
+      n = s*sdBaseSphere(p);
+      n = smax(n, d - terrain.z * s, terrain.w * s);
+      d = smin(n, d,               terrain.w * s);
+    }
+
+    // prepare next octave
+    p = mul(float3x3( 0.00, 1.60, 1.20,
+            -1.60, 0.72,-0.96,
+            -1.20,-0.96, 1.28 ),p);
+    s = terrain.y*s;
+
+    if(s<minD) break;
+  }
+  return d;
+}
+
+
 //---------------------------------------
 // Scene evaluation function
 //---------------------------------------
@@ -332,41 +333,60 @@ float map(float3 point, int level){
   return result;
 }
 
-// Map function with material output
-float map(float3 point, int level, out Material matResult){
+// Map function for getting the material at point
+float map(float3 point, out Material matResult){
   const float iniD = 1e5;
-  const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
 
-  matResult.albedo.xyz = float3(0,0,1);
+  int firstInsideIdx = -1;
+  int secondInsideIdx = -1;
 
+  // Prepass for single primitive near p
   for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
-    float3 p = float3(point);
     Bbox bbox = aabbs[obIdx];
-
-    // If not inside bbox primitive continue with next 
-    if(!nearBbox(p,bbox,nearRange))
+    if(!insideBbox(point,bbox))
       continue;
 
-    SceneObject params = objects[obIdx];
+    if(firstInsideIdx == -1){
+      firstInsideIdx = obIdx;
+      SceneObject params = objects[obIdx];
+      matResult = materials[params.mat];
+    }else{
+      secondInsideIdx = obIdx;
+      break;
+    }
+  }
 
-    p = mul(params.tInv, float4(p, 1.0)).xyz;
+  
+  if(secondInsideIdx != -1){
+    for(int obIdx = firstInsideIdx; obIdx < pushConst.numObjects && result > VOXEL_SIZES[0]/10.0f; obIdx++) {
+      float3 p = float3(point);
+      Bbox bbox = aabbs[obIdx];
 
-    p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit_octaves.xyz);
+      // If not inside bbox primitive continue with next 
+      if(!insideBbox(p,bbox))
+        continue;
 
-    p = applyDefOp(params.defOp, p, params.defP);
+      SceneObject params = objects[obIdx];
 
-    p /= params.scale;
+      p = mul(params.tInv, float4(p, 1.0)).xyz;
 
-    float d = evalPrimitive(params.type, p) - params.roundness;
+      p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit_octaves.xyz);
 
-    d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
+      p = applyDefOp(params.defOp, p, params.defP);
 
-    d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
+      p /= params.scale;
 
-    d *= params.scale;
+      float d = evalPrimitive(params.type, p) - params.roundness;
 
-    result = evalCombOpMat(params.combOp, d, result, params.smoothness,materials[params.mat],matResult);
+      d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
+
+      d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
+
+      d *= params.scale;
+
+      result = evalCombOpMat(params.combOp, d, result, params.smoothness,materials[params.mat],matResult);
+    }
   }
 
   return result;

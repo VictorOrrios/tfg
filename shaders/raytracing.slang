@@ -10,10 +10,10 @@
 
 
 struct HitPayload{
-  float3 albedo;
   float3 debug;
   float3 normal;
   float depth;
+  Material mat;
   int level;
 };
 
@@ -30,7 +30,7 @@ struct IntersectionPayload{
 
 [shader("raygeneration")]
 void rgenMain(){
-  float depth, shadow = 1.0; float3 albedo, normal, debug, position;
+  float depth, shadow = 1.0, shininess; float3 albedo, normal, debug, position;
 
   // Get the current pixel coordinates and image dimensions
   float2 launchID = (float2)DispatchRaysIndex().xy;        // Current pixel (x,y)
@@ -53,7 +53,7 @@ void rgenMain(){
 
   // Initialize ray payload with default values
   HitPayload payload;
-  payload.albedo = float3(0);
+  payload.mat = Material(float4(0));
   payload.debug = float3(0);
   payload.normal = float3(1);
   payload.depth = -1;
@@ -63,7 +63,8 @@ void rgenMain(){
   // Parameters: AS, flags, instance mask, sbt offset, sbt stride, miss offset, ray, payload
   TraceRay(topLevelAS, rayFlags, 0xff, 0,0,0, ray, payload);
   
-  albedo = payload.albedo;
+  albedo = payload.mat.albedo_shininess.xyz;
+  shininess = payload.mat.albedo_shininess.w;
   debug = payload.debug;
   normal = payload.normal;
   depth = payload.depth;
@@ -118,7 +119,7 @@ void rgenMain(){
   }
 
   normalImage[int2(launchID)] = float4(normal, 0.0F);
-  albedoImage[int2(launchID)] = float4(albedo,1.0F);
+  albedoImage[int2(launchID)] = float4(albedo,shininess/255);
   depthImage[int2(launchID)] = depth;
   positionImage[int2(launchID)] = float4(position,0.0);
 }
@@ -199,9 +200,8 @@ void rchitMain(inout HitPayload payload, in IntersectionPayload attr){
   r.orig = WorldRayOrigin();
   r.dir  = WorldRayDirection();
   float3 p = r.orig + r.dir*payload.depth;
-  //Material mat = evalMat(p);
-  //payload.albedo = mat.albedo.xyz;
-  payload.albedo = sampleInterpolatedMat(p);
+  payload.mat = evalMat(p);
+  //payload.mat = sampleInterpolatedMat(p);
 
   payload.normal = analyticNormal(p);
   //payload.normal = evalNormal(p);

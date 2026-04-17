@@ -31,7 +31,7 @@
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE_2D, WORKGROUP_SIZE_2D, 1)]
 void computeMain(uint3 threadIdx : SV_DispatchThreadID){
-  float depth, shadow; float3 albedo, normal, position, debug;
+  float depth, shadow, shininess; float3 albedo, normal, position, debug; Material mat;
 
   float2 fragCoord = threadIdx.xy;
   uint2 iResolution;
@@ -53,14 +53,17 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   bbox.bMax = bbox.bMax*bboxSize+bboxPos;
   
   //depth = rayMarchAmaWoo(r,bbox,normal);
-  depth = traceScene(r,normal,albedo,debug);
+  depth = traceScene(r,normal,mat,debug);
 
   bool hit = depth >= 0.0;
   if(!hit){
     albedo = float3(0);
+    shininess = 0.0;
     debug = r.dir;
     position = float3(0.0,0.0,-1000000.0);
   }else{
+    albedo = mat.albedo_shininess.xyz;
+    shininess = mat.albedo_shininess.w;
     position = worldPoint2viewSpace(r.orig + r.dir*depth);
 
     if(all(fragCoord % pushConst.lp.shadowTexelSize == pushConst.lp.shadowTexelSize/2)){
@@ -95,7 +98,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
     }
   }
 
-  albedoImage[int2(fragCoord)] = float4(albedo,1.0F);
+  albedoImage[int2(fragCoord)] = float4(albedo, shininess/255);
   normalImage[int2(fragCoord)] = float4(normal, 0.0F);
   depthImage[int2(fragCoord)] = depth;
   positionImage[int2(fragCoord)] = float4(position,0.0);

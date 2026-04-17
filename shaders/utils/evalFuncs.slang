@@ -100,6 +100,6 @@ float evalShadow(float3 p, float k){
 
 Material evalMat(float3 p){
   Material mat;
-  map(p,CLIPMAP_LEVELS-1,mat);
+  map(p,mat);
   return mat;
 }

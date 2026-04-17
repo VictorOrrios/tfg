@@ -73,12 +73,11 @@ void fetchBrickValue(int pointer, int3 voxel_offset, int level, out float4 sBott
   }
 }
 
-float3 interpolateMat(int pointer, int3 voxel_offset, float3 coor){
-
+Material interpolateMat(int pointer, int3 voxel_offset, float3 coor){
   if(pointer < NUM_BRICKS_IN_ATLAS){
     int3 base = pointer2matAtlasIdx(pointer);
     base += voxel_offset;
-    return lerp(
+    float4 result = lerp(
       lerp(
         lerp(
           matAtlas[base + int3(0,0,0)],
@@ -106,9 +105,13 @@ float3 interpolateMat(int pointer, int3 voxel_offset, float3 coor){
         coor.x
       ),
       coor.y
-    ).xyz;
+    );
+
+    result.w *= 255;
+
+    return Material(result);
   }else{
-    return float3(1.0);
+    return Material(float4(1.0,1.0,1.0,64.0));
   }
 }
 
@@ -307,7 +310,7 @@ int getLevelOfPoint(float3 p) {
   return clamp(level,0,CLIPMAP_LEVELS - 1);
 }
 
-float3 sampleInterpolatedMat(float3 p){
+Material sampleInterpolatedMat(float3 p){
   float4 sBottom, sTop;
   int level = getLevelOfPoint(p);
   const float brick_size = BRICK_SIZES[level];

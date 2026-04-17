@@ -3,9 +3,7 @@
 #include "../shaderio.h"      // Shared definitions with CPU
 
 Material lerpMaterial(Material matA, Material matB, float b){
-  matB.albedo = lerp(matA.albedo,matB.albedo,b);
-  matB.roughness = lerp(matA.roughness,matB.roughness,b);
-  matB.metalness = lerp(matA.metalness,matB.metalness,b);
+  matB.albedo_shininess = lerp(matA.albedo_shininess,matB.albedo_shininess,b);
   return matB;
 }
 

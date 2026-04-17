@@ -37,15 +37,18 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     return;
   
   float3 N = normalImage[int2(fragCoord)].xyz;
-  float3 albedo = albedoImage[int2(fragCoord)].xyz;
+  float4 albedo_sh = albedoImage[int2(fragCoord)];
   float depth = depthImage[int2(fragCoord)];
   float shadow = shadowImage[int2(fragCoord)];
   float3 fragPos = positionImage[int2(fragCoord)].xyz;
   float occlussion = aoImage[int2(fragCoord)];
+  float3 albedo = albedo_sh.xyz;
+  float shininess = albedo_sh.w*255;
+
   float3 finalColor;
 
   if(depth >= 0.0){
-    float3 V = uv2worldDir(uv);
+    float3 V = -uv2worldDir(uv);
     float3 L = pushConst.lp.lightDir;
     float3 H = normalize(L+V);
 
@@ -57,7 +60,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     float3 ambient = lerp(pushConst.lp.ambientBottom, pushConst.lp.ambientTop, hemi) * albedo;
 
     // Bling-Phong specular
-    float spec = pow(saturate(dot(N, H)), 64);
+    float spec = pow(saturate(dot(N, H)), shininess);
     float3 specular = pushConst.lp.lightColor * spec * 0.3;
 
     // Rim lighting

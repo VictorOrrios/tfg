@@ -49,7 +49,7 @@ const static int NUM_BRICKS_IN_ATLAS = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS
 #define NUM_BRICKS_PER_AXIS 64  // How many bricks per axis per level in clip map
 #define L0_AXIS_WORLD_SIZE  2.0 // Axis size of the first clip map level
 #define CLIPMAP_LEVELS      5   // How many levels are in the clip map | WARNING: If updated then all sizes MUST BE UPDATED TO
-#define BRICK_SIZE          8   // How many values per axis does a brick store
+#define BRICK_SIZE          8   // How many values per axis does a brick store  
 #define MAT_PER_BRICK_AXIS  4   // How many materials are stored per brick axis
 CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS) // Power of two needed for faster calculations
 
@@ -234,9 +234,7 @@ struct SceneObject{
 CHECK_STRUCT_ALIGNMENT(SceneObject)
 
 struct Material{
-  float4 albedo;
-  float roughness;
-  float metalness;
+  float4 albedo_shininess;
 };
 CHECK_STRUCT_ALIGNMENT(Material)
 
