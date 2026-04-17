@@ -55,7 +55,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
 
       Material mat;
       map(p,mat);
-      mat.albedo_shininess.w /= 255;
+      mat.albedo_shininess.w /= MAX_SHININESS;
       
       matAtlas[matAtlasIndex] = mat.albedo_shininess;
     }

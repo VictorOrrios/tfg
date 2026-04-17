@@ -43,7 +43,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   float3 fragPos = positionImage[int2(fragCoord)].xyz;
   float occlussion = aoImage[int2(fragCoord)];
   float3 albedo = albedo_sh.xyz;
-  float shininess = albedo_sh.w*255;
+  float shininess = albedo_sh.w*MAX_SHININESS;
 
   float3 finalColor;
 

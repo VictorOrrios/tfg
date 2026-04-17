@@ -348,7 +348,7 @@ void Scene::drawMaterialParams(){
                                 &mat.albedo.x);
 
     dirty |= ImGui::SliderFloat(("Shininess" + id).c_str(),
-                                &mat.shininess, 1.0f, 128.0f);
+                                &mat.shininess, 0.0f, MAX_SHININESS);
 
     if (dirty) {
       m_needsRefresh = true;
@@ -932,6 +932,7 @@ std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 currCamId0, 
 Scene::Scene() {
   Material mat = createMaterial();
   mat.name = "Default";
+  mat.shininess = 1.0;
   int matIdx = addMaterial(mat);
 
   mat = createMaterial();

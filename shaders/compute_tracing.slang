@@ -98,7 +98,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
     }
   }
 
-  albedoImage[int2(fragCoord)] = float4(albedo, shininess/255);
+  albedoImage[int2(fragCoord)] = float4(albedo, shininess/MAX_SHININESS);
   normalImage[int2(fragCoord)] = float4(normal, 0.0F);
   depthImage[int2(fragCoord)] = depth;
   positionImage[int2(fragCoord)] = float4(position,0.0);

@@ -119,7 +119,7 @@ void rgenMain(){
   }
 
   normalImage[int2(launchID)] = float4(normal, 0.0F);
-  albedoImage[int2(launchID)] = float4(albedo,shininess/255);
+  albedoImage[int2(launchID)] = float4(albedo,shininess/MAX_SHININESS);
   depthImage[int2(launchID)] = depth;
   positionImage[int2(launchID)] = float4(position,0.0);
 }

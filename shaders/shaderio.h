@@ -120,6 +120,9 @@ const static uint UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTE
 #define MAX_NUM_AO_KERNELS 256
 #define MAX_NUM_SHADOW_KERNELS 24
 
+// User constants
+#define MAX_SHININESS 100
+
 // Shared between Host and Device
 enum BindingPoints{
   sceneInfo = 0,
