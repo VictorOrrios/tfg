@@ -70,7 +70,7 @@ std::string Scene::nodeTypeToString(NodeType type) {
 }
 
 std::string Scene::getLabel(Node *n) {
-  return nodeTypeToString(n->p.type) + "##" + std::to_string(n->id);
+  return nodeTypeToString(n->gp.type) + "##" + std::to_string(n->id);
 }
 
 std::string Scene::getLabel(Material  mat) {
@@ -198,106 +198,113 @@ void Scene::drawNodeParams(){
 
     const std::string id = "##" + std::to_string(selectedNode.id);
     bool dirty = false;
-    int combOpUI = selectedNode.p.combOp >= 3 ? selectedNode.p.combOp - 3
-                                              : selectedNode.p.combOp;
+    int combOpUI = selectedNode.sdp.combOp >= 3 ? selectedNode.sdp.combOp - 3
+                                              : selectedNode.sdp.combOp;
 
-    dirty |= ComboVector("Material", &selectedNode.p.mat, m_mat);
+    dirty |= ComboVector("Material", &selectedNode.gp.mat, m_mat);
 
     if (ImGui::IsKeyPressed(ImGuiKey_T))
-        selectedNode.p.gzParam.guizmoOp = ImGuizmo::TRANSLATE;
+        selectedNode.gzp.guizmoOp = ImGuizmo::TRANSLATE;
     if (ImGui::IsKeyPressed(ImGuiKey_R))
-        selectedNode.p.gzParam.guizmoOp = ImGuizmo::ROTATE;
+        selectedNode.gzp.guizmoOp = ImGuizmo::ROTATE;
     if (ImGui::IsKeyPressed(ImGuiKey_E))
-        selectedNode.p.gzParam.guizmoOp = ImGuizmo::SCALE;
-    if (ImGui::RadioButton("Translate", selectedNode.p.gzParam.guizmoOp == ImGuizmo::TRANSLATE))
-        selectedNode.p.gzParam.guizmoOp = ImGuizmo::TRANSLATE;
+        selectedNode.gzp.guizmoOp = ImGuizmo::SCALE;
+    if (ImGui::RadioButton("Translate", selectedNode.gzp.guizmoOp == ImGuizmo::TRANSLATE))
+        selectedNode.gzp.guizmoOp = ImGuizmo::TRANSLATE;
     ImGui::SameLine();
-    if (ImGui::RadioButton("Rotate", selectedNode.p.gzParam.guizmoOp == ImGuizmo::ROTATE))
-        selectedNode.p.gzParam.guizmoOp = ImGuizmo::ROTATE;
+    if (ImGui::RadioButton("Rotate", selectedNode.gzp.guizmoOp == ImGuizmo::ROTATE))
+        selectedNode.gzp.guizmoOp = ImGuizmo::ROTATE;
     ImGui::SameLine();
-    if (ImGui::RadioButton("Scale", selectedNode.p.gzParam.guizmoOp == ImGuizmo::SCALE))
-        selectedNode.p.gzParam.guizmoOp = ImGuizmo::SCALE;
+    if (ImGui::RadioButton("Scale", selectedNode.gzp.guizmoOp == ImGuizmo::SCALE))
+        selectedNode.gzp.guizmoOp = ImGuizmo::SCALE;
  
 
     dirty |= ImGui::InputFloat3(("Position" + id).c_str(),
-                                &selectedNode.p.position.x);
+                                &selectedNode.gp.position.x);
     dirty |= ImGui::InputFloat3(("Rotation" + id).c_str(),
-                                &selectedNode.p.rotation.x);
-    ImGui::Separator();
-    dirty |= ImGui::InputFloat(("Scale" + id).c_str(), &selectedNode.p.scale);
+                                &selectedNode.gp.rotation.x);
+    dirty |= ImGui::InputFloat(("Scale" + id).c_str(), &selectedNode.gp.scale);
 
+    ImGui::Separator();
+    dirty |= ImGui::Checkbox("Physics active", &selectedNode.pyp.physicsActive);
+    dirty |= ImGui::SliderFloat("Density", &selectedNode.pyp.density, 0.01f, 10.0f);
+
+    ImGui::Separator();
     dirty |= ImGui::SliderFloat(("Roundness" + id).c_str(),
-                                &selectedNode.p.roundness, 0.0f,
-                                selectedNode.p.scale * 0.25);
+                                &selectedNode.sdp.roundness, 0.0f,
+                                selectedNode.gp.scale * 0.25);
     ImGui::Separator();
 
     dirty |= ImGui::Combo(("Combination operation" + id).c_str(), &combOpUI,
                           CombinationOpNames, IM_ARRAYSIZE(CombinationOpNames));
     dirty |= ImGui::SliderFloat(("Smoothness" + id).c_str(),
-                                &selectedNode.p.smoothness, 0.0f,
+                                &selectedNode.sdp.smoothness, 0.0f,
                                 0.04);
     ImGui::Separator();
 
     dirty |= ImGui::Combo(("Morphing primitive" + id).c_str(),
-                          &selectedNode.p.morphPrim, MorphPrimNames,
+                          &selectedNode.sdp.morphPrim, MorphPrimNames,
                           IM_ARRAYSIZE(MorphPrimNames));
 
     dirty |= ImGui::SliderFloat(("Morphing" + id).c_str(),
-                                &selectedNode.p.morph, 0.0f, 1.0f);
+                                &selectedNode.sdp.morph, 0.0f, 1.0f);
 
     ImGui::Separator();
 
 
     dirty |= ImGui::Combo(("Deformation operation" + id).c_str(),
-                          &selectedNode.p.defOp, DeformationOpNames,
+                          &selectedNode.sdp.defOp, DeformationOpNames,
                           IM_ARRAYSIZE(DeformationOpNames));
-    if (selectedNode.p.defOp == (int)DeformationOp::Elongate) {
+    if (selectedNode.sdp.defOp == (int)DeformationOp::Elongate) {
       dirty |= ImGui::InputFloat3(("Elongation" + id).c_str(),
-                                  &selectedNode.p.defP.x);
+                                  &selectedNode.sdp.defP.x);
     }
 
     ImGui::Separator();
 
     dirty |= ImGui::Combo(("Repetition operation" + id).c_str(),
-                          &selectedNode.p.repOp, RepetitionOpnames,
+                          &selectedNode.sdp.repOp, RepetitionOpnames,
                           IM_ARRAYSIZE(RepetitionOpnames));
 
-    if ((RepetitionOp)selectedNode.p.repOp != RepetitionOp::NoneOP) {
+    if ((RepetitionOp)selectedNode.sdp.repOp != RepetitionOp::NoneOP) {
       dirty |= ImGui::InputFloat3(("Spacing" + id).c_str(),
-                                  &selectedNode.p.spacing.x);
-      if ((RepetitionOp)selectedNode.p.repOp == RepetitionOp::LimRepetition)
+                                  &selectedNode.sdp.spacing.x);
+      if ((RepetitionOp)selectedNode.sdp.repOp == RepetitionOp::LimRepetition)
         dirty |= ImGui::DragInt3(("Limit" + id).c_str(),
-                                 &selectedNode.p.limit.x, 0.1f, 0, INT_MAX);
+                                 &selectedNode.sdp.limit.x, 0.1f, 0, INT_MAX);
     }
 
     ImGui::Separator();
 
     dirty |= ImGui::SliderInt(("Terrain octaves" + id).c_str(),
-                                    &selectedNode.p.octaves,0,20);
-    if(selectedNode.p.octaves > 0){
+                                    &selectedNode.sdp.octaves,0,20);
+    if(selectedNode.sdp.octaves > 0){
       dirty |= ImGui::SliderFloat(("Initial size" + id).c_str(),
-                                    &selectedNode.p.terrain.x,0.001,2.0);
+                                    &selectedNode.sdp.terrain.x,0.001,2.0);
       dirty |= ImGui::SliderFloat(("Size increase" + id).c_str(),
-                                    &selectedNode.p.terrain.y,0.001,0.75);
+                                    &selectedNode.sdp.terrain.y,0.001,0.75);
       dirty |= ImGui::SliderFloat(("Inflation" + id).c_str(),
-                                    &selectedNode.p.terrain.z,0.001,1);
+                                    &selectedNode.sdp.terrain.z,0.001,1);
       dirty |= ImGui::SliderFloat(("Erosion" + id).c_str(),
-                                    &selectedNode.p.terrain.w,0.001,1);
+                                    &selectedNode.sdp.terrain.w,0.001,1);
     }
 
-    if (dirty) {
+    if(dirty) {
       // If smoothness != 0 then apply the smooth combination operations (3,4,5)
       // if not use the faster version (0,1,2)
-      if (selectedNode.p.smoothness > 0.0f) {
-        selectedNode.p.combOp = combOpUI + 3;
+      if (selectedNode.sdp.smoothness > 0.0f) {
+        selectedNode.sdp.combOp = combOpUI + 3;
       } else {
-        selectedNode.p.combOp = combOpUI;
+        selectedNode.sdp.combOp = combOpUI;
       }
       // Update the transformation matrix and bounding box
       updateNodeData(&selectedNode);
       // Flag to render engine that scene needs grid regeneration
       m_needsRefresh = true;
     }
+
+    // If physics are active allways refresh
+    m_needsRefresh |= selectedNode.pyp.physicsActive;
 
     ImGui::End();
   }
@@ -378,7 +385,7 @@ void Scene::drawGuizmo(ImVec2 viewportPos, ImVec2 viewportSize, glm::mat4 camera
     );
 
     Node &selectedNode = m_root[m_selected];
-    GuizmoParams& gzP = selectedNode.p.gzParam;
+    GuizmoParams& gzP = selectedNode.gzp;
 
     cameraProjection[1][1] *= -1.0f;
     ImGuizmo::Manipulate(
@@ -393,11 +400,11 @@ void Scene::drawGuizmo(ImVec2 viewportPos, ImVec2 viewportSize, glm::mat4 camera
     m_usingGuizmo = ImGuizmo::IsUsing();
 
     if(m_usingGuizmo){
-      float& scale = selectedNode.p.scale;
+      float& scale = selectedNode.gp.scale;
       glm::vec3 scale_vec, rot_deg;
-      ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(gzP.matrix), &selectedNode.p.position.x, &rot_deg.x, &scale_vec.x);
-      selectedNode.p.rotation = glm::radians(rot_deg);
-      selectedNode.p.scale = scale_vec[0];
+      ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(gzP.matrix), &selectedNode.gp.position.x, &rot_deg.x, &scale_vec.x);
+      selectedNode.gp.rotation = glm::radians(rot_deg);
+      selectedNode.gp.scale = scale_vec[0];
       updateNodeData(&selectedNode);
       m_needsRefresh = true;
     }
@@ -414,7 +421,7 @@ void Scene::deleteSelected() {
   if (m_selected == -1)
     return;
 
-  m_removeList.push_back(m_root[m_selected].bbox);
+  m_removeList.push_back(m_root[m_selected].gp.bbox);
   m_root.erase(m_root.begin() + m_selected);
   m_selected = -1;
   m_needsRefresh = true;
@@ -423,26 +430,28 @@ void Scene::deleteSelected() {
 Scene::Node *Scene::createNode(NodeType t) {
   Node *node = new Node({
       .id = getNextId(),
-      .p={
+      .needsRefresh=false,
+      .gp={
         .type = t,
-        .gzParam = {
-          ImGuizmo::TRANSLATE,
-          ImGuizmo::WORLD,
-          glm::mat4(1.0)
-        },
+        .bbox=nvutils::Bbox(glm::vec3(0.0),glm::vec3(0.0)),
+      },
+      .sdp={
         .terrain = glm::vec4(1.0,0.5,0.1,0.3),
       },
-      .bbox=nvutils::Bbox(glm::vec3(0.0),glm::vec3(0.0)),
-      .needsRefresh=false,
+      .gzp = {
+        ImGuizmo::TRANSLATE,
+        ImGuizmo::WORLD,
+        glm::mat4(1.0)
+      },
   });
 
   if (m_selected != -1) {
     Node selectedNode = m_root[m_selected];
-    node->p.position = selectedNode.p.position;
-    node->p.rotation = selectedNode.p.rotation;
-    node->p.scale = selectedNode.p.scale;
+    node->gp.position = selectedNode.gp.position;
+    node->gp.rotation = selectedNode.gp.rotation;
+    node->gp.scale = selectedNode.gp.scale;
   }else{
-    node->p.scale = 1.0;
+    node->gp.scale = 1.0;
   }
 
   updateNodeData(node);
@@ -490,11 +499,12 @@ void Scene::updateNodeData(Node *n) {
   markRefresh(n);
   generateMatrix(n);
   generateBBox(n);
+  updateNodePysicsData(n);
 }
 
 void Scene::markRefresh(Node* n){
   if(!n->needsRefresh){
-    n->prevBbox = nvutils::Bbox(n->bbox);
+    n->gp.prevBbox = nvutils::Bbox(n->gp.bbox);
     n->needsRefresh = true;
     m_needsRefresh = true;
   }
@@ -504,25 +514,25 @@ void Scene::generateMatrix(Node *n) {
 
   glm::mat4 transform4x4 = glm::mat4(1.0f);
 
-  transform4x4 = glm::translate(transform4x4, n->p.position);
+  transform4x4 = glm::translate(transform4x4, n->gp.position);
 
-  if (n->p.rotation != glm::vec3(0.0)) {
+  if (n->gp.rotation != glm::vec3(0.0)) {
     transform4x4 =
-        glm::rotate(transform4x4, n->p.rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
+        glm::rotate(transform4x4, n->gp.rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
     transform4x4 =
-        glm::rotate(transform4x4, n->p.rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::rotate(transform4x4, n->gp.rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
     transform4x4 =
-        glm::rotate(transform4x4, n->p.rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::rotate(transform4x4, n->gp.rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
   }
 
-  glm::vec3 scale_vec(n->p.scale), rot_deg(glm::degrees(n->p.rotation));
+  glm::vec3 scale_vec(n->gp.scale), rot_deg(glm::degrees(n->gp.rotation));
   ImGuizmo::RecomposeMatrixFromComponents(
-    glm::value_ptr(n->p.position), 
+    glm::value_ptr(n->gp.position), 
     glm::value_ptr(rot_deg),
     glm::value_ptr(scale_vec),
-    glm::value_ptr(n->p.gzParam.matrix));
+    glm::value_ptr(n->gzp.matrix));
 
-  n->p.tInv = glm::inverse(transform4x4);
+  n->gp.tInv = glm::inverse(transform4x4);
 }
 
 // TODO: Make bboxes with intersection op include all bbox above it in the scene
@@ -531,7 +541,7 @@ void Scene::generateBBox(Node *n) {
   const glm::vec3 worldMax(1000.0);
 
   glm::vec3 min, max;
-  if(n->p.type == NodeType::Plane){
+  if(n->gp.type == NodeType::Plane){
     min = worldMin;
     max = worldMax;
     max.y = 0.1;
@@ -541,50 +551,50 @@ void Scene::generateBBox(Node *n) {
   }
 
   float spacing = 0.15; // Safety margin
-  spacing += n->p.smoothness * 5;
-  spacing += n->p.roundness;
+  spacing += n->sdp.smoothness * 5;
+  spacing += n->sdp.roundness;
 
-  if(n->p.octaves > 0){
-    spacing += n->p.terrain.x * n->p.terrain.z
-    * (1.0f - glm::pow(n->p.terrain.y,n->p.octaves-1))/(1.0f - n->p.terrain.y);
-    spacing += n->p.terrain.w/8.0;
+  if(n->sdp.octaves > 0){
+    spacing += n->sdp.terrain.x * n->sdp.terrain.z
+    * (1.0f - glm::pow(n->sdp.terrain.y,n->sdp.octaves-1))/(1.0f - n->sdp.terrain.y);
+    spacing += n->sdp.terrain.w/8.0;
   }
 
   min -= spacing;
   max += spacing;
 
-  min *= n->p.scale;
-  max *= n->p.scale;
+  min *= n->gp.scale;
+  max *= n->gp.scale;
 
-  if (n->p.defOp == (int)DeformationOp::Elongate) {
-    min -= n->p.defP;
-    max += n->p.defP;
+  if (n->sdp.defOp == (int)DeformationOp::Elongate) {
+    min -= n->sdp.defP;
+    max += n->sdp.defP;
   }
 
   glm::vec3 repOffset = glm::vec3(0.0);
-  if (n->p.repOp == (int)RepetitionOp::LimRepetition) {
-    repOffset = n->p.spacing * glm::vec3(n->p.limit);
-  } else if (n->p.repOp == (int)RepetitionOp::IlimRepetition) {
+  if (n->sdp.repOp == (int)RepetitionOp::LimRepetition) {
+    repOffset = n->sdp.spacing * glm::vec3(n->sdp.limit);
+  } else if (n->sdp.repOp == (int)RepetitionOp::IlimRepetition) {
     repOffset =
-        glm::step(0.0001f, n->p.spacing) * std::numeric_limits<float>::max();
+        glm::step(0.0001f, n->sdp.spacing) * std::numeric_limits<float>::max();
   }
   min -= repOffset;
   max += repOffset;
 
   nvutils::Bbox bboxt(min, max);
-  bboxt = bboxt.transform(glm::inverse(n->p.tInv));
+  bboxt = bboxt.transform(glm::inverse(n->gp.tInv));
 
   min = glm::max(bboxt.min(), worldMin);
   max = glm::min(bboxt.max(), worldMax);
 
-  n->bbox = nvutils::Bbox(min, max);
+  n->gp.bbox = nvutils::Bbox(min, max);
 }
 
 std::vector<nvutils::Bbox> Scene::getAllBboxes() {
   std::vector<nvutils::Bbox> out;
 
   for (auto &node : m_root) {
-    out.push_back(node.bbox);
+    out.push_back(node.gp.bbox);
   }
 
   return out;
@@ -607,25 +617,26 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
   std::vector<shaderio::SceneObject> out;
 
   for (auto &node : m_root) {
-    NodeParams& p = node.p; 
+    GeneralParams& p = node.gp; 
+    SDFParams& sdp = node.sdp; 
 
-    int morphPrim = p.morphPrim+1;
+    int morphPrim = sdp.morphPrim+1;
     
     out.push_back({
       .tInv=columnMajorToRowMajor(p.tInv),
-      .spacing=glm::vec4(p.spacing,0),
-      .defP=glm::vec4(p.defP,0),
-      .terrain=glm::vec4(p.terrain),
-      .limit_octaves=glm::ivec4(p.limit,p.octaves),
+      .spacing=glm::vec4(sdp.spacing,0),
+      .defP=glm::vec4(sdp.defP,0),
+      .terrain=glm::vec4(sdp.terrain),
+      .limit_octaves=glm::ivec4(sdp.limit,sdp.octaves),
       .type=int(p.type),
-      .combOp=p.combOp,
-      .repOp=p.repOp,
-      .defOp=p.defOp,
+      .combOp=sdp.combOp,
+      .repOp=sdp.repOp,
+      .defOp=sdp.defOp,
       .morphPrim=morphPrim,
       .scale=p.scale,
-      .roundness=p.roundness,
-      .smoothness=p.smoothness,
-      .morph=p.morph,
+      .roundness=sdp.roundness,
+      .smoothness=sdp.smoothness,
+      .morph=sdp.morph,
       .mat=uint(p.mat),
     });
   }
@@ -665,22 +676,23 @@ float Scene::map(glm::vec3 point) {
     float d;
 
     // If not inside bbox primitive continue with next 
-    if(!pointInBBox(p,node.bbox))
+    if(!pointInBBox(p,node.gp.bbox))
       continue;
 
-    NodeParams &params = node.p;
+    GeneralParams &gp = node.gp;
+    SDFParams& sdp = node.sdp; 
 
-    p = glm::vec3(params.tInv * glm::vec4(p, 1.0f));
+    p = glm::vec3(gp.tInv * glm::vec4(p, 1.0f));
 
-    p = repFTable[params.repOp](p, params.spacing, params.limit);
+    p = repFTable[sdp.repOp](p, sdp.spacing, sdp.limit);
 
-    p = defFTable[params.defOp](p, params.defP);
+    p = defFTable[sdp.defOp](p, sdp.defP);
 
-    d = primFTable[int(node.p.type)](p / params.scale) - params.roundness;
+    d = primFTable[int(gp.type)](p / gp.scale) - sdp.roundness;
 
-    d *= params.scale;
+    d *= gp.scale;
 
-    result = combFTable[params.combOp](d, result, params.smoothness);
+    result = combFTable[sdp.combOp](d, result, sdp.smoothness);
   }
 
   return result;
@@ -883,9 +895,9 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(glm::ivec3 currCamId0, glm::
 
   for (auto &node : m_root) {
     if(node.needsRefresh){
-      aabbs.push_back(node.bbox);
-      aabbs.push_back(node.prevBbox);
-      node.prevBbox = nvutils::Bbox(node.bbox);
+      aabbs.push_back(node.gp.bbox);
+      aabbs.push_back(node.gp.prevBbox);
+      node.gp.prevBbox = nvutils::Bbox(node.gp.bbox);
       node.needsRefresh = false;
     }
   }
@@ -951,72 +963,72 @@ Scene::Scene() {
 
   // Create the scene
   Node *terrain = createNode(NodeType::Plane);
-  terrain->p.position = glm::vec3(0.0,-1.8,0.0);
-  terrain->p.scale = 10.0;
-  terrain->p.octaves = 8;
-  terrain->p.terrain = glm::vec4(1.5,0.35,0.08,0.28);
+  terrain->gp.position = glm::vec3(0.0,-1.8,0.0);
+  terrain->gp.scale = 10.0;
+  terrain->sdp.octaves = 8;
+  terrain->sdp.terrain = glm::vec4(1.5,0.35,0.08,0.28);
   updateNodeData(terrain);
   addNode(terrain);
 
   Node *snowMan = createNode(NodeType::Snowman);
-  snowMan->p.scale = 0.8;
-  snowMan->p.position = glm::vec3(0.0,0.0,-1.0);
+  snowMan->gp.scale = 0.8;
+  snowMan->gp.position = glm::vec3(0.0,0.0,-1.0);
   updateNodeData(snowMan);
   addNode(snowMan);
 
   Node *box = createNode(NodeType::Box);
-  box->p.scale = 0.2;
-  box->p.position = glm::vec3(-0.2, -0.15, -0.75);
-  box->p.rotation = glm::vec3(0.2, 0.4, 0.4);
-  box->p.combOp = (int)CombinationOp::Union + 3;
-  box->p.smoothness = 0.02;
-  box->p.mat = newMat;
+  box->gp.scale = 0.2;
+  box->gp.position = glm::vec3(-0.2, -0.15, -0.75);
+  box->gp.rotation = glm::vec3(0.2, 0.4, 0.4);
+  box->sdp.combOp = (int)CombinationOp::Union + 3;
+  box->sdp.smoothness = 0.02;
+  box->gp.mat = newMat;
   updateNodeData(box);
   addNode(box);
 
   Node *sphere = createNode(NodeType::Sphere);
-  sphere->p.scale = 0.2;
-  sphere->p.position = glm::vec3(0.1, 0.3, -0.9);
-  sphere->p.rotation = glm::vec3(0);
-  sphere->p.combOp = (int)CombinationOp::Substraction;
-  sphere->p.mat = newMat;
+  sphere->gp.scale = 0.2;
+  sphere->gp.position = glm::vec3(0.1, 0.3, -0.9);
+  sphere->gp.rotation = glm::vec3(0);
+  sphere->sdp.combOp = (int)CombinationOp::Substraction;
+  sphere->gp.mat = newMat;
   updateNodeData(sphere);
   addNode(sphere);
 
   Node *sphereGrid = createNode(NodeType::Sphere);
-  sphereGrid->p.position = glm::vec3(0, 0, -1.4);
-  sphereGrid->p.rotation = glm::vec3(0);
-  sphereGrid->p.scale = 0.1;
-  sphereGrid->p.repOp = (int)RepetitionOp::LimRepetition;
-  sphereGrid->p.spacing = glm::vec3(0.14,0.14,0);
-  sphereGrid->p.limit = glm::ivec3(13,13,1);
-  sphereGrid->p.mat = newMat;
+  sphereGrid->gp.position = glm::vec3(0, 0, -1.4);
+  sphereGrid->gp.rotation = glm::vec3(0);
+  sphereGrid->gp.scale = 0.1;
+  sphereGrid->sdp.repOp = (int)RepetitionOp::LimRepetition;
+  sphereGrid->sdp.spacing = glm::vec3(0.14,0.14,0);
+  sphereGrid->sdp.limit = glm::ivec3(13,13,1);
+  sphereGrid->gp.mat = newMat;
   updateNodeData(sphereGrid);
   addNode(sphereGrid);
 
   Node *torus = createNode(NodeType::Torus);
-  torus->p.scale = 0.2;
-  torus->p.position = glm::vec3(0.35, 0.1, -1.2);
-  torus->p.rotation = glm::vec3(0.75, 0, 0);
-  torus->p.mat = newMat;
+  torus->gp.scale = 0.2;
+  torus->gp.position = glm::vec3(0.35, 0.1, -1.2);
+  torus->gp.rotation = glm::vec3(0.75, 0, 0);
+  torus->gp.mat = newMat;
   updateNodeData(torus);
   addNode(torus);
 
   Node *test = createNode(NodeType::Snowman);
-  test->p.scale = 0.4;
-  test->p.position = glm::vec3(1.5,1.5,1.5);
-  test->p.rotation = glm::vec3(0.0);
+  test->gp.scale = 0.4;
+  test->gp.position = glm::vec3(1.5,1.5,1.5);
+  test->gp.rotation = glm::vec3(0.0);
   updateNodeData(test);
   addNode(test);
 
   for(int level=1; level<3; level++){
     Node *snowManL = createNode(NodeType::Snowman);
-    snowManL->p.scale = 0.5*(1<<level);
-    snowManL->p.position = glm::vec3(-((L0_AXIS_WORLD_SIZE*0.5)*(1<<level))*3/4, 0.0, 0.0);
-    snowManL->p.rotation = glm::vec3(0.0,0.4*level,0.0);
+    snowManL->gp.scale = 0.5*(1<<level);
+    snowManL->gp.position = glm::vec3(-((L0_AXIS_WORLD_SIZE*0.5)*(1<<level))*3/4, 0.0, 0.0);
+    snowManL->gp.rotation = glm::vec3(0.0,0.4*level,0.0);
     updateNodeData(snowManL);
     addNode(snowManL);
   }
 
   m_selected = 1;
-}
+} 

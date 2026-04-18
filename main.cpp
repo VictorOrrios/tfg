@@ -614,6 +614,17 @@ public:
     lightingPass(cmd);
     
     postProcess(cmd);
+
+    {
+      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Simulation");
+      if(m_prevTime < 0){
+        m_prevTime = m_pushConst.time;
+      }else{
+        float deltaT = m_pushConst.time - m_prevTime;
+        m_prevTime = m_pushConst.time;
+        m_scene.simulate(deltaT);
+      }
+    }
   }
 
   void bindComputePipeline(VkCommandBuffer cmd, Pipeline* pl){
@@ -1904,6 +1915,7 @@ private:
   Scene m_scene;
   glm::ivec3 m_currCamId0 = glm::ivec3(0);
   glm::ivec3 m_prevCamId0 = glm::ivec3(0);
+  float m_prevTime = -1;
 
   // UI params
   bool m_debugActive = false;

@@ -18,20 +18,35 @@ public:
   enum class RepetitionOp { NoneOP, LimRepetition, IlimRepetition };
   enum class DeformationOp { NoneOP, Elongate };
 
+  struct GeneralParams{
+    NodeType type;
+    int mat;
+    glm::vec3 position;
+    glm::vec3 prev_position;
+    glm::vec3 rotation;
+    glm::vec3 prev_rotation;
+    glm::mat4 tInv;
+    float scale;
+    nvutils::Bbox bbox;
+    nvutils::Bbox prevBbox;
+  };
+
   struct GuizmoParams{
     ImGuizmo::OPERATION guizmoOp;
     ImGuizmo::MODE guizmoMode;
     glm::mat4 matrix;
   };
 
-  struct NodeParams {
-    NodeType type;
-    int mat;
-    glm::vec3 position;
-    glm::vec3 rotation;
-    glm::mat4 tInv;
-    GuizmoParams gzParam;
-    float scale;
+  struct PhysicsParams {
+    bool physicsActive;
+    float density;
+    float invMass;
+    glm::vec3 vel;
+    glm::vec3 omega;
+    glm::vec3 invInertia;
+  };
+
+  struct SDFParams {
     float roundness;
     int combOp;
     float smoothness;
@@ -57,16 +72,19 @@ public:
 
   struct Node {
     uint32_t id;
-    NodeParams p;
-    nvutils::Bbox bbox;
-    nvutils::Bbox prevBbox;
     bool needsRefresh;
+    GeneralParams gp;
+    SDFParams     sdp;
+    PhysicsParams pyp;
+    GuizmoParams  gzp;
   };
 
   Scene();
 
   void draw();
   void drawGuizmo(ImVec2 viewportPos, ImVec2 viewportSize, glm::mat4 cameraView, glm::mat4 cameraProjection);
+
+  void simulate(float dt);
 
   std::vector<float> generateDenseGrid();
   std::vector<nvutils::Bbox> getAllBboxes();
@@ -100,6 +118,7 @@ private:
   int addMaterial(Material mat);
 
   void updateNodeData(Node *n);
+  void updateNodePysicsData(Node *n);
   void markRefresh(Node* n);
   void generateMatrix(Node *n);
   void generateBBox(Node *n);
