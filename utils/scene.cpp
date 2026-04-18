@@ -639,7 +639,7 @@ std::vector<shaderio::Material> Scene::getMaterials(){
   for (auto &mat : m_mat) {
     out.push_back({
       .albedo_shininess = glm::vec4(mat.albedo, mat.shininess),
-      .roughness_metalness = glm::vec2(mat.roughness, mat.metalness),
+      .alpha_metalness = glm::vec2(mat.roughness*mat.roughness, mat.metalness),
     });
   }
 

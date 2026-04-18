@@ -4,7 +4,7 @@
 
 Material lerpMaterial(Material matA, Material matB, float b){
   matB.albedo_shininess = lerp(matA.albedo_shininess,matB.albedo_shininess,b);
-  matB.roughness_metalness = lerp(matA.roughness_metalness,matB.roughness_metalness,b);
+  matB.alpha_metalness = lerp(matA.alpha_metalness,matB.alpha_metalness,b);
   return matB;
 }
 

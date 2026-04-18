@@ -57,15 +57,15 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     return;
   
   float4 N_met = normalImage[int2(fragCoord)];
-  float4 albedo_rg = albedoImage[int2(fragCoord)];
+  float4 albedo_alpha = albedoImage[int2(fragCoord)];
   float depth = depthImage[int2(fragCoord)];
   float shadow = shadowImage[int2(fragCoord)];
   float3 fragPos = positionImage[int2(fragCoord)].xyz;
   float occlussion = aoImage[int2(fragCoord)];
 
   float3 N = N_met.xyz;
-  float3 albedo = albedo_rg.xyz;
-  float roughness = albedo_rg.w;
+  float3 albedo = albedo_alpha.xyz;
+  float alpha = albedo_alpha.w;
   float metalness = N_met.w;
   //float shininess = albedo_sh.w*MAX_SHININESS;
 
@@ -77,7 +77,6 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     float3 H = normalize(L+V);
 
     float3 F0 = lerp(float3(0.04),albedo,metalness);
-    float alpha = roughness*roughness;
     float alpha2 = alpha*alpha;
     float NoV = dot(N, V);
     float NoH = dot(N, H);

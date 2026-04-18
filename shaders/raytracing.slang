@@ -30,7 +30,7 @@ struct IntersectionPayload{
 
 [shader("raygeneration")]
 void rgenMain(){
-  float depth, shadow = 1.0, shininess; float3 albedo, normal, debug, position;
+  float depth, shadow = 1.0, shininess, alpha, metalness; float3 albedo, normal, debug, position;
 
   // Get the current pixel coordinates and image dimensions
   float2 launchID = (float2)DispatchRaysIndex().xy;        // Current pixel (x,y)
@@ -65,6 +65,8 @@ void rgenMain(){
   
   albedo = payload.mat.albedo_shininess.xyz;
   shininess = payload.mat.albedo_shininess.w;
+  alpha = payload.mat.alpha_metalness.x;
+  metalness = payload.mat.alpha_metalness.y;
   debug = payload.debug;
   normal = payload.normal;
   depth = payload.depth;
@@ -99,27 +101,14 @@ void rgenMain(){
         if(shadowPayload.occluded)
           occlussion++;
       }
- 
       
-/* 
-      for(int i = 0; i<pushConst.lp.shadowRays; i++){
-        float3 noise = noiseImage[(int2(launchID)+i)%NOISE_TEX_SIZE].xyz;
-        float3 dir = normalize(pushConst.lp.lightDir*pushConst.lp.shadowSharpness + noise);
-        ray.Direction = dir;
-        shadowPayload.occluded = false;
-        TraceRay(topLevelAS, shadowRayFlags, 0xff, 1, 0, 1, ray, shadowPayload);
-        if(shadowPayload.occluded)
-          occlussion++;
-      }
-       */
-
       shadow = 1.0 - occlussion/pushConst.lp.shadowSamples;
     }
     shadowImage[int2(launchID/pushConst.lp.shadowTexelSize)] = shadow;
   }
 
-  normalImage[int2(launchID)] = float4(normal, 0.0F);
-  albedoImage[int2(launchID)] = float4(albedo,shininess/MAX_SHININESS);
+  normalImage[int2(launchID)] = float4(normal, metalness);
+  albedoImage[int2(launchID)] = float4(albedo, alpha);
   depthImage[int2(launchID)] = depth;
   positionImage[int2(launchID)] = float4(position,0.0);
 }

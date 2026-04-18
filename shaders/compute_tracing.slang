@@ -31,7 +31,7 @@
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE_2D, WORKGROUP_SIZE_2D, 1)]
 void computeMain(uint3 threadIdx : SV_DispatchThreadID){
-  float depth, shadow, shininess, roughness, metalness; float3 albedo, normal, position, debug; Material mat;
+  float depth, shadow, shininess, alpha, metalness; float3 albedo, normal, position, debug; Material mat;
 
   float2 fragCoord = threadIdx.xy;
   uint2 iResolution;
@@ -59,15 +59,15 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
   if(!hit){
     albedo = float3(0);
     shininess = 0.0;
-    roughness = 0.0;
+    alpha = 0.0;
     metalness = 0.0;
     debug = r.dir;
     position = float3(0.0,0.0,-1000000.0);
   }else{
     albedo = mat.albedo_shininess.xyz;
     shininess = mat.albedo_shininess.w;
-    roughness = mat.roughness_metalness.x;
-    metalness = mat.roughness_metalness.y;
+    alpha = mat.alpha_metalness.x;
+    metalness = mat.alpha_metalness.y;
     position = worldPoint2viewSpace(r.orig + r.dir*depth);
 
     if(all(fragCoord % pushConst.lp.shadowTexelSize == pushConst.lp.shadowTexelSize/2)){
@@ -102,7 +102,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
     }
   }
 
-  albedoImage[int2(fragCoord)] = float4(albedo, roughness);
+  albedoImage[int2(fragCoord)] = float4(albedo, alpha);
   normalImage[int2(fragCoord)] = float4(normal, metalness);
   depthImage[int2(fragCoord)] = depth;
   positionImage[int2(fragCoord)] = float4(position,0.0);
