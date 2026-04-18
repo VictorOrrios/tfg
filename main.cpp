@@ -316,9 +316,10 @@ public:
       bool dirtyLight = false;
       ImGui::Text("Directional Light");
 
-      dirtyLight |= ImGui::SliderFloat3("Direction", &m_pushConst.lp.lightDir.x, -1.0f, 1.0f);
+      ImGui::SliderFloat3("Direction", &m_pushConst.lp.lightDir.x, -1.0f, 1.0f);
       dirtyLight |= ImGui::ColorEdit3("Zenith Color", &m_zenithColor.x);
       dirtyLight |= ImGui::ColorEdit3("Horizon Color", &m_horizonColor.x);
+      ImGui::SliderFloat("Power", &m_pushConst.lp.lightPower,0.0,10.0f);
 
       if(dirtyLight){
         m_pushConst.lp.lightColor = glm::mix(m_horizonColor,m_zenithColor,glm::max(0.0f,glm::dot(m_pushConst.lp.lightDir,glm::vec3(0,1,0))));
@@ -862,7 +863,7 @@ public:
     nvvk::GBufferInitInfo gBufferInit{
         .allocator      = &m_alloc,
         .colorFormats   = {
-          VK_FORMAT_R32G32B32A32_SFLOAT,      // Normal buffer
+          VK_FORMAT_R8G8B8A8_SNORM,           // Normal buffer
           VK_FORMAT_R8G8B8A8_UNORM,           // Albedo buffer
           VK_FORMAT_R32G32B32A32_SFLOAT,      // Render target
           VK_FORMAT_R8G8B8A8_UNORM,           // Tonemapped

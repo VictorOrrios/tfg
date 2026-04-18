@@ -350,6 +350,12 @@ void Scene::drawMaterialParams(){
     dirty |= ImGui::SliderFloat(("Shininess" + id).c_str(),
                                 &mat.shininess, 0.0f, MAX_SHININESS);
 
+    dirty |= ImGui::SliderFloat(("Roughness" + id).c_str(),
+                                &mat.roughness, 0.0f, 1.0f);
+
+    dirty |= ImGui::SliderFloat(("Metalness" + id).c_str(),
+                                &mat.metalness, 0.0f, 1.0f);
+
     if (dirty) {
       m_needsRefresh = true;
     }
@@ -463,6 +469,8 @@ Scene::Material Scene::createMaterial(){
     .name = "Material "+std::to_string(m_mat.size()),
     .albedo = glm::vec3(1.0),
     .shininess = 64.0f,
+    .roughness = 0.8,
+    .metalness = 0.0,
   };
 }
 
@@ -631,6 +639,7 @@ std::vector<shaderio::Material> Scene::getMaterials(){
   for (auto &mat : m_mat) {
     out.push_back({
       .albedo_shininess = glm::vec4(mat.albedo, mat.shininess),
+      .roughness_metalness = glm::vec2(mat.roughness, mat.metalness),
     });
   }
 

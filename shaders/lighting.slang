@@ -25,6 +25,26 @@
 
 static uint2 iResolution;
 
+// Fresnel-Schlick aproximation to reflectance
+float3 reflectance(float cos_theta, float3 F0) {
+  return F0 + (1.0 - F0) * pow(1.0 - cos_theta, 5.0);
+}
+
+// Normal distribution function. GGX
+float ggx_distribution(float NoH, float alpha2){
+  float b = NoH * NoH * (alpha2 - 1.0) + 1.0;
+  return alpha2 * INV_PI / (b * b);
+}
+
+float G_Smith_Fast(float NoV, float NoL, float alpha) {
+  float k = alpha * 0.5;
+  float one_k = 1.0 - k;
+  // In line G1_GGX_Schlick
+  float g1_v = max(NoV,1e-5) / (NoV * one_k + k);
+  float g1_l = max(NoL,1e-5) / (NoL * one_k + k);
+  return g1_v * g1_l;
+}
+
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE_2D, WORKGROUP_SIZE_2D, 1)]
 void computeMain(uint3 threadIdx : SV_DispatchThreadID)
@@ -36,14 +56,18 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   if(any(fragCoord >= iResolution))
     return;
   
-  float3 N = normalImage[int2(fragCoord)].xyz;
-  float4 albedo_sh = albedoImage[int2(fragCoord)];
+  float4 N_met = normalImage[int2(fragCoord)];
+  float4 albedo_rg = albedoImage[int2(fragCoord)];
   float depth = depthImage[int2(fragCoord)];
   float shadow = shadowImage[int2(fragCoord)];
   float3 fragPos = positionImage[int2(fragCoord)].xyz;
   float occlussion = aoImage[int2(fragCoord)];
-  float3 albedo = albedo_sh.xyz;
-  float shininess = albedo_sh.w*MAX_SHININESS;
+
+  float3 N = N_met.xyz;
+  float3 albedo = albedo_rg.xyz;
+  float roughness = albedo_rg.w;
+  float metalness = N_met.w;
+  //float shininess = albedo_sh.w*MAX_SHININESS;
 
   float3 finalColor;
 
@@ -52,16 +76,44 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     float3 L = pushConst.lp.lightDir;
     float3 H = normalize(L+V);
 
+    float3 F0 = lerp(float3(0.04),albedo,metalness);
+    float alpha = roughness*roughness;
+    float alpha2 = alpha*alpha;
+    float NoV = dot(N, V);
+    float NoH = dot(N, H);
+    float NoVabs = abs(NoV);
+    float VoH = dot(V, H);
+    float LoN = dot(L, N);
+
+    float3 F = reflectance(VoH, F0);
+    float  D = ggx_distribution(NoH,alpha2);
+    float  G = G_Smith_Fast(NoV,LoN,alpha);
+
+    float3 f_specular = (F*D*G) / (4.0 *  max(NoV * LoN, 1e-5));
+
+    float3 radiance = pushConst.lp.lightColor * pushConst.lp.lightPower;
+
+    float3 rhoD = albedo;
+    rhoD *= float3(1.0) - F;
+    rhoD *= (1.0 - metalness);
+
+    float3 f_diffuse = rhoD * INV_PI;
+
+    float3 fr = f_diffuse + f_specular;
+
+    /* 
+    // Lambert diffuse
     float NdotL = saturate(dot(N, L));
     float3 diffuse = albedo * pushConst.lp.lightColor * NdotL;
-
-    // Hemispheric ambient
-    float hemi = N.y * 0.5 + 0.5;
-    float3 ambient = lerp(pushConst.lp.ambientBottom, pushConst.lp.ambientTop, hemi) * albedo;
 
     // Bling-Phong specular
     float spec = pow(saturate(dot(N, H)), shininess);
     float3 specular = pushConst.lp.lightColor * spec * 0.3;
+     */
+
+    // Hemispheric ambient
+    float hemi = N.y * 0.5 + 0.5;
+    float3 ambient = lerp(pushConst.lp.ambientBottom, pushConst.lp.ambientTop, hemi) * albedo;
 
     // Rim lighting
     float rim = pow(1 - saturate(dot(N, V)), 3);
@@ -71,7 +123,8 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     float fog = 1 - exp(-depth * pushConst.lp.fogDensity);
 
     // Color calculation
-    float3 direct = (diffuse + specular) * shadow;
+    //float3 direct = (diffuse + specular) * shadow;
+    float3 direct = radiance * fr * max(LoN,1e-5) * shadow;
     float3 indirect = (ambient + rimLight) * occlussion;
 
     float3 color = (direct + indirect);

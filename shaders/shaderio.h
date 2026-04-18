@@ -180,6 +180,7 @@ enum DebugModes{
 struct LightinParams{
   float3 lightDir         = normalize(float3(0.9f,0.2f,0.2f));
   float3 lightColor       = float3(0.644, 0.635, 0.608);
+  float  lightPower       = 3.0f;
   float3 ambientTop       = float3(0.3f, 0.35f, 0.5f);
   float3 ambientBottom    = float3(0.1f, 0.1f, 0.1f);
   float3 fogColor         = float3(0.5f, 0.6f, 0.7f);
@@ -238,6 +239,7 @@ CHECK_STRUCT_ALIGNMENT(SceneObject)
 
 struct Material{
   float4 albedo_shininess;
+  float2 roughness_metalness;
 };
 CHECK_STRUCT_ALIGNMENT(Material)
 

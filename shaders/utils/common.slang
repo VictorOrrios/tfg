@@ -3,6 +3,16 @@
 #include "../shaderio.h"             // Shared definitions with CPU
 
 //--------------------------------------
+// Math const
+//--------------------------------------
+#define PI 3.14159265359
+#define TWO_PI 6.28318530718
+#define INV_PI 0.31830988618
+#define INV_TWO_PI 0.15915494309
+#define E_NUMBER 2.71828182845
+
+
+//--------------------------------------
 // Structs, types and enums definitions
 //--------------------------------------
 

@@ -51,6 +51,8 @@ public:
     std::string name;
     glm::vec3 albedo;
     float shininess;
+    float roughness;
+    float metalness;
   };
 
   struct Node {
