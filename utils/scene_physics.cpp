@@ -47,7 +47,7 @@ void updateVelocities(Scene::Node* n, float dt){
     d_rot.y * 2.0 / dt,
     d_rot.z * 2.0 / dt
   );
-  if(d_rot.x < 0.0)
+  if(d_rot.w < 0.0)
     pyp.omega *= -1;
 /* 
   LOGI("v %f,%f,%f omega %f,%f,%f d_rot %f,%f,%f,%f rot %f,%f,%f,%f pre_rot_inv %f,%f,%f,%f prev_rotation %f,%f,%f,%f\n",
@@ -116,9 +116,9 @@ void applyCorrection(Scene::Node* n, glm::vec3 corr, glm::vec3 point){
   pyp.inv_rotation = glm::inverse(gp.rotation);
 }
 
-float applyCorrection(Scene::Node* n, float dt, float compliance, glm::vec3 corr, glm::vec3 point){
-  Scene::GeneralParams& gp = n->gp;
-  Scene::PhysicsParams& pyp = n->pyp;
+float applyCorrection(Scene::Node* na, Scene::Node* nb, float dt, float compliance, glm::vec3 corr, glm::vec3 pointA, glm::vec3 pointB){
+  Scene::GeneralParams& gpa = na->gp;
+  Scene::PhysicsParams& pypa = na->pyp;
 
   float C = glm::length(corr);
 
@@ -128,7 +128,9 @@ float applyCorrection(Scene::Node* n, float dt, float compliance, glm::vec3 corr
   float dt_m2 = 1.0f / (dt*dt);
   glm::vec3 normal = glm::normalize(corr);
 
-  float w = getInverseMass(n, normal, point);
+  float w = getInverseMass(na, normal, pointA);
+  if(nb != nullptr)
+    w += getInverseMass(nb, normal, pointB);
   //LOGI("w %f\n",w);
 
   if(w == 0.0)
@@ -139,16 +141,31 @@ float applyCorrection(Scene::Node* n, float dt, float compliance, glm::vec3 corr
   float lambda = -C / (w+alpha);
   normal *= -lambda;
 
-  applyCorrection(n,normal,point);
+  applyCorrection(na,normal,pointA);
+  if(nb != nullptr){
+    normal *= -1;
+    applyCorrection(nb,normal,pointB);
+  }
+
   
   return lambda * dt_m2;
 }
 
-void solveDistanceConstrain(Scene::Node *na, glm::vec3 attach_pos, float distance, float compliance, bool push, bool pull, float dt){
-  Scene::GeneralParams& gpA = na->gp;
-  Scene::PhysicsParams& pypA = na->pyp;
+glm::vec3 local2World(Scene::Node *n, glm::vec3 p){
+  return (n->gp.rotation * p) + n->gp.position;
+}
+
+glm::vec3 world2Local(Scene::Node *n, glm::vec3 p){
+  return n->pyp.inv_rotation * (p - n->gp.position);
+}
+
+void solveDistanceConstrain(Scene::Node *n, glm::vec3 attach_point ,glm::vec3 fixed_pos, float distance, float compliance, bool push, bool pull, float dt){
+  Scene::GeneralParams& gp = n->gp;
+  Scene::PhysicsParams& pyp = n->pyp;
+
+  glm::vec3 attach_point_world = local2World(n,attach_point);
   
-  glm::vec3 corr = attach_pos - gpA.position;
+  glm::vec3 corr = fixed_pos - attach_point_world;
   float curr_dist = glm::length(corr);
 
   if((!push && curr_dist <= distance) ||
@@ -157,7 +174,10 @@ void solveDistanceConstrain(Scene::Node *na, glm::vec3 attach_pos, float distanc
 
   corr = glm::normalize(corr);
   corr *= curr_dist - distance;
-  float force = applyCorrection(na,dt,compliance,corr,gpA.position);
+  float force = applyCorrection(
+    n,nullptr,
+    dt,compliance,corr,
+    attach_point_world,fixed_pos);
   /* 
   LOGI("curr_dist %f force %f corr %f,%f,%f new pos %f,%f,%f\n",
     curr_dist,force,
@@ -181,6 +201,7 @@ void Scene::updateNodePysicsData(Node *n) {
     pyp.inv_rotation = glm::inverse(gp.rotation);
   }else{
     pyp.vel = glm::vec3(0.0);
+    pyp.omega = glm::vec3(0.0);
     pyp.prev_position = gp.position;
     pyp.prev_rotation = gp.rotation;
     pyp.inv_mass = 0.0;
@@ -219,7 +240,7 @@ void Scene::simulate(float dt){
       for(int i = 0; i<m_root.size(); i++)
         integrate(&m_root[i], dts, m_gravity);
 
-      solveDistanceConstrain(&m_root[1],glm::vec3(0,1,0),1.0,0.001,false,true,dts);
+      solveDistanceConstrain(&m_root[1],glm::vec3(0,0.35,0),glm::vec3(0,1,0),1.0,0.001,false,true,dts);
 
       for(int i = 0; i<m_root.size(); i++)
         updateVelocities(&m_root[i], dts);
