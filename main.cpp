@@ -359,29 +359,7 @@ public:
       }else{
         m_pushConst.debug.mode = 0;
       }
-      // TODO: temporary
-      if(ImGui::Button("Refresh grid")){
-        m_scene.m_needsRefresh = true;
-      }
 
-
-      //auto aabbs = m_scene.getBboxes();
-      //auto jobs = m_scene.getBuildJobs(aabbs);
-      if(ImGui::Button("Test")){
-        auto jobs = m_scene.getBuildJobs(m_currCamId0,m_prevCamId0);
-        m_testSize = jobs.size();
-        m_testMed = glm::ivec3(0);
-        for(auto& job: jobs){
-          auto num_b = glm::ivec3(job.num_b);
-          if(glm::any(glm::greaterThan(num_b, glm::ivec3(MAX_BUILD_JOB_SIZE)))){
-            LOGI("OH NO! %i,%i,%i\n",num_b.x,num_b.y,num_b.z);
-          }
-          m_testMed += num_b;
-        }
-        m_testMed /= m_testSize;
-      }
-      ImGui::Text("Test size: %i",m_testSize);
-      ImGui::Text("Test Median: %f,%f,%f",m_testMed.x,m_testMed.y,m_testMed.z);
       ImGui::Text("Camera id0: %i,%i,%i",m_sceneInfo.cameraId0.x,m_sceneInfo.cameraId0.y,m_sceneInfo.cameraId0.z);
       if(ImGui::Button("Reset TLas")){
         m_rebuildTlas = true;

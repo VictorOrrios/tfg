@@ -23,9 +23,8 @@ public:
     NodeType type;
     int mat;
     glm::vec3 position;
-    glm::vec3 prev_position;
     glm::quat rotation;
-    glm::quat prev_rotation;
+
     glm::mat4 tInv;
     float scale;
     nvutils::Bbox bbox;
@@ -41,10 +40,13 @@ public:
   struct PhysicsParams {
     bool physicsActive;
     float density;
-    float invMass;
+    float inv_mass;
+    glm::vec3 prev_position;
+    glm::quat inv_rotation;
+    glm::quat prev_rotation;
     glm::vec3 vel;
     glm::vec3 omega;
-    glm::vec3 invInertia;
+    glm::vec3 inv_inertia;
   };
 
   struct SDFParams {
@@ -135,4 +137,6 @@ private:
   int m_selected = -1;
   int m_selectedMat = -1;
   uint32_t m_nextID = 1;
+
+  glm::vec3 m_gravity = glm::vec3(0.0f,-9.8f,0.0f);
 };

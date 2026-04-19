@@ -303,9 +303,6 @@ void Scene::drawNodeParams(){
       m_needsRefresh = true;
     }
 
-    // If physics are active allways refresh
-    m_needsRefresh |= selectedNode.pyp.physicsActive;
-
     ImGui::End();
   }
 }
