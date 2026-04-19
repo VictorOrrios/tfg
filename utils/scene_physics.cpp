@@ -1,6 +1,7 @@
 #include "glm/geometric.hpp"
-#include "glm/matrix.hpp"
 #include "scene.hpp"
+#include "nvutils/logger.hpp"
+#include <numbers>
 
 void integrate(Scene::Node* n, float dt, glm::vec3 gravity){
   Scene::GeneralParams& gp = n->gp;
@@ -48,7 +49,16 @@ void updateVelocities(Scene::Node* n, float dt){
   );
   if(d_rot.x < 0.0)
     pyp.omega *= -1;
-  
+/* 
+  LOGI("v %f,%f,%f omega %f,%f,%f d_rot %f,%f,%f,%f rot %f,%f,%f,%f pre_rot_inv %f,%f,%f,%f prev_rotation %f,%f,%f,%f\n",
+    pyp.vel.x,pyp.vel.y,pyp.vel.z,
+    pyp.omega.x,pyp.omega.y,pyp.omega.z,
+    d_rot.x,d_rot.y,d_rot.z,d_rot.w,
+    gp.rotation.x,gp.rotation.y,gp.rotation.z,gp.rotation.w,
+    pre_rot_inv.x,pre_rot_inv.y,pre_rot_inv.z,pre_rot_inv.w,
+    pyp.prev_rotation.x,pyp.prev_rotation.y,pyp.prev_rotation.z,pyp.prev_rotation.w
+  );
+   */
   // Apply dampening to velocity here
 }
 
@@ -67,11 +77,16 @@ float getInverseMass(Scene::Node* n, glm::vec3 normal, glm::vec3 pos){
     rn.x * rn.x * pyp.inv_inertia.x + 
     rn.y * rn.y * pyp.inv_inertia.y + 
     rn.z * rn.z * pyp.inv_inertia.z;
-
+/* 
+  LOGI("rn %f,%f,%f inv_mass %f\n",
+    rn.x,rn.y,rn.z,
+    pyp.inv_mass
+  );
+ */
   return w;  
 }
 
-void applyCorrection(Scene::Node* n, glm::vec3 corr, glm::vec3 pos){
+void applyCorrection(Scene::Node* n, glm::vec3 corr, glm::vec3 point){
   Scene::GeneralParams& gp = n->gp;
   Scene::PhysicsParams& pyp = n->pyp;
 
@@ -81,8 +96,8 @@ void applyCorrection(Scene::Node* n, glm::vec3 corr, glm::vec3 pos){
   // Linear
   gp.position += corr * pyp.inv_mass;
 
-  // Angualar
-  glm::vec3 dOmega = pos - gp.position;
+  // Angular
+  glm::vec3 dOmega = point - gp.position;
   dOmega = glm::cross(dOmega, corr);
   dOmega = pyp.inv_rotation * dOmega;
   dOmega *= pyp.inv_inertia;
@@ -101,11 +116,9 @@ void applyCorrection(Scene::Node* n, glm::vec3 corr, glm::vec3 pos){
   pyp.inv_rotation = glm::inverse(gp.rotation);
 }
 
-float applyCorrection(Scene::Node* n, Scene::Node* other_n, float dt, float compliance, glm::vec3 corr, glm::vec3 pos, glm::vec3 other_pos){
+float applyCorrection(Scene::Node* n, float dt, float compliance, glm::vec3 corr, glm::vec3 point){
   Scene::GeneralParams& gp = n->gp;
   Scene::PhysicsParams& pyp = n->pyp;
-  Scene::GeneralParams& gpO = other_n->gp;
-  Scene::PhysicsParams& pypO = other_n->pyp;
 
   float C = glm::length(corr);
 
@@ -115,7 +128,8 @@ float applyCorrection(Scene::Node* n, Scene::Node* other_n, float dt, float comp
   float dt_m2 = 1.0f / (dt*dt);
   glm::vec3 normal = glm::normalize(corr);
 
-  float w = getInverseMass(n, normal, pos) + getInverseMass(other_n, normal, other_pos);
+  float w = getInverseMass(n, normal, point);
+  //LOGI("w %f\n",w);
 
   if(w == 0.0)
     return 0;
@@ -125,24 +139,32 @@ float applyCorrection(Scene::Node* n, Scene::Node* other_n, float dt, float comp
   float lambda = -C / (w+alpha);
   normal *= -lambda;
 
-  applyCorrection(n,normal,pos);
-  applyCorrection(other_n,-normal,other_pos);
+  applyCorrection(n,normal,point);
   
   return lambda * dt_m2;
 }
 
-void solveDistanceConstrain(Scene::Node *na, Scene::Node *nb, float distance, float compliance, float dt){
+void solveDistanceConstrain(Scene::Node *na, glm::vec3 attach_pos, float distance, float compliance, bool push, bool pull, float dt){
   Scene::GeneralParams& gpA = na->gp;
   Scene::PhysicsParams& pypA = na->pyp;
-  Scene::GeneralParams& gpB = nb->gp;
-  Scene::PhysicsParams& pypB = nb->pyp;
   
-  glm::vec3 corr = gpB.position - gpA.position;
+  glm::vec3 corr = attach_pos - gpA.position;
   float curr_dist = glm::length(corr);
+
+  if((!push && curr_dist <= distance) ||
+     (!pull && curr_dist >= distance))
+    return;
+
   corr = glm::normalize(corr);
   corr *= curr_dist - distance;
-  float force = applyCorrection(na,nb,dt,compliance,corr,gpA.position,gpB.position);
-
+  float force = applyCorrection(na,dt,compliance,corr,gpA.position);
+  /* 
+  LOGI("curr_dist %f force %f corr %f,%f,%f new pos %f,%f,%f\n",
+    curr_dist,force,
+    corr.x,corr.y,corr.z,
+    gpA.position.x,gpA.position.y,gpA.position.z
+  );
+ */
 }
 
 void Scene::updateNodePysicsData(Node *n) {
@@ -152,7 +174,7 @@ void Scene::updateNodePysicsData(Node *n) {
   if(pyp.physicsActive){
     // Sphere
     float mass = 4.0 / 3.0 * std::numbers::pi * gp.scale * gp.scale * gp.scale * pyp.density;
-    pyp.inv_mass = 1/mass;
+    pyp.inv_mass = 1.0f/mass;
     float I = 2.0 / 5.0 * mass * gp.scale * gp.scale;
     float I_inv = 1.0/I;
     pyp.inv_inertia = glm::vec3(I_inv,I_inv,I_inv);
@@ -186,15 +208,22 @@ solve(𝐶, ∆𝑡):
     𝐱𝑖 ← 𝐱𝑖 + ∆𝐱𝑖
 */
 void Scene::simulate(float dt){
+  if(dt <= 0.0)
+    return;
+
   float dts = dt/SIM_NUM_SUBSTEPS;
 
   for(int sub_step = 0; sub_step < SIM_NUM_SUBSTEPS; sub_step++){
-    for(int i = 0; i<m_root.size(); i++)
-      integrate(&m_root[i], dts, m_gravity);
+    if(m_root[1].pyp.physicsActive){
+      //LOGI("====================\n");
+      for(int i = 0; i<m_root.size(); i++)
+        integrate(&m_root[i], dts, m_gravity);
 
-    for(int i = 0; i<m_root.size(); i++)
-      updateVelocities(&m_root[i], dts);
+      solveDistanceConstrain(&m_root[1],glm::vec3(0,1,0),1.0,0.001,false,true,dts);
 
+      for(int i = 0; i<m_root.size(); i++)
+        updateVelocities(&m_root[i], dts);
+    }
   }
 
   for(int i = 0; i<m_root.size(); i++){

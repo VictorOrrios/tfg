@@ -6,10 +6,10 @@
 #include "glm/ext/vector_int3.hpp"
 #include "glm/gtc/type_ptr.hpp"
 #include "glm/trigonometric.hpp"
+#include <glm/gtx/rotate_vector.hpp>
 #include "nvutils/bounding_box.hpp"
 #include "nvutils/logger.hpp"
 #include "sdf.hpp"
-#include <cmath>
 #include <glm/ext/vector_float3.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -430,10 +430,14 @@ Scene::Node *Scene::createNode(NodeType t) {
       .needsRefresh=false,
       .gp={
         .type = t,
+        .rotation=glm::quat(glm::vec3(0.0)),
         .bbox=nvutils::Bbox(glm::vec3(0.0),glm::vec3(0.0)),
       },
       .sdp={
         .terrain = glm::vec4(1.0,0.5,0.1,0.3),
+      },
+      .pyp={
+        .density = 1.0
       },
       .gzp = {
         ImGuizmo::TRANSLATE,

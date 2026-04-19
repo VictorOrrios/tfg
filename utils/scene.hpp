@@ -24,7 +24,6 @@ public:
     int mat;
     glm::vec3 position;
     glm::quat rotation;
-
     glm::mat4 tInv;
     float scale;
     nvutils::Bbox bbox;
