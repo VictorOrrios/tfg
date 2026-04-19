@@ -17,10 +17,10 @@ void integrate(Scene::Node* n, float dt, glm::vec3 gravity){
   // Angular motion
   pyp.prev_rotation = gp.rotation;
   glm::quat d_rot = glm::quat(
+    0,
     pyp.omega.x,
     pyp.omega.y,
-    pyp.omega.z,
-    0
+    pyp.omega.z
   );
   d_rot *= gp.rotation;
   gp.rotation += 0.5f * dt * d_rot;
@@ -40,13 +40,13 @@ void updateVelocities(Scene::Node* n, float dt){
 
   // Angular motion
   glm::quat pre_rot_inv = glm::inverse(pyp.prev_rotation);
-  glm::quat d_rot = gp.rotation * pyp.prev_rotation;
+  glm::quat d_rot = gp.rotation * pre_rot_inv;
   pyp.omega = glm::vec3(
     d_rot.x * 2.0 / dt,
     d_rot.y * 2.0 / dt,
     d_rot.z * 2.0 / dt
   );
-  if(d_rot.w < 0.0)
+  if(d_rot.x < 0.0)
     pyp.omega *= -1;
   
   // Apply dampening to velocity here
@@ -89,10 +89,10 @@ void applyCorrection(Scene::Node* n, glm::vec3 corr, glm::vec3 pos){
   dOmega = gp.rotation * dOmega;
 
   glm::quat d_rot = glm::quat(
+    0.0,
     dOmega.x,
     dOmega.y,
-    dOmega.z,
-    0.0
+    dOmega.z  
   );
 
   d_rot *= gp.rotation;
@@ -140,6 +140,7 @@ void solveDistanceConstrain(Scene::Node *na, Scene::Node *nb, float distance, fl
   glm::vec3 corr = gpB.position - gpA.position;
   float curr_dist = glm::length(corr);
   corr = glm::normalize(corr);
+  corr *= curr_dist - distance;
   float force = applyCorrection(na,nb,dt,compliance,corr,gpA.position,gpB.position);
 
 }
@@ -189,10 +190,10 @@ void Scene::simulate(float dt){
 
   for(int sub_step = 0; sub_step < SIM_NUM_SUBSTEPS; sub_step++){
     for(int i = 0; i<m_root.size(); i++)
-      integrate(&m_root[i], dt, m_gravity);
+      integrate(&m_root[i], dts, m_gravity);
 
     for(int i = 0; i<m_root.size(); i++)
-      updateVelocities(&m_root[i], dt);
+      updateVelocities(&m_root[i], dts);
 
   }
 
