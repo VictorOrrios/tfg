@@ -1,8 +1,9 @@
 #pragma once
 
-#include "glm/ext/matrix_float4x4.hpp"
-#include "glm/ext/vector_float3.hpp"
-#include "glm/ext/vector_int3_sized.hpp"
+#include <glm/ext/matrix_float4x4.hpp>
+#include <glm/ext/vector_float3.hpp>
+#include <glm/ext/vector_int3_sized.hpp>
+#include <glm/gtx/quaternion.hpp>
 #include "nvutils/bounding_box.hpp"
 #include <imgui.h>
 #include <string>
@@ -23,8 +24,8 @@ public:
     int mat;
     glm::vec3 position;
     glm::vec3 prev_position;
-    glm::vec3 rotation;
-    glm::vec3 prev_rotation;
+    glm::quat rotation;
+    glm::quat prev_rotation;
     glm::mat4 tInv;
     float scale;
     nvutils::Bbox bbox;

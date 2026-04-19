@@ -516,16 +516,13 @@ void Scene::generateMatrix(Node *n) {
 
   transform4x4 = glm::translate(transform4x4, n->gp.position);
 
-  if (n->gp.rotation != glm::vec3(0.0)) {
-    transform4x4 =
-        glm::rotate(transform4x4, n->gp.rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
-    transform4x4 =
-        glm::rotate(transform4x4, n->gp.rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
-    transform4x4 =
-        glm::rotate(transform4x4, n->gp.rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
+  if (n->gp.rotation != glm::quat(1.0, 0.0, 0.0, 0.0)) {
+    glm::mat4 rotMatrix = glm::toMat4(n->gp.rotation);
+    transform4x4 *= rotMatrix;
   }
 
-  glm::vec3 scale_vec(n->gp.scale), rot_deg(glm::degrees(n->gp.rotation));
+  glm::vec3 scale_vec(n->gp.scale);
+  glm::vec3 rot_deg(glm::degrees(glm::eulerAngles(n->gp.rotation)));
   ImGuizmo::RecomposeMatrixFromComponents(
     glm::value_ptr(n->gp.position), 
     glm::value_ptr(rot_deg),
