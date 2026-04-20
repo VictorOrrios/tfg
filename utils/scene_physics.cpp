@@ -193,8 +193,9 @@ void Scene::solveCollisionConstraint(int nodeIdx, float compliance, float dt){
   Scene::PhysicsParams& pyp = n.pyp;
   
   float sdValue = map(gp.position, nodeIdx);
-  float C = gp.scale/2.0 - sdValue;
-
+  float radius = gp.scale/2.0;
+  float C = radius - sdValue;
+  
   if(C <= 0)
     return;
 

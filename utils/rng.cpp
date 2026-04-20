@@ -6,6 +6,10 @@ void initRandom(){
     std::srand(std::time({}));
 }
 
+void initRandom(int seed){
+    std::srand(seed);
+}
+
 float randomFloat1(){
     return float(std::rand())/RAND_MAX;
 }
