@@ -87,6 +87,7 @@ public:
   void drawGuizmo(ImVec2 viewportPos, ImVec2 viewportSize, glm::mat4 cameraView, glm::mat4 cameraProjection);
 
   void simulate(float dt);
+  void centerCamAction(glm::vec3 pos, glm::vec3 dir);
 
   std::vector<float> generateDenseGrid();
   std::vector<nvutils::Bbox> getAllBboxes();
@@ -119,12 +120,16 @@ private:
   Material createMaterial();
   int addMaterial(Material mat);
 
+  void solveCollisionConstraint(int nodeId, float compliance, float dt);
+  float sphereTrace(glm::vec3 orig, glm::vec3 dir, int objIdxExcluded = -1);
+
   void updateNodeData(Node *n);
   void updateNodePysicsData(Node *n);
   void markRefresh(Node* n);
   void generateMatrix(Node *n);
   void generateBBox(Node *n);
   float map(glm::vec3 p);
+  float mapExclude(glm::vec3 p, int objIdxExcluded);
 
   std::vector<shaderio::BuildJob> createBaseBuildJobs(nvutils::Bbox aabb, glm::ivec3 camId0);
   std::vector<shaderio::BuildJob> createCamBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);

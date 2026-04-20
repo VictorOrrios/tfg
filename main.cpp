@@ -601,6 +601,9 @@ public:
         float deltaT = m_pushConst.time - m_prevTime;
         m_prevTime = m_pushConst.time;
         m_scene.simulate(deltaT);
+        glm::vec3 eye = m_cameraManip->getEye();
+        glm::vec3 center = m_cameraManip->getCenter();
+        m_scene.centerCamAction(eye, glm::normalize(center-eye));
       }
     }
   }

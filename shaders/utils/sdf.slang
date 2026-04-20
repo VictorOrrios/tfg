@@ -132,7 +132,7 @@ float sdOctahedron(float3 p, float s){
   p = abs(p);
   float m = p.x+p.y+p.z-s;
   float3 q;
-       if( 3.0*p.x < m ) q = p.xyz;
+  if( 3.0*p.x < m ) q = p.xyz;
   else if( 3.0*p.y < m ) q = p.yzx;
   else if( 3.0*p.z < m ) q = p.zxy;
   else return m*0.57735027;

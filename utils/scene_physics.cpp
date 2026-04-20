@@ -187,6 +187,12 @@ void solveDistanceConstrain(Scene::Node *n, glm::vec3 attach_point ,glm::vec3 fi
  */
 }
 
+void Scene::solveCollisionConstraint(int nodeId, float compliance, float dt){
+  Node& n = m_root[nodeId];
+  
+  
+}
+
 void Scene::updateNodePysicsData(Node *n) {
   GeneralParams& gp = n->gp;
   PhysicsParams& pyp = n->pyp;
@@ -252,4 +258,38 @@ void Scene::simulate(float dt){
     if(n.pyp.physicsActive)
       updateNodeData(&n);
   }
+}
+
+float Scene::sphereTrace(glm::vec3 orig, glm::vec3 dir, int objIdxExcluded){
+  const int MAX_ITERATIONS = shaderio::NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
+  const float MIN_DIST = 0.0001;
+  const float maxDepth = 100.0;
+  
+  float depth = 0.0;
+
+  for(int i = 0; i < MAX_ITERATIONS; i++){
+    glm::vec3 p = orig + dir * depth;
+    float dist = mapExclude(p,objIdxExcluded);
+    
+    if(glm::abs(dist) < MIN_DIST){
+      return depth;  // Hit
+    }
+    
+    if(depth >= maxDepth) return -1.0;  // No hit
+
+    depth += dist;
+  }
+  
+  return -1.0;
+}
+
+void Scene::centerCamAction(glm::vec3 pos, glm::vec3 dir){
+  int lastIdx = m_root.size()-1;
+  float depth = sphereTrace(pos, dir, lastIdx);
+  if(depth >= 0){
+    m_root[lastIdx].gp.position = pos + dir*depth;
+  }else{
+    m_root[lastIdx].gp.position = glm::vec3(0,-10,0);
+  }
+  updateNodeData(&m_root[lastIdx]);
 }

@@ -27,32 +27,20 @@
 static constexpr const char * NodeTypeNames[] = {
     "Empty", "Box", "Sphere", "Torus", "Snowman", "Plane"
 };
-using sdf3DPrimitiveF = float (*)(const glm::vec3 &);
-static sdf3DPrimitiveF primFTable[6] = {sdEmpty, sdBox, sdSphere, sdTorus,
-                                        sdSnowMan, sdPlane};
 
 static constexpr const char *CombinationOpNames[] = {
   "Union",
   "Substraction",
   "Intersection",
 };
-using combinationOpF = float (*)(float, float, float);
-static combinationOpF combFTable[6] = {
-    opUnion,       opSubtraction,       opIntersection,
-    opSmoothUnion, opSmoothSubtraction, opSmoothIntersection};
 
 static constexpr const char *RepetitionOpnames[] = {
     "None", "Limited repetition", "Unlimited repetition"};
-using repetitionOpF = glm::vec3 (*)(const glm::vec3 &, const glm::vec3 &,
-                                    const glm::vec3 &);
-static repetitionOpF repFTable[3] = {opNone, opLimRepetition, opRepetition};
 
 static constexpr const char *DeformationOpNames[] = {
   "None",
   "Elongate",
 };
-using deformationOpF = glm::vec3 (*)(const glm::vec3 &, const glm::vec3 &);
-static deformationOpF defFTable[2] = {opNone, opElongate};
 
 static constexpr const char *MorphPrimNames[] = {
   "Box",
@@ -665,32 +653,40 @@ bool pointInBBox(const glm::vec3& p, const nvutils::Bbox& bbox) {
 }
 
 float Scene::map(glm::vec3 point) {
-  const float iniD = 1000000.0f;
+  return mapExclude(point, -1);
+}
 
+float Scene::mapExclude(glm::vec3 point, int objIdxExcluded) {
+  const float iniD = 10000.0f;
   float result = iniD;
 
-  for (auto &node : m_root) {
-    glm::vec3 p = point;
-    float d;
-
-    // If not inside bbox primitive continue with next 
-    if(!pointInBBox(p,node.gp.bbox))
+  for(int obIdx = 0; obIdx < m_root.size(); obIdx++) {
+    if(obIdx == objIdxExcluded)
       continue;
+    
+    glm::vec3 p = glm::vec3(point);
+    Node& n = m_root[obIdx];
+    nvutils::Bbox& bbox = n.gp.bbox;
+    Scene::GeneralParams& gp = n.gp;
+    Scene::SDFParams& sdp = n.sdp;
 
-    GeneralParams &gp = node.gp;
-    SDFParams& sdp = node.sdp; 
+    p = gp.tInv * glm::vec4(p, 1.0);
 
-    p = glm::vec3(gp.tInv * glm::vec4(p, 1.0f));
+    p = applyRepOp(sdp.repOp, p, sdp.spacing, sdp.limit);
 
-    p = repFTable[sdp.repOp](p, sdp.spacing, sdp.limit);
+    p = applyDefOp(sdp.defOp, p, sdp.defP);
 
-    p = defFTable[sdp.defOp](p, sdp.defP);
+    p /= gp.scale;
 
-    d = primFTable[int(gp.type)](p / gp.scale) - sdp.roundness;
+    float d = evalPrimitive(int(gp.type), p) - sdp.roundness;
+
+    d = d>0.0 ? applyTerrainOp(p, d, sdp.octaves, sdp.terrain, shaderio::VOXEL_SIZES[0]/10.0): d;
+
+    d = sdp.morph>0.0 ? applyMorphOp(p,d,sdp.morphPrim,sdp.morph,sdp.roundness) : d;
 
     d *= gp.scale;
 
-    result = combFTable[sdp.combOp](d, result, sdp.smoothness);
+    result = evalCombOp(sdp.combOp, d, result, sdp.smoothness);
   }
 
   return result;
@@ -955,9 +951,14 @@ Scene::Scene() {
   int matIdx = addMaterial(mat);
 
   mat = createMaterial();
-  mat.name = "New material";
+  mat.name = "Red";
   mat.albedo = glm::vec3(1,0,0);
-  int newMat = addMaterial(mat);
+  int red = addMaterial(mat);
+
+  mat = createMaterial();
+  mat.name = "Blue";
+  mat.albedo = glm::vec3(0,0,1);
+  int blue = addMaterial(mat);
 
   // Create the scene
   Node *terrain = createNode(NodeType::Plane);
@@ -980,7 +981,7 @@ Scene::Scene() {
   box->gp.rotation = glm::vec3(0.2, 0.4, 0.4);
   box->sdp.combOp = (int)CombinationOp::Union + 3;
   box->sdp.smoothness = 0.02;
-  box->gp.mat = newMat;
+  box->gp.mat = red;
   updateNodeData(box);
   addNode(box);
 
@@ -989,7 +990,7 @@ Scene::Scene() {
   sphere->gp.position = glm::vec3(0.1, 0.3, -0.9);
   sphere->gp.rotation = glm::vec3(0);
   sphere->sdp.combOp = (int)CombinationOp::Substraction;
-  sphere->gp.mat = newMat;
+  sphere->gp.mat = red;
   updateNodeData(sphere);
   addNode(sphere);
 
@@ -1000,7 +1001,7 @@ Scene::Scene() {
   sphereGrid->sdp.repOp = (int)RepetitionOp::LimRepetition;
   sphereGrid->sdp.spacing = glm::vec3(0.14,0.14,0);
   sphereGrid->sdp.limit = glm::ivec3(13,13,1);
-  sphereGrid->gp.mat = newMat;
+  sphereGrid->gp.mat = red;
   updateNodeData(sphereGrid);
   addNode(sphereGrid);
 
@@ -1008,7 +1009,7 @@ Scene::Scene() {
   torus->gp.scale = 0.2;
   torus->gp.position = glm::vec3(0.35, 0.1, -1.2);
   torus->gp.rotation = glm::vec3(0.75, 0, 0);
-  torus->gp.mat = newMat;
+  torus->gp.mat = red;
   updateNodeData(torus);
   addNode(torus);
 
@@ -1028,5 +1029,12 @@ Scene::Scene() {
     addNode(snowManL);
   }
 
-  m_selected = 1;
+  Node *sphere_main = createNode(NodeType::Sphere);
+  sphere_main->gp.scale = 0.2;
+  sphere_main->gp.position = glm::vec3(0.0,0.0,-0.5);
+  sphere_main->gp.rotation = glm::vec3(0);
+  sphere_main->gp.mat = blue;
+  updateNodeData(sphere_main);
+  addNode(sphere_main);
+
 } 

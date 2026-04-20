@@ -2,58 +2,14 @@
 
 #include <glm/glm.hpp>
 
-float opUnion(float a, float b);
-float opUnion(float a, float b, float kk);
+float evalPrimitive(int primType, glm::vec3 p);
 
-float opSubtraction(float a, float b);
-float opSubtraction(float a, float b, float kk);
+float evalCombOp(int opIndex, float d, float result, float smoothness);
 
-float opIntersection(float a, float b);
-float opIntersection(float a, float b, float kk);
+glm::vec3 applyRepOp(int opIndex, glm::vec3 p, glm::vec3 spacing, glm::ivec3 limit);
 
-float opXor(float a, float b);
+glm::vec3 applyDefOp(int opIndex, glm::vec3 p, glm::vec3 defP);
 
-float opSmoothUnion(float a, float b, float k);
+float applyMorphOp(glm::vec3 p, float prevPrim, int morphPrim, float morph, float roundness);
 
-float opSmoothSubtraction(float a, float b, float k);
-
-float opSmoothIntersection(float a, float b, float k);
-
-glm::vec3 opNone(const glm::vec3 &p, const glm::vec3 &kk1, const glm::vec3 &kk2);
-
-glm::vec3 opRepetition(const glm::vec3 &p, const glm::vec3 &spacing);
-glm::vec3 opRepetition(const glm::vec3 &p, const glm::vec3 &spacing, const glm::vec3 &kk);
-
-glm::vec3 opLimRepetition(const glm::vec3 &p, const glm::vec3 &spacing, const glm::vec3 &limit);
-
-glm::vec3 opNone(const glm::vec3 &p, const glm::vec3 &kk);
-
-glm::vec3 opTwist(const glm::vec3 &p, const glm::vec3 &defP);
-
-glm::vec3 opBend(const glm::vec3 &p, const glm::vec3 &defP);
-
-glm::vec3 opElongate(const glm::vec3 &p, const glm::vec3 &defP);
-
-float sdSphere(const glm::vec3 &p, float s);
-float sdSphere(const glm::vec3 &p);
-
-float sdBox(const glm::vec3 &p, const glm::vec3 b);
-float sdBox(const glm::vec3 &p);
-
-float sdEmpty(const glm::vec3 &p);
-
-float sdPlane(const glm::vec3 &p, const glm::vec3 &n, float h);
-
-float sdCapsule(const glm::vec3 &p, const glm::vec3 &a,
-                       const glm::vec3 &b, float r);
-
-float sdRoundedCylinder(const glm::vec3 &p, float ra, float rb,float h);
-
-float sdTorus(const glm::vec3 &p, const glm::vec2 &t);
-float sdTorus(const glm::vec3 &p);
-
-float sdSnowMan(const glm::vec3 &p);
-
-
-float sdPlane(const glm::vec3 &p, glm::vec3 n, float h);
-float sdPlane(const glm::vec3 &p);
+float applyTerrainOp(glm::vec3 p, float d, int octaves, glm::vec4 terrain, float minD);
