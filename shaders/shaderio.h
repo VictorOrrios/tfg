@@ -124,7 +124,7 @@ const static uint UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTE
 #define MAX_SHININESS 100
 
 // Simulation params
-#define SIM_NUM_SUBSTEPS 1  // Number of substep per every simulate(dt)
+#define SIM_NUM_SUBSTEPS 10  // Number of substep per every simulate(dt)
 
 // Shared between Host and Device
 enum BindingPoints{

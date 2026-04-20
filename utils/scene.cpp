@@ -652,11 +652,8 @@ bool pointInBBox(const glm::vec3& p, const nvutils::Bbox& bbox) {
            glm::all(glm::lessThanEqual(p, max));
 }
 
-float Scene::map(glm::vec3 point) {
-  return mapExclude(point, -1);
-}
 
-float Scene::mapExclude(glm::vec3 point, int objIdxExcluded) {
+float Scene::map(glm::vec3 point, int objIdxExcluded) {
   const float iniD = 10000.0f;
   float result = iniD;
 
@@ -690,6 +687,18 @@ float Scene::mapExclude(glm::vec3 point, int objIdxExcluded) {
   }
 
   return result;
+}
+
+glm::vec3 Scene::evalNormal(glm::vec3 p, int objIdxExcluded) {
+  const float h = 0.0001f;
+  const glm::vec2 k = glm::vec2(1.0f, -1.0f);
+  
+  return glm::normalize(
+      glm::vec3(k.x, k.y, k.y) * map(p + glm::vec3(k.x, k.y, k.y) * h, objIdxExcluded) +
+      glm::vec3(k.y, k.y, k.x) * map(p + glm::vec3(k.y, k.y, k.x) * h, objIdxExcluded) +
+      glm::vec3(k.y, k.x, k.y) * map(p + glm::vec3(k.y, k.x, k.y) * h, objIdxExcluded) +
+      glm::vec3(k.x, k.x, k.x) * map(p + glm::vec3(k.x, k.x, k.x) * h, objIdxExcluded)
+  );
 }
 
 std::vector<float> Scene::generateDenseGrid() {

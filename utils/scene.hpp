@@ -120,7 +120,7 @@ private:
   Material createMaterial();
   int addMaterial(Material mat);
 
-  void solveCollisionConstraint(int nodeId, float compliance, float dt);
+  void solveCollisionConstraint(int nodeIdx, float compliance, float dt);
   float sphereTrace(glm::vec3 orig, glm::vec3 dir, int objIdxExcluded = -1);
 
   void updateNodeData(Node *n);
@@ -128,8 +128,8 @@ private:
   void markRefresh(Node* n);
   void generateMatrix(Node *n);
   void generateBBox(Node *n);
-  float map(glm::vec3 p);
-  float mapExclude(glm::vec3 p, int objIdxExcluded);
+  float map(glm::vec3 p, int objIdxExcluded = -1);
+  glm::vec3 evalNormal(glm::vec3 p, int objIdxExcluded = -1);
 
   std::vector<shaderio::BuildJob> createBaseBuildJobs(nvutils::Bbox aabb, glm::ivec3 camId0);
   std::vector<shaderio::BuildJob> createCamBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);

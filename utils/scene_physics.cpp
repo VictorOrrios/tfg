@@ -187,9 +187,24 @@ void solveDistanceConstrain(Scene::Node *n, glm::vec3 attach_point ,glm::vec3 fi
  */
 }
 
-void Scene::solveCollisionConstraint(int nodeId, float compliance, float dt){
-  Node& n = m_root[nodeId];
+void Scene::solveCollisionConstraint(int nodeIdx, float compliance, float dt){
+  Node& n = m_root[nodeIdx];
+  Scene::GeneralParams& gp = n.gp;
+  Scene::PhysicsParams& pyp = n.pyp;
   
+  float sdValue = map(gp.position, nodeIdx);
+  float C = gp.scale/2.0 - sdValue;
+
+  if(C <= 0)
+    return;
+
+  glm::vec3 normal = evalNormal(gp.position,nodeIdx); 
+  glm::vec3 corr = normal*C;
+
+  float force = applyCorrection(
+    &n,nullptr,
+    dt,compliance,corr,
+    gp.position,glm::vec3(0.0));
   
 }
 
@@ -235,18 +250,21 @@ solve(𝐶, ∆𝑡):
     𝐱𝑖 ← 𝐱𝑖 + ∆𝐱𝑖
 */
 void Scene::simulate(float dt){
-  if(dt <= 0.0)
+  if(dt <= 0.0) 
     return;
 
   float dts = dt/SIM_NUM_SUBSTEPS;
+  int lastIdx = m_root.size()-1;
 
   for(int sub_step = 0; sub_step < SIM_NUM_SUBSTEPS; sub_step++){
-    if(m_root[1].pyp.physicsActive){
+    if(m_root[lastIdx].pyp.physicsActive){
       //LOGI("====================\n");
       for(int i = 0; i<m_root.size(); i++)
         integrate(&m_root[i], dts, m_gravity);
 
-      solveDistanceConstrain(&m_root[1],glm::vec3(0,0.35,0),glm::vec3(0,1,0),1.0,0.001,false,true,dts);
+      //solveDistanceConstrain(&m_root[lastIdx],glm::vec3(0,0.35,0),glm::vec3(0,1,0),1.0,0.001,false,true,dts);
+
+      solveCollisionConstraint(lastIdx, 0.0, dts);
 
       for(int i = 0; i<m_root.size(); i++)
         updateVelocities(&m_root[i], dts);
@@ -269,7 +287,7 @@ float Scene::sphereTrace(glm::vec3 orig, glm::vec3 dir, int objIdxExcluded){
 
   for(int i = 0; i < MAX_ITERATIONS; i++){
     glm::vec3 p = orig + dir * depth;
-    float dist = mapExclude(p,objIdxExcluded);
+    float dist = map(p,objIdxExcluded);
     
     if(glm::abs(dist) < MIN_DIST){
       return depth;  // Hit
