@@ -595,7 +595,7 @@ glm::mat4 columnMajorToRowMajor(const glm::mat4& mat) {
     }
   }
   
-  return result;
+  return glm::transpose(mat);
 }
 
 

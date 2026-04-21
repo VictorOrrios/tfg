@@ -603,7 +603,7 @@ public:
         m_scene.simulate(deltaT);
         glm::vec3 eye = m_cameraManip->getEye();
         glm::vec3 center = m_cameraManip->getCenter();
-        //m_scene.centerCamAction(eye, glm::normalize(center-eye));
+        m_scene.centerCamAction(eye, glm::normalize(center-eye));
       }
     }
   }

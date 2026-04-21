@@ -253,9 +253,9 @@ float applyTerrainOp(glm::vec3 p, float d, int octaves, glm::vec4 terrain, float
 
     // prepare next octave
     glm::mat3 kernel = glm::mat3( 
-      0.00f, -1.60f, -1.20f,
-      1.60f,  0.72f, -0.96f,  
-      1.20f, -0.96f,  1.28f
+        0.00f,-1.60f,-1.20f,
+        1.60f,  0.72f, -0.96f,
+        1.20f, -0.96f,  1.28f 
     );
     p = kernel*p;
     s = terrain.y*s;

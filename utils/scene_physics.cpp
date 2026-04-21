@@ -305,8 +305,10 @@ float Scene::sphereTrace(glm::vec3 orig, glm::vec3 dir, int objIdxExcluded){
 void Scene::centerCamAction(glm::vec3 pos, glm::vec3 dir){
   int lastIdx = m_root.size()-1;
   float depth = sphereTrace(pos, dir, lastIdx);
+  glm::vec3 p = pos + dir*depth;
+  glm::vec3 normal = evalNormal(p,lastIdx);
   if(depth >= 0){
-    m_root[lastIdx].gp.position = pos + dir*depth;
+    m_root[lastIdx].gp.position = p;
   }else{
     m_root[lastIdx].gp.position = glm::vec3(0,-10,0);
   }
