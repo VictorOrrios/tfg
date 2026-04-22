@@ -250,11 +250,10 @@ solve(𝐶, ∆𝑡):
     compute ∆𝐱𝑖
     𝐱𝑖 ← 𝐱𝑖 + ∆𝐱𝑖
 */
-void Scene::simulate(float dt){
-  if(dt <= 0.0) 
+void Scene::simulate(float dts){
+  if(dts <= 0.0) 
     return;
 
-  float dts = dt/SIM_NUM_SUBSTEPS;
   int lastIdx = m_root.size()-1;
 
   for(int sub_step = 0; sub_step < SIM_NUM_SUBSTEPS; sub_step++){

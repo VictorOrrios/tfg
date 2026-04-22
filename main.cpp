@@ -259,6 +259,8 @@ public:
     m_alloc.destroyBuffer(m_sceneAabbB);
     m_alloc.destroyBuffer(m_sceneObjectsB);
     m_alloc.destroyBuffer(m_sceneMaterialsB);
+    m_alloc.destroyBuffer(m_sceneDynamicObjectsB[0]);
+    m_alloc.destroyBuffer(m_sceneDynamicObjectsB[1]);
    
     m_alloc.destroyBuffer(m_buildJobQueue);
     m_alloc.destroyBuffer(m_brickJobQueue);
@@ -316,13 +318,16 @@ public:
       bool dirtyLight = false;
       ImGui::Text("Directional Light");
 
-      ImGui::SliderFloat3("Direction", &m_pushConst.lp.lightDir.x, -1.0f, 1.0f);
+      dirtyLight |= ImGui::SliderFloat3("Direction", &m_pushConst.lp.lightDir.x, -1.0f, 1.0f);
       dirtyLight |= ImGui::ColorEdit3("Zenith Color", &m_zenithColor.x);
       dirtyLight |= ImGui::ColorEdit3("Horizon Color", &m_horizonColor.x);
       ImGui::SliderFloat("Power", &m_pushConst.lp.lightPower,0.0,10.0f);
 
       if(dirtyLight){
-        m_pushConst.lp.lightColor = glm::mix(m_horizonColor,m_zenithColor,glm::max(0.0f,glm::dot(m_pushConst.lp.lightDir,glm::vec3(0,1,0))));
+        m_pushConst.lp.lightColor = glm::mix(
+          m_horizonColor,m_zenithColor,
+          glm::max(0.0f,glm::dot(m_pushConst.lp.lightDir,glm::vec3(0,1,0))));
+        m_pushConst.lp.lightDir = glm::normalize(m_pushConst.lp.lightDir);
       }
 
       ImGui::Separator();
@@ -537,50 +542,67 @@ public:
   // - Called every frame
   void onRender(VkCommandBuffer cmd) override{
     NVVK_DBG_SCOPE(cmd);
-    
-    // Update data TODO: Encapsulate
-    {
-      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Scene buffer update");
-      m_pushConst.time = static_cast<float>(ImGui::GetTime());
-      m_pushConst.lp.lightDir = glm::normalize(m_pushConst.lp.lightDir);
 
+    {
+      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Buffer updates");
+
+      // Time variable updates
+      m_pushConst.time = static_cast<float>(ImGui::GetTime());
+      if(m_prevTime < 0){
+        m_prevTime = m_pushConst.time;
+      }else{
+        m_pushConst.dts = (m_pushConst.time - m_prevTime)/SIM_NUM_SUBSTEPS;
+        m_prevTime = m_pushConst.time;
+      }
+
+      // Cam and scene info update
       updateSceneBuffer(cmd);
-      if(m_refreshAOkernels){
+      updateSceneObjects(cmd);
+
+      // Kernels update
+      if(m_refreshAOkernels || m_firstFrame){
         updateAOkernels(cmd);
         m_refreshAOkernels = false;
       }
-      if(m_refreshShadowKernels){
+      if(m_refreshShadowKernels || m_firstFrame){
         updateShadowKernels(cmd);
         m_refreshShadowKernels = false;
       }
     }
 
     {
+      // User espcial action
+      //glm::vec3 eye = m_cameraManip->getEye();
+      //glm::vec3 center = m_cameraManip->getCenter();
+      //m_scene.simulate(deltaT);
+      //m_scene.centerCamAction(eye, glm::normalize(center-eye));
+    }
+
+    {
       const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Generation");
-      const bool sceneRefresh = m_scene.m_needsRefresh || m_currCamId0 != m_prevCamId0;
+      const bool sceneRefresh = m_scene.m_needsRefresh || m_currCamId0 != m_prevCamId0 || m_firstFrame;
+      
       
       if(sceneRefresh){
-        updateSceneObjects(cmd);
         generationPass(cmd);
         m_scene.m_needsRefresh = false;
-        m_prevCamId0 = m_currCamId0;
       }else{
-        {
-          const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Build jobs");
-        }
-        {
-          const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Brick jobs");
-        }
+        // Empty timers so it doesn't break the profiler config
+        { const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Build jobs"); }
+        { const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Brick jobs"); }
       }
       
       if(m_rtxON && (m_updateTlas || sceneRefresh)){
         updateTopLevelAS(cmd,m_rebuildTlas);
         m_rebuildTlas = false;
       }else{
+        // Empty timer so it doesn't break the profiler config
         const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Accel struct update");
       }
-      m_updateTlas = !m_rtxON;
 
+      // Post generation submit updates
+      m_prevCamId0 = m_currCamId0;
+      m_updateTlas = !m_rtxON;
     }
 
     if(m_rtxON){
@@ -593,19 +615,8 @@ public:
     
     postProcess(cmd);
 
-    {
-      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Simulation");
-      if(m_prevTime < 0){
-        m_prevTime = m_pushConst.time;
-      }else{
-        float deltaT = m_pushConst.time - m_prevTime;
-        m_prevTime = m_pushConst.time;
-        m_scene.simulate(deltaT);
-        glm::vec3 eye = m_cameraManip->getEye();
-        glm::vec3 center = m_cameraManip->getCenter();
-        m_scene.centerCamAction(eye, glm::normalize(center-eye));
-      }
-    }
+    m_firstFrame = false;
+    m_pushConst.frameCount = (m_pushConst.frameCount + 1) % 2;
   }
 
   void bindComputePipeline(VkCommandBuffer cmd, Pipeline* pl){
@@ -1234,6 +1245,7 @@ public:
   void updateSceneObjects(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
 
+    m_scene.flushDeletedNodes();
     std::vector<nvutils::Bbox> aabbVector = m_scene.getAllBboxes();
     std::vector<shaderio::SceneObject> objectsVector = m_scene.getObjects();
     std::vector<shaderio::Material> materialsVector = m_scene.getMaterials();
@@ -1379,6 +1391,15 @@ public:
                                         ));
       NVVK_DBG_NAME(m_sceneMaterialsB.buffer);
 
+      for(int i = 0; i < 2; i++){
+        NVVK_CHECK(allocator->createBuffer(m_sceneDynamicObjectsB[i],
+                                     MAX_SCENE_DYNAMIC_OBJECTS*sizeof(uint),
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                        ));
+        NVVK_DBG_NAME(m_sceneDynamicObjectsB[i].buffer);
+      }
+
       // ------------------
       // Accel structure buffers
       // ------------------
@@ -1519,6 +1540,7 @@ public:
     bindings.addBinding(shaderio::BindingPoints::aabbs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::objects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::materials, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::dynamicObjects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     
     bindings.addBinding(shaderio::BindingPoints::tLas, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::bLas, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
@@ -1819,6 +1841,36 @@ public:
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
 
+  void readAndUpdateDynamicObjects(VkCommandBuffer cmd){
+    nvvk::Buffer& buffer = m_sceneDynamicObjectsB[m_pushConst.frameCount];
+    
+
+    if(!m_firstFrame){
+      // Read buffer
+
+      // Process data
+
+    }
+
+    // Write buffer
+    uint data;
+    if(m_firstFrame){
+      data = 0;
+    }else{
+      data = 0;
+    }
+    
+    vkCmdUpdateBuffer(cmd, buffer.buffer, 0, sizeof(uint), &data);
+    nvvk::cmdBufferMemoryBarrier(cmd, {buffer.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
+
+    nvvk::WriteSetContainer writeContainer;
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::dynamicObjects), buffer.buffer);
+    vkUpdateDescriptorSets(m_app->getDevice(),  
+                        static_cast<uint32_t>(writeContainer.size()),  
+                        writeContainer.data(), 0, nullptr);
+  }
+
   // Accessor for camera manipulator
   std::shared_ptr<nvutils::CameraManipulator> getCameraManipulator() const { return m_cameraManip; }
 
@@ -1857,11 +1909,12 @@ private:
   shaderio::PushConstant m_pushConst = {.time = 0.0f};
 
   // Scene information
-  shaderio::SceneInfo   m_sceneInfo{};          // Struct containing the scene information
-  nvvk::Buffer          m_sceneInfoB{};         // Buffer binded to the UBO of scene info
-  nvvk::Buffer          m_sceneAabbB{};         // Buffer binded to the scene aabbs array
-  nvvk::Buffer          m_sceneObjectsB{};      // Buffer binded to the scene objects array
-  nvvk::Buffer          m_sceneMaterialsB{};    // Buffer binded to the scene materials array
+  shaderio::SceneInfo   m_sceneInfo{};              // Struct containing the scene information
+  nvvk::Buffer          m_sceneInfoB{};             // Buffer binded to the UBO of scene info
+  nvvk::Buffer          m_sceneAabbB{};             // Buffer binded to the scene aabbs array
+  nvvk::Buffer          m_sceneObjectsB{};          // Buffer binded to the scene objects array
+  nvvk::Buffer          m_sceneMaterialsB{};        // Buffer binded to the scene materials array
+  nvvk::Buffer          m_sceneDynamicObjectsB[2];  // Buffer binded to the scene objects array
 
   // Acceleration structure buffers and components
   nvvk::AccelerationStructure   m_tLas{};       // Top-level acceleration structure
@@ -1903,15 +1956,12 @@ private:
   int m_debugMode = 0;
   bool m_rtxON = false;
   bool m_rebuildTlas = false;
-  bool m_refreshAOkernels = true;
-  bool m_refreshShadowKernels = true;
-  bool m_updateTlas = true;
+  bool m_refreshAOkernels = false;
+  bool m_refreshShadowKernels = false;
+  bool m_updateTlas = false;
+  bool m_firstFrame = true;
   glm::vec3 m_zenithColor = glm::vec3(0.644, 0.635, 0.608);
   glm::vec3 m_horizonColor = glm::vec3(0.628, 0.495, 0.279);
-
-  // Test variables TODO: Remove after debugging
-  int m_testSize = 0;
-  glm::vec3 m_testMed;
 
   // Startup managers for profiler and paramter registry
   Info m_info;

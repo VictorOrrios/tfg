@@ -41,6 +41,7 @@ NAMESPACE_SHADERIO_BEGIN()
 
 // Buffers static max limit
 #define MAX_SCENE_OBJECTS 1024
+#define MAX_SCENE_DYNAMIC_OBJECTS 512
 #define MAX_MATERIALS 32
 #define BRICK_PER_ATLAS_AXIS 512
 const static int NUM_BRICKS_IN_ATLAS = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS;
@@ -146,6 +147,7 @@ enum BindingPoints{
   aabbs,
   objects,
   materials,
+  dynamicObjects,
   tLas,
   bLas,
   instances,
@@ -205,9 +207,12 @@ struct DebugParams{
 
 struct PushConstant{
   float time;
+  float dts;
   DebugParams debug;
   LightinParams lp;
   int numObjects;
+  int numDynamicObjects;
+  uint frameCount = 0;
 };
 
 struct SceneInfo{
@@ -256,6 +261,23 @@ struct BrickJob{
   int4 id_level;
 };
 CHECK_STRUCT_ALIGNMENT(BrickJob)
+
+struct DynamicNode{
+  float4x4 tInv;
+  float4 position;
+  float4 rotation;
+  float4 prev_position;
+  float4 inv_rotation;
+  float4 prev_rotation;
+  float4 vel;
+  float4 omega;
+  float4 inv_inertia;
+  int type;
+  float scale;
+  float inv_mass;
+  uint _pad;
+};  
+CHECK_STRUCT_ALIGNMENT(DynamicNode)
 
 struct DispatchIndirectCommand {
   uint x;

@@ -63,6 +63,16 @@ public:
     float morph;
   };
 
+  struct Node {
+    uint32_t id;
+    bool needsRefresh;
+    bool needsRemoval;
+    GeneralParams gp;
+    SDFParams     sdp;
+    PhysicsParams pyp;
+    GuizmoParams  gzp;
+  };
+
   struct Material {
     uint32_t id;
     std::string name;
@@ -72,24 +82,16 @@ public:
     float metalness;
   };
 
-  struct Node {
-    uint32_t id;
-    bool needsRefresh;
-    GeneralParams gp;
-    SDFParams     sdp;
-    PhysicsParams pyp;
-    GuizmoParams  gzp;
-  };
-
   Scene();
 
   void draw();
   void drawGuizmo(ImVec2 viewportPos, ImVec2 viewportSize, glm::mat4 cameraView, glm::mat4 cameraProjection);
 
-  void simulate(float dt);
+  void simulate(float dts);
   void centerCamAction(glm::vec3 pos, glm::vec3 dir);
 
   std::vector<float> generateDenseGrid();
+  void flushDeletedNodes();
   std::vector<nvutils::Bbox> getAllBboxes();
   std::vector<shaderio::SceneObject> getObjects();
   std::vector<shaderio::Material> getMaterials();

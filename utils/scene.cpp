@@ -406,16 +406,27 @@ void Scene::deleteSelected() {
   if (m_selected == -1)
     return;
 
-  m_removeList.push_back(m_root[m_selected].gp.bbox);
-  m_root.erase(m_root.begin() + m_selected);
-  m_selected = -1;
+  m_root[m_selected].needsRemoval = true;
   m_needsRefresh = true;
+  m_removeList.push_back(m_root[m_selected].gp.bbox);
+  m_selected = -1;
+}
+
+void Scene::flushDeletedNodes(){
+  m_root.erase(
+    std::remove_if(m_root.begin(), m_root.end(),
+      [](const Node& n) {
+        return n.needsRemoval;
+      }),
+    m_root.end()
+  );
 }
 
 Scene::Node *Scene::createNode(NodeType t) {
   Node *node = new Node({
       .id = getNextId(),
       .needsRefresh=false,
+      .needsRemoval=false,
       .gp={
         .type = t,
         .rotation=glm::quat(glm::vec3(0.0)),
