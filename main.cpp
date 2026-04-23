@@ -28,6 +28,7 @@
 #include "glm/common.hpp"
 #include "glm/ext/scalar_constants.hpp"
 #include "nvvk/barriers.hpp"
+#include <cstring>
 #include <string>
 #define VMA_IMPLEMENTATION
 // TODO: Organize and label imports
@@ -53,6 +54,7 @@
 #include "_autogen/ao.slang.h"
 #include "_autogen/bilateral_h.slang.h"
 #include "_autogen/bilateral_v.slang.h"
+#include "_autogen/simulation.slang.h"
 #include "_autogen/sky_simple.slang.h"
 #include "_autogen/tonemapper.slang.h"
 
@@ -156,6 +158,12 @@ public:
     VkShaderModule    shader{};
   };
 
+  struct RWBuffer{
+    nvvk::Buffer  buffer{};
+    void*         mappedData = nullptr;
+    uint          count = 0;
+  };
+
   AppElement(const Info& info)
       : m_info(info)
   {
@@ -242,6 +250,7 @@ public:
     destroyPipeline(&m_aoPipeline);
     destroyPipeline(&m_bilateralHPipeline);
     destroyPipeline(&m_bilateralVPipeline);
+    destroyPipeline(&m_simulationPipeline);
 
     vkDestroyShaderModule(device,m_tracingPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_lightingPipeline.shader,nullptr);
@@ -251,6 +260,7 @@ public:
     vkDestroyShaderModule(device,m_aoPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_bilateralHPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_bilateralVPipeline.shader,nullptr);
+    vkDestroyShaderModule(device,m_simulationPipeline.shader,nullptr);
 
     m_alloc.destroyAcceleration(m_bLas);
     m_alloc.destroyAcceleration(m_tLas);
@@ -259,9 +269,9 @@ public:
     m_alloc.destroyBuffer(m_sceneAabbB);
     m_alloc.destroyBuffer(m_sceneObjectsB);
     m_alloc.destroyBuffer(m_sceneMaterialsB);
-    m_alloc.destroyBuffer(m_sceneDynamicObjectsB[0]);
-    m_alloc.destroyBuffer(m_sceneDynamicObjectsB[1]);
-   
+    for(auto& b: m_sceneDynamicObjects)
+      m_alloc.destroyBuffer(b.buffer);
+    
     m_alloc.destroyBuffer(m_buildJobQueue);
     m_alloc.destroyBuffer(m_brickJobQueue);
    
@@ -555,6 +565,9 @@ public:
         m_prevTime = m_pushConst.time;
       }
 
+      // Dynamic objects processing
+      readAndUpdateDynamicObjects(cmd);
+
       // Cam and scene info update
       updateSceneBuffer(cmd);
       updateSceneObjects(cmd);
@@ -577,6 +590,8 @@ public:
       //m_scene.simulate(deltaT);
       //m_scene.centerCamAction(eye, glm::normalize(center-eye));
     }
+
+    simulationPass(cmd);
 
     {
       const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Generation");
@@ -616,7 +631,7 @@ public:
     postProcess(cmd);
 
     m_firstFrame = false;
-    m_pushConst.frameCount = (m_pushConst.frameCount + 1) % 2;
+    m_pushConst.frameCount++;
   }
 
   void bindComputePipeline(VkCommandBuffer cmd, Pipeline* pl){
@@ -819,6 +834,23 @@ public:
     // Wait for render target to be done
     nvvk::cmdImageMemoryBarrier(cmd, {m_gBuffers.getColorImage(eImgTonemapped), VK_IMAGE_LAYOUT_GENERAL,
                                       VK_IMAGE_LAYOUT_GENERAL});
+  }
+
+  void simulationPass(VkCommandBuffer cmd){
+    NVVK_DBG_SCOPE(cmd);
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Simulation");
+
+    RWBuffer rwbuff = m_sceneDynamicObjects[(m_pushConst.frameCount+1) % 2];
+
+    // Bind pipeline
+    bindComputePipeline(cmd,&m_simulationPipeline);
+    // Dispatch
+    VkExtent2D group_counts(1,1);
+    vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
+
+    nvvk::cmdBufferMemoryBarrier(cmd, {rwbuff.buffer.buffer, 
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
   }
 
   void setupSlangCompiler(){
@@ -1391,13 +1423,19 @@ public:
                                         ));
       NVVK_DBG_NAME(m_sceneMaterialsB.buffer);
 
-      for(int i = 0; i < 2; i++){
-        NVVK_CHECK(allocator->createBuffer(m_sceneDynamicObjectsB[i],
+      int dyn_size = 1;
+      std::vector<uint8_t> zeros_dynamic(dyn_size, 0);
+      for(auto& b: m_sceneDynamicObjects){
+        NVVK_CHECK(allocator->createBuffer(b.buffer,
                                      MAX_SCENE_DYNAMIC_OBJECTS*sizeof(uint),
                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
-                                        ));
-        NVVK_DBG_NAME(m_sceneDynamicObjectsB[i].buffer);
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                        VMA_MEMORY_USAGE_AUTO,
+                                        VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT
+                                        | VMA_ALLOCATION_CREATE_MAPPED_BIT));
+        b.mappedData = b.buffer.mapping;
+        b.count = 1;
+        NVVK_CHECK(m_stagingUploader.appendBuffer(b.buffer, 0,std::span(zeros_dynamic)));  
       }
 
       // ------------------
@@ -1655,6 +1693,7 @@ public:
     createShaderModule(&m_aoPipeline.shader,"ao.slang",ao_slang);
     createShaderModule(&m_bilateralHPipeline.shader,"bilateral_h.slang",bilateral_h_slang);
     createShaderModule(&m_bilateralVPipeline.shader,"bilateral_v.slang",bilateral_v_slang);
+    createShaderModule(&m_simulationPipeline.shader,"simulation.slang",simulation_slang);
   }
 
   void createPipelines(){
@@ -1668,6 +1707,7 @@ public:
     createComputePipeline(&m_aoPipeline);
     createComputePipeline(&m_bilateralHPipeline);
     createComputePipeline(&m_bilateralVPipeline);
+    createComputePipeline(&m_simulationPipeline);
   }
 
   void createComputePipeline(Pipeline* pl){
@@ -1842,33 +1882,52 @@ public:
   }
 
   void readAndUpdateDynamicObjects(VkCommandBuffer cmd){
-    nvvk::Buffer& buffer = m_sceneDynamicObjectsB[m_pushConst.frameCount];
+    RWBuffer& rbuff = m_sceneDynamicObjects[m_pushConst.frameCount % 2];
+    RWBuffer& wbuff = m_sceneDynamicObjects[(m_pushConst.frameCount+1) % 2];
     
-
+    static uint data = 0;
     if(!m_firstFrame){
-      // Read buffer
+      assert(rwbuff.mappedData != nullptr);
 
+      nvvk::cmdBufferMemoryBarrier(cmd, {
+        rbuff.buffer.buffer,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_2_HOST_BIT
+      });
+      // Read buffer
+      uint* rdata = reinterpret_cast<uint*>(rbuff.mappedData);
+
+      for(uint i = 0; i < rbuff.count; i++){
+        data = rdata[i];
+        LOGI("CPU Read %u frame %i @ %i\n",data,m_pushConst.frameCount%2,m_pushConst.frameCount);
+      }
       // Process data
 
+      nvvk::cmdBufferMemoryBarrier(cmd, {
+        rbuff.buffer.buffer,
+        VK_PIPELINE_STAGE_2_HOST_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+      });
     }
-
+    wbuff.count = 1;
     // Write buffer
-    uint data;
-    if(m_firstFrame){
-      data = 0;
-    }else{
-      data = 0;
-    }
+    nvvk::cmdBufferMemoryBarrier(cmd, {wbuff.buffer.buffer,
+                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                  VK_PIPELINE_STAGE_2_TRANSFER_BIT});
+    vkCmdUpdateBuffer(cmd, wbuff.buffer.buffer, 0, sizeof(uint), &data);
+    nvvk::cmdBufferMemoryBarrier(cmd, {wbuff.buffer.buffer,
+                                  VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
+    LOGI("CPU Write %u frame %i @ %i\n",data,(m_pushConst.frameCount+1)%2,m_pushConst.frameCount);
     
-    vkCmdUpdateBuffer(cmd, buffer.buffer, 0, sizeof(uint), &data);
-    nvvk::cmdBufferMemoryBarrier(cmd, {buffer.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
 
+    // Update binding to point to the correct buffer
     nvvk::WriteSetContainer writeContainer;
-    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::dynamicObjects), buffer.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::dynamicObjects), wbuff.buffer.buffer);
     vkUpdateDescriptorSets(m_app->getDevice(),  
                         static_cast<uint32_t>(writeContainer.size()),  
                         writeContainer.data(), 0, nullptr);
+
   }
 
   // Accessor for camera manipulator
@@ -1894,6 +1953,7 @@ private:
   Pipeline m_aoPipeline{};          // Ambient occlussion generation pipeline
   Pipeline m_bilateralHPipeline{};  // Bilateral blur horizontal pass
   Pipeline m_bilateralVPipeline{};  // Bilateral blur vertical pass
+  Pipeline m_simulationPipeline{};  // Simluation pass
 
   // Shader binding table management
   nvvk::SBTGenerator    m_sbtGen;             // SBT manager
@@ -1914,7 +1974,7 @@ private:
   nvvk::Buffer          m_sceneAabbB{};             // Buffer binded to the scene aabbs array
   nvvk::Buffer          m_sceneObjectsB{};          // Buffer binded to the scene objects array
   nvvk::Buffer          m_sceneMaterialsB{};        // Buffer binded to the scene materials array
-  nvvk::Buffer          m_sceneDynamicObjectsB[2];  // Buffer binded to the scene objects array
+  RWBuffer              m_sceneDynamicObjects[2];   // Buffers binded to the scene dynamic objects array
 
   // Acceleration structure buffers and components
   nvvk::AccelerationStructure   m_tLas{};       // Top-level acceleration structure

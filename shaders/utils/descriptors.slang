@@ -31,6 +31,7 @@
 [[vk::binding(BindingPoints::aabbs)]] StructuredBuffer<Bbox> aabbs;
 [[vk::binding(BindingPoints::objects)]] StructuredBuffer<SceneObject> objects;
 [[vk::binding(BindingPoints::materials)]] StructuredBuffer<Material> materials;
+[[vk::binding(BindingPoints::dynamicObjects)]] RWStructuredBuffer<uint32_t> dynamic_objects;
 
 // Grid
 [[vk::binding(BindingPoints::clipMap)]] RWTexture3D<uint32_t> clipMap;
