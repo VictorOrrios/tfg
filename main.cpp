@@ -159,7 +159,7 @@ public:
   };
 
   struct RWBuffer{
-    nvvk::Buffer  buffer{};
+    nvvk::Buffer  nvbuffer{};
     void*         mappedData = nullptr;
     uint          count = 0;
   };
@@ -208,6 +208,7 @@ public:
     m_tonemapperData.isActive = 0;
 
     setupSlangCompiler();           // Setup slang compiler with correct build config flags
+    createSimResources();            // Create the command pool and fence used for simulation
     createScene();                  // Create the scene and fill it up with sdfs
     setupGBuffers();                // Set up the GBuffers to render to
     createRNGTextures();            // Creates the different rng and noise textures used in the shaders
@@ -269,8 +270,7 @@ public:
     m_alloc.destroyBuffer(m_sceneAabbB);
     m_alloc.destroyBuffer(m_sceneObjectsB);
     m_alloc.destroyBuffer(m_sceneMaterialsB);
-    for(auto& b: m_sceneDynamicObjects)
-      m_alloc.destroyBuffer(b.buffer);
+    m_alloc.destroyBuffer(m_sceneDynamicObjects.nvbuffer);
     
     m_alloc.destroyBuffer(m_buildJobQueue);
     m_alloc.destroyBuffer(m_brickJobQueue);
@@ -591,7 +591,7 @@ public:
       //m_scene.centerCamAction(eye, glm::normalize(center-eye));
     }
 
-    simulationPass(cmd);
+    simulationPass();
 
     {
       const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Generation");
@@ -836,21 +836,41 @@ public:
                                       VK_IMAGE_LAYOUT_GENERAL});
   }
 
-  void simulationPass(VkCommandBuffer cmd){
-    NVVK_DBG_SCOPE(cmd);
-    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Simulation");
+  void simulationPass(){
+    VkCommandBuffer simCmd;
 
-    RWBuffer rwbuff = m_sceneDynamicObjects[(m_pushConst.frameCount+1) % 2];
+    VkCommandBufferAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+      .commandPool = m_simCmdPool,
+      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+      .commandBufferCount = 1
+    };
+
+    vkAllocateCommandBuffers(m_app->getDevice(), &allocInfo, &simCmd);
+
+    NVVK_DBG_SCOPE(simCmd);
+
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(simCmd, "Simulation");
 
     // Bind pipeline
-    bindComputePipeline(cmd,&m_simulationPipeline);
+    bindComputePipeline(simCmd,&m_simulationPipeline);
     // Dispatch
     VkExtent2D group_counts(1,1);
-    vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
+    vkCmdDispatch(simCmd, group_counts.width, group_counts.height, 1);
 
-    nvvk::cmdBufferMemoryBarrier(cmd, {rwbuff.buffer.buffer, 
+    nvvk::cmdBufferMemoryBarrier(simCmd, {m_sceneDynamicObjects.nvbuffer.buffer, 
                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
+
+    NVVK_CHECK(vkEndCommandBuffer(simCmd));
+
+    VkSubmitInfo submitInfo = {
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+      .commandBufferCount = 1,
+      .pCommandBuffers = &simCmd
+    };
+
+    NVVK_CHECK(vkQueueSubmit(m_app->getQueue(0).queue, 1, &submitInfo, m_simFence));
   }
 
   void setupSlangCompiler(){
@@ -1386,6 +1406,23 @@ public:
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
 
+  void createSimResources(){
+    SCOPED_TIMER(__FUNCTION__);
+    VkCommandPoolCreateInfo poolInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+      .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+      .queueFamilyIndex = m_app->getQueue(0).familyIndex,
+    };
+
+    NVVK_CHECK(vkCreateCommandPool(m_app->getDevice(), &poolInfo, NULL, &m_simCmdPool));
+
+    VkFenceCreateInfo fenceInfo = {
+      .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO
+    };
+
+    NVVK_CHECK(vkCreateFence(m_app->getDevice(), &fenceInfo, NULL, &m_simFence));
+  }
+
   void createScene(){
     SCOPED_TIMER(__FUNCTION__);
     nvvk::ResourceAllocator* allocator = m_stagingUploader.getResourceAllocator();
@@ -1425,18 +1462,16 @@ public:
 
       int dyn_size = 1;
       std::vector<uint8_t> zeros_dynamic(dyn_size, 0);
-      for(auto& b: m_sceneDynamicObjects){
-        NVVK_CHECK(allocator->createBuffer(b.buffer,
-                                     MAX_SCENE_DYNAMIC_OBJECTS*sizeof(uint),
-                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                        VMA_MEMORY_USAGE_AUTO,
-                                        VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT
-                                        | VMA_ALLOCATION_CREATE_MAPPED_BIT));
-        b.mappedData = b.buffer.mapping;
-        b.count = 1;
-        NVVK_CHECK(m_stagingUploader.appendBuffer(b.buffer, 0,std::span(zeros_dynamic)));  
-      }
+      NVVK_CHECK(allocator->createBuffer(m_sceneDynamicObjects.nvbuffer,
+                                    MAX_SCENE_DYNAMIC_OBJECTS*sizeof(uint),
+                                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                        | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                      VMA_MEMORY_USAGE_AUTO,
+                                      VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT
+                                      | VMA_ALLOCATION_CREATE_MAPPED_BIT));
+      m_sceneDynamicObjects.mappedData = m_sceneDynamicObjects.nvbuffer.mapping;
+      m_sceneDynamicObjects.count = 1;
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneDynamicObjects.nvbuffer, 0,std::span(zeros_dynamic)));  
 
       // ------------------
       // Accel structure buffers
@@ -1611,6 +1646,7 @@ public:
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::aabbs), m_sceneAabbB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::objects), m_sceneObjectsB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::materials), m_sceneMaterialsB.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::dynamicObjects), m_sceneDynamicObjects.nvbuffer.buffer);
     
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLas), m_tLas);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::bLas), m_bLasB.buffer);
@@ -1882,51 +1918,29 @@ public:
   }
 
   void readAndUpdateDynamicObjects(VkCommandBuffer cmd){
-    RWBuffer& rbuff = m_sceneDynamicObjects[m_pushConst.frameCount % 2];
-    RWBuffer& wbuff = m_sceneDynamicObjects[(m_pushConst.frameCount+1) % 2];
-    
+
     static uint data = 0;
     if(!m_firstFrame){
+      LOGI("CPU WAIT\n");
+      vkWaitForFences(m_app->getDevice(), 1, &m_simFence, VK_TRUE, UINT64_MAX);
+      vkResetFences(m_app->getDevice(), 1, &m_simFence);
+      LOGI("CPU RELEASE\n");
+
       assert(rwbuff.mappedData != nullptr);
 
-      nvvk::cmdBufferMemoryBarrier(cmd, {
-        rbuff.buffer.buffer,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_2_HOST_BIT
-      });
       // Read buffer
-      uint* rdata = reinterpret_cast<uint*>(rbuff.mappedData);
+      uint* rdata = reinterpret_cast<uint*>(m_sceneDynamicObjects.mappedData);
 
-      for(uint i = 0; i < rbuff.count; i++){
+      for(uint i = 0; i < m_sceneDynamicObjects.count; i++){
         data = rdata[i];
-        LOGI("CPU Read %u frame %i @ %i\n",data,m_pushConst.frameCount%2,m_pushConst.frameCount);
+        LOGI("CPU Read %u @ %i\n",data,m_pushConst.frameCount);
       }
       // Process data
-
-      nvvk::cmdBufferMemoryBarrier(cmd, {
-        rbuff.buffer.buffer,
-        VK_PIPELINE_STAGE_2_HOST_BIT,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
-      });
     }
-    wbuff.count = 1;
+    m_sceneDynamicObjects.count = 1;
     // Write buffer
-    nvvk::cmdBufferMemoryBarrier(cmd, {wbuff.buffer.buffer,
-                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                  VK_PIPELINE_STAGE_2_TRANSFER_BIT});
-    vkCmdUpdateBuffer(cmd, wbuff.buffer.buffer, 0, sizeof(uint), &data);
-    nvvk::cmdBufferMemoryBarrier(cmd, {wbuff.buffer.buffer,
-                                  VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
-    LOGI("CPU Write %u frame %i @ %i\n",data,(m_pushConst.frameCount+1)%2,m_pushConst.frameCount);
-    
-
-    // Update binding to point to the correct buffer
-    nvvk::WriteSetContainer writeContainer;
-    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::dynamicObjects), wbuff.buffer.buffer);
-    vkUpdateDescriptorSets(m_app->getDevice(),  
-                        static_cast<uint32_t>(writeContainer.size()),  
-                        writeContainer.data(), 0, nullptr);
+    vkCmdUpdateBuffer(cmd, m_sceneDynamicObjects.nvbuffer.buffer, 0, sizeof(uint), &data);
+    LOGI("CPU Write %u @ %i\n",data,m_pushConst.frameCount);
 
   }
 
@@ -1943,6 +1957,8 @@ private:
   nvvk::GBuffer           m_gBuffers{};         // The G-Buffers
   nvslang::SlangCompiler  m_slangCompiler{};    // The Slang compiler used to compile the shaders
   nvvk::DescriptorPack    m_descPack{};         // The descriptor bindings used to create the descriptor set layout and descriptor sets
+  VkCommandPool           m_simCmdPool{};       // Command pool for simulation
+  VkFence                 m_simFence{};         // Fence for the end of simulation pass
 
   // Pipelines
   Pipeline m_tracingPipeline{};     // Tracing pipeline, fills the gbuffers with info
@@ -1969,12 +1985,12 @@ private:
   shaderio::PushConstant m_pushConst = {.time = 0.0f};
 
   // Scene information
-  shaderio::SceneInfo   m_sceneInfo{};              // Struct containing the scene information
-  nvvk::Buffer          m_sceneInfoB{};             // Buffer binded to the UBO of scene info
-  nvvk::Buffer          m_sceneAabbB{};             // Buffer binded to the scene aabbs array
-  nvvk::Buffer          m_sceneObjectsB{};          // Buffer binded to the scene objects array
-  nvvk::Buffer          m_sceneMaterialsB{};        // Buffer binded to the scene materials array
-  RWBuffer              m_sceneDynamicObjects[2];   // Buffers binded to the scene dynamic objects array
+  shaderio::SceneInfo   m_sceneInfo{};            // Struct containing the scene information
+  nvvk::Buffer          m_sceneInfoB{};           // Buffer binded to the UBO of scene info
+  nvvk::Buffer          m_sceneAabbB{};           // Buffer binded to the scene aabbs array
+  nvvk::Buffer          m_sceneObjectsB{};        // Buffer binded to the scene objects array
+  nvvk::Buffer          m_sceneMaterialsB{};      // Buffer binded to the scene materials array
+  RWBuffer              m_sceneDynamicObjects;   // Buffers binded to the scene dynamic objects array
 
   // Acceleration structure buffers and components
   nvvk::AccelerationStructure   m_tLas{};       // Top-level acceleration structure
