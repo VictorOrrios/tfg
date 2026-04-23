@@ -848,9 +848,18 @@ public:
 
     vkAllocateCommandBuffers(m_app->getDevice(), &allocInfo, &simCmd);
 
+    VkCommandBufferBeginInfo beginInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    };
+    vkBeginCommandBuffer(simCmd, &beginInfo);
+
     NVVK_DBG_SCOPE(simCmd);
 
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(simCmd, "Simulation");
+
+    m_test++;
+    vkCmdUpdateBuffer(simCmd, m_sceneDynamicObjects.nvbuffer.buffer, 0, sizeof(uint), &m_test);
 
     // Bind pipeline
     bindComputePipeline(simCmd,&m_simulationPipeline);
@@ -1919,28 +1928,48 @@ public:
 
   void readAndUpdateDynamicObjects(VkCommandBuffer cmd){
 
-    static uint data = 0;
     if(!m_firstFrame){
-      LOGI("CPU WAIT\n");
       vkWaitForFences(m_app->getDevice(), 1, &m_simFence, VK_TRUE, UINT64_MAX);
       vkResetFences(m_app->getDevice(), 1, &m_simFence);
-      LOGI("CPU RELEASE\n");
 
       assert(rwbuff.mappedData != nullptr);
-
+/* 
+      nvvk::cmdBufferMemoryBarrier(cmd, {
+        m_sceneDynamicObjects.nvbuffer.buffer,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_2_HOST_BIT
+      });
+ */
       // Read buffer
       uint* rdata = reinterpret_cast<uint*>(m_sceneDynamicObjects.mappedData);
 
       for(uint i = 0; i < m_sceneDynamicObjects.count; i++){
-        data = rdata[i];
-        LOGI("CPU Read %u @ %i\n",data,m_pushConst.frameCount);
+        m_test = rdata[i];
+        LOGI("CPU Read %u @ %i\n",m_test,m_pushConst.frameCount);
       }
       // Process data
+/* 
+      nvvk::cmdBufferMemoryBarrier(cmd, {
+        m_sceneDynamicObjects.nvbuffer.buffer,
+        VK_PIPELINE_STAGE_2_HOST_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+      });
+       */
     }
     m_sceneDynamicObjects.count = 1;
     // Write buffer
-    vkCmdUpdateBuffer(cmd, m_sceneDynamicObjects.nvbuffer.buffer, 0, sizeof(uint), &data);
-    LOGI("CPU Write %u @ %i\n",data,m_pushConst.frameCount);
+    /* 
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer,
+                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                  VK_PIPELINE_STAGE_2_TRANSFER_BIT});
+ */
+    //vkCmdUpdateBuffer(cmd, m_sceneDynamicObjects.nvbuffer.buffer, 0, sizeof(uint), &m_test);
+    /* 
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer,
+                                  VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
+                                   */
+    LOGI("CPU Write %u @ %i\n",m_test,m_pushConst.frameCount);
 
   }
 
@@ -2038,6 +2067,9 @@ private:
   bool m_firstFrame = true;
   glm::vec3 m_zenithColor = glm::vec3(0.644, 0.635, 0.608);
   glm::vec3 m_horizonColor = glm::vec3(0.628, 0.495, 0.279);
+
+  // Test TODO: Remove
+  uint m_test = 0;
 
   // Startup managers for profiler and paramter registry
   Info m_info;
