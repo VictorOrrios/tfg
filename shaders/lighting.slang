@@ -178,6 +178,10 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   }else{
     outImage[int2(fragCoord)] = float4(finalColor, 1.0F);
   }
+
+  if(all(threadIdx==0)){
+    printf("------LIGHT\n");
+  }
   
 /* 
   float3 final;

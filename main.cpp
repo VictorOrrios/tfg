@@ -553,35 +553,7 @@ public:
   void onRender(VkCommandBuffer cmd) override{
     NVVK_DBG_SCOPE(cmd);
 
-    {
-      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Buffer updates");
-
-      // Time variable updates
-      m_pushConst.time = static_cast<float>(ImGui::GetTime());
-      if(m_prevTime < 0){
-        m_prevTime = m_pushConst.time;
-      }else{
-        m_pushConst.dts = (m_pushConst.time - m_prevTime)/SIM_NUM_SUBSTEPS;
-        m_prevTime = m_pushConst.time;
-      }
-
-      // Dynamic objects processing
-      readAndUpdateDynamicObjects(cmd);
-
-      // Cam and scene info update
-      updateSceneBuffer(cmd);
-      updateSceneObjects(cmd);
-
-      // Kernels update
-      if(m_refreshAOkernels || m_firstFrame){
-        updateAOkernels(cmd);
-        m_refreshAOkernels = false;
-      }
-      if(m_refreshShadowKernels || m_firstFrame){
-        updateShadowKernels(cmd);
-        m_refreshShadowKernels = false;
-      }
-    }
+    
 
     {
       // User espcial action
@@ -837,39 +809,78 @@ public:
   }
 
   void simulationPass(){
-    VkCommandBuffer simCmd;
+    static VkCommandBuffer simCmd;
 
-    VkCommandBufferAllocateInfo allocInfo = {
-      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-      .commandPool = m_simCmdPool,
-      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-      .commandBufferCount = 1
-    };
+    if(m_firstFrame){
+      VkCommandBufferAllocateInfo allocInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = m_simCmdPool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1
+      };
 
-    vkAllocateCommandBuffers(m_app->getDevice(), &allocInfo, &simCmd);
+      vkAllocateCommandBuffers(m_app->getDevice(), &allocInfo, &simCmd);
+    }
 
     VkCommandBufferBeginInfo beginInfo = {
       .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+      .flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT
     };
+    //vkResetCommandBuffer(simCmd, 0);
+    NVVK_CHECK(vkResetCommandPool(m_app->getDevice(), m_simCmdPool, 0));
+
     vkBeginCommandBuffer(simCmd, &beginInfo);
 
     NVVK_DBG_SCOPE(simCmd);
 
-    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(simCmd, "Simulation");
+    {
+      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(simCmd, "Buffer updates");
 
-    m_test++;
-    vkCmdUpdateBuffer(simCmd, m_sceneDynamicObjects.nvbuffer.buffer, 0, sizeof(uint), &m_test);
+      // Time variable updates
+      m_pushConst.time = static_cast<float>(ImGui::GetTime());
+      if(m_prevTime < 0){
+        m_prevTime = m_pushConst.time;
+      }else{
+        m_pushConst.dts = (m_pushConst.time - m_prevTime)/SIM_NUM_SUBSTEPS;
+        m_prevTime = m_pushConst.time;
+      }
 
-    // Bind pipeline
-    bindComputePipeline(simCmd,&m_simulationPipeline);
-    // Dispatch
-    VkExtent2D group_counts(1,1);
-    vkCmdDispatch(simCmd, group_counts.width, group_counts.height, 1);
+      // Dynamic objects processing
+      readAndUpdateDynamicObjects(simCmd);
 
-    nvvk::cmdBufferMemoryBarrier(simCmd, {m_sceneDynamicObjects.nvbuffer.buffer, 
-                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
+      // Cam and scene info update
+      updateSceneBuffer(simCmd);
+      updateSceneObjects(simCmd);
+
+      // Kernels update
+      if(m_refreshAOkernels || m_firstFrame){
+        updateAOkernels(simCmd);
+        m_refreshAOkernels = false;
+      }
+      if(m_refreshShadowKernels || m_firstFrame){
+        updateShadowKernels(simCmd);
+        m_refreshShadowKernels = false;
+      }
+
+      m_test++;
+      vkCmdUpdateBuffer(simCmd, m_sceneDynamicObjects.nvbuffer.buffer, 0, sizeof(uint), &m_test);
+
+    }
+
+
+    {
+      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(simCmd, "Simulation");
+      // Bind pipeline
+      bindComputePipeline(simCmd,&m_simulationPipeline);
+      // Dispatch
+      VkExtent2D group_counts(1,1);
+      vkCmdDispatch(simCmd, group_counts.width, group_counts.height, 1);
+
+      nvvk::cmdBufferMemoryBarrier(simCmd, {m_sceneDynamicObjects.nvbuffer.buffer, 
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
+    }
+
 
     NVVK_CHECK(vkEndCommandBuffer(simCmd));
 
