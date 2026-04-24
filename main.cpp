@@ -207,8 +207,8 @@ public:
     // Set tonemapping off by default
     m_tonemapperData.isActive = 0;
 
+    createAuxResources();           // Create the auxiliary command utilities
     setupSlangCompiler();           // Setup slang compiler with correct build config flags
-    createSimResources();            // Create the command pool and fence used for simulation
     createScene();                  // Create the scene and fill it up with sdfs
     setupGBuffers();                // Set up the GBuffers to render to
     createRNGTextures();            // Creates the different rng and noise textures used in the shaders
@@ -553,8 +553,6 @@ public:
   void onRender(VkCommandBuffer cmd) override{
     NVVK_DBG_SCOPE(cmd);
 
-    
-
     {
       // User espcial action
       //glm::vec3 eye = m_cameraManip->getEye();
@@ -563,34 +561,18 @@ public:
       //m_scene.centerCamAction(eye, glm::normalize(center-eye));
     }
 
-    simulationPass();
 
-    {
-      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Generation");
-      const bool sceneRefresh = m_scene.m_needsRefresh || m_currCamId0 != m_prevCamId0 || m_firstFrame;
-      
-      
-      if(sceneRefresh){
-        generationPass(cmd);
-        m_scene.m_needsRefresh = false;
-      }else{
-        // Empty timers so it doesn't break the profiler config
-        { const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Build jobs"); }
-        { const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Brick jobs"); }
-      }
-      
-      if(m_rtxON && (m_updateTlas || sceneRefresh)){
-        updateTopLevelAS(cmd,m_rebuildTlas);
-        m_rebuildTlas = false;
-      }else{
-        // Empty timer so it doesn't break the profiler config
-        const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Accel struct update");
-      }
+    waitForAuxFences();
 
-      // Post generation submit updates
-      m_prevCamId0 = m_currCamId0;
-      m_updateTlas = !m_rtxON;
-    }
+    VkCommandBuffer auxCmd = getAuxCmd();
+    
+      bufferUpdates(auxCmd);
+      
+      simulationPass(auxCmd);
+
+    submitAuxCmd(auxCmd);
+
+    generationPass(cmd);
 
     if(m_rtxON){
       raytracingPass(cmd);
@@ -784,6 +766,32 @@ public:
   }
 
   void generationPass(VkCommandBuffer cmd){
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Generation");
+    const bool sceneRefresh = m_scene.m_needsRefresh || m_currCamId0 != m_prevCamId0 || m_firstFrame;
+    
+    if(sceneRefresh){
+      genJobsPass(cmd);
+      m_scene.m_needsRefresh = false;
+    }else{
+      // Empty timers so it doesn't break the profiler config
+      { const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Build jobs"); }
+      { const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Brick jobs"); }
+    }
+    
+    if(m_rtxON && (m_updateTlas || sceneRefresh)){
+      updateTopLevelAS(cmd,m_rebuildTlas);
+      m_rebuildTlas = false;
+    }else{
+      // Empty timer so it doesn't break the profiler config
+      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Accel struct update");
+    }
+
+    // Post generation submit updates
+    m_prevCamId0 = m_currCamId0;
+    m_updateTlas = !m_rtxON;
+  }
+
+  void genJobsPass(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
 
     executeBuildJobs(cmd);
@@ -808,89 +816,81 @@ public:
                                       VK_IMAGE_LAYOUT_GENERAL});
   }
 
-  void simulationPass(){
-    static VkCommandBuffer simCmd;
+  void bufferUpdates(VkCommandBuffer cmd){
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Buffer updates");
 
-    if(m_firstFrame){
-      VkCommandBufferAllocateInfo allocInfo = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = m_simCmdPool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1
-      };
-
-      vkAllocateCommandBuffers(m_app->getDevice(), &allocInfo, &simCmd);
+    // Time variable updates
+    m_pushConst.time = static_cast<float>(ImGui::GetTime());
+    if(m_prevTime < 0){
+      m_prevTime = m_pushConst.time;
+    }else{
+      m_pushConst.dts = (m_pushConst.time - m_prevTime)/SIM_NUM_SUBSTEPS;
+      m_prevTime = m_pushConst.time;
     }
 
+    // Dynamic objects processing
+    if(!m_firstFrame)
+      readAndProcessDynamicObjects(cmd);
+
+    // Cam and scene update
+    updateSceneBuffer(cmd);
+    updateSceneObjects(cmd);
+    updateSceneDynamicObjects(cmd);
+
+    // Kernels update
+    if(m_refreshAOkernels || m_firstFrame){
+      updateAOkernels(cmd);
+      m_refreshAOkernels = false;
+    }
+    if(m_refreshShadowKernels || m_firstFrame){
+      updateShadowKernels(cmd);
+      m_refreshShadowKernels = false;
+    }
+  }
+
+  void waitForAuxFences(){
+    if(!m_firstFrame){
+      vkWaitForFences(m_app->getDevice(), 1, &m_auxFence, VK_TRUE, UINT64_MAX);
+      vkResetFences(m_app->getDevice(), 1, &m_auxFence);
+    }
+  }
+
+  VkCommandBuffer getAuxCmd(){
     VkCommandBufferBeginInfo beginInfo = {
       .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
       .flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT
     };
-    //vkResetCommandBuffer(simCmd, 0);
-    NVVK_CHECK(vkResetCommandPool(m_app->getDevice(), m_simCmdPool, 0));
+    NVVK_CHECK(vkResetCommandBuffer(m_auxCmd, 0));
+    vkBeginCommandBuffer(m_auxCmd, &beginInfo);
 
-    vkBeginCommandBuffer(simCmd, &beginInfo);
+    NVVK_DBG_SCOPE(m_auxCmd);
 
-    NVVK_DBG_SCOPE(simCmd);
+    return m_auxCmd;
+  }
 
-    {
-      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(simCmd, "Buffer updates");
-
-      // Time variable updates
-      m_pushConst.time = static_cast<float>(ImGui::GetTime());
-      if(m_prevTime < 0){
-        m_prevTime = m_pushConst.time;
-      }else{
-        m_pushConst.dts = (m_pushConst.time - m_prevTime)/SIM_NUM_SUBSTEPS;
-        m_prevTime = m_pushConst.time;
-      }
-
-      // Dynamic objects processing
-      readAndUpdateDynamicObjects(simCmd);
-
-      // Cam and scene info update
-      updateSceneBuffer(simCmd);
-      updateSceneObjects(simCmd);
-
-      // Kernels update
-      if(m_refreshAOkernels || m_firstFrame){
-        updateAOkernels(simCmd);
-        m_refreshAOkernels = false;
-      }
-      if(m_refreshShadowKernels || m_firstFrame){
-        updateShadowKernels(simCmd);
-        m_refreshShadowKernels = false;
-      }
-
-      m_test++;
-      vkCmdUpdateBuffer(simCmd, m_sceneDynamicObjects.nvbuffer.buffer, 0, sizeof(uint), &m_test);
-
-    }
-
-
-    {
-      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(simCmd, "Simulation");
-      // Bind pipeline
-      bindComputePipeline(simCmd,&m_simulationPipeline);
-      // Dispatch
-      VkExtent2D group_counts(1,1);
-      vkCmdDispatch(simCmd, group_counts.width, group_counts.height, 1);
-
-      nvvk::cmdBufferMemoryBarrier(simCmd, {m_sceneDynamicObjects.nvbuffer.buffer, 
-                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
-    }
-
-
-    NVVK_CHECK(vkEndCommandBuffer(simCmd));
+  void submitAuxCmd(VkCommandBuffer cmd){
+    NVVK_CHECK(vkEndCommandBuffer(cmd));
 
     VkSubmitInfo submitInfo = {
       .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
       .commandBufferCount = 1,
-      .pCommandBuffers = &simCmd
+      .pCommandBuffers = &cmd
     };
 
-    NVVK_CHECK(vkQueueSubmit(m_app->getQueue(0).queue, 1, &submitInfo, m_simFence));
+    NVVK_CHECK(vkQueueSubmit(m_app->getQueue(0).queue, 1, &submitInfo, m_auxFence));
+  }
+
+  void simulationPass(VkCommandBuffer cmd){
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Simulation");
+    // Bind pipeline
+    bindComputePipeline(cmd,&m_simulationPipeline);
+    // Dispatch
+    VkExtent2D group_counts(1,1);
+    vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
+
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer, 
+                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
   }
 
   void setupSlangCompiler(){
@@ -1426,21 +1426,34 @@ public:
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
 
-  void createSimResources(){
+  void createAuxResources(){
     SCOPED_TIMER(__FUNCTION__);
+
+    // Command pool
     VkCommandPoolCreateInfo poolInfo = {
       .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
       .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
       .queueFamilyIndex = m_app->getQueue(0).familyIndex,
     };
 
-    NVVK_CHECK(vkCreateCommandPool(m_app->getDevice(), &poolInfo, NULL, &m_simCmdPool));
+    NVVK_CHECK(vkCreateCommandPool(m_app->getDevice(), &poolInfo, NULL, &m_auxCmdPool));
 
+    // Command buffer
+    VkCommandBufferAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+      .commandPool = m_auxCmdPool,
+      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+      .commandBufferCount = 1
+    };
+
+    NVVK_CHECK(vkAllocateCommandBuffers(m_app->getDevice(), &allocInfo, &m_auxCmd));
+
+    // Fence
     VkFenceCreateInfo fenceInfo = {
       .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO
     };
 
-    NVVK_CHECK(vkCreateFence(m_app->getDevice(), &fenceInfo, NULL, &m_simFence));
+    NVVK_CHECK(vkCreateFence(m_app->getDevice(), &fenceInfo, NULL, &m_auxFence));
   }
 
   void createScene(){
@@ -1937,11 +1950,10 @@ public:
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
 
-  void readAndUpdateDynamicObjects(VkCommandBuffer cmd){
+  void readAndProcessDynamicObjects(VkCommandBuffer cmd){
 
     if(!m_firstFrame){
-      vkWaitForFences(m_app->getDevice(), 1, &m_simFence, VK_TRUE, UINT64_MAX);
-      vkResetFences(m_app->getDevice(), 1, &m_simFence);
+      
 
       assert(rwbuff.mappedData != nullptr);
 /* 
@@ -1984,6 +1996,14 @@ public:
 
   }
 
+  void updateSceneDynamicObjects(VkCommandBuffer cmd){
+    m_test++;
+    vkCmdUpdateBuffer(cmd, m_sceneDynamicObjects.nvbuffer.buffer, 0, sizeof(uint), &m_test);
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer,
+                                        VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
+  }
+
   // Accessor for camera manipulator
   std::shared_ptr<nvutils::CameraManipulator> getCameraManipulator() const { return m_cameraManip; }
 
@@ -1997,8 +2017,9 @@ private:
   nvvk::GBuffer           m_gBuffers{};         // The G-Buffers
   nvslang::SlangCompiler  m_slangCompiler{};    // The Slang compiler used to compile the shaders
   nvvk::DescriptorPack    m_descPack{};         // The descriptor bindings used to create the descriptor set layout and descriptor sets
-  VkCommandPool           m_simCmdPool{};       // Command pool for simulation
-  VkFence                 m_simFence{};         // Fence for the end of simulation pass
+  VkCommandPool           m_auxCmdPool{};       // Auxiliary command pool
+  VkCommandBuffer         m_auxCmd{};           // Auxiliary command buffer
+  VkFence                 m_auxFence{};         // Fence for the end of aux cmd
 
   // Pipelines
   Pipeline m_tracingPipeline{};     // Tracing pipeline, fills the gbuffers with info
