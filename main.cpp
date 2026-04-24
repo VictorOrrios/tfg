@@ -824,7 +824,7 @@ public:
     if(m_prevTime < 0){
       m_prevTime = m_pushConst.time;
     }else{
-      m_pushConst.dts = (m_pushConst.time - m_prevTime)/SIM_NUM_SUBSTEPS;
+      m_pushConst.pyp.dts = (m_pushConst.time - m_prevTime)/SIM_NUM_SUBSTEPS;
       m_prevTime = m_pushConst.time;
     }
 
@@ -882,11 +882,11 @@ public:
 
   void simulationPass(VkCommandBuffer cmd){
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Simulation");
+    if(m_pushConst.numDynamicObjects == 0) return;
     // Bind pipeline
     bindComputePipeline(cmd,&m_simulationPipeline);
     // Dispatch
-    VkExtent2D group_counts(1,1);
-    vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
+    vkCmdDispatch(cmd, int(trunc(m_pushConst.numDynamicObjects/WORKGROUP_SIZE_1D))+1, 1, 1);
 
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer, 
                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1323,7 +1323,7 @@ public:
     std::vector<shaderio::Material> materialsVector = m_scene.getMaterials();
 
     if(aabbVector.size() != objectsVector.size())
-        LOGE("Aabb vector is diferent size from objects vector %zu != %zu\n",aabbVector.size(),objectsVector.size());
+      LOGE("Aabb vector is diferent size from objects vector %zu != %zu\n",aabbVector.size(),objectsVector.size());
     if(aabbVector.size()>MAX_SCENE_OBJECTS)
       LOGE("Number of scene objects exceeds maximum %zu > %i\n",aabbVector.size(),MAX_SCENE_OBJECTS);
     if(materialsVector.size()>MAX_MATERIALS)
@@ -1493,18 +1493,14 @@ public:
                                         ));
       NVVK_DBG_NAME(m_sceneMaterialsB.buffer);
 
-      int dyn_size = 1;
-      std::vector<uint8_t> zeros_dynamic(dyn_size, 0);
       NVVK_CHECK(allocator->createBuffer(m_sceneDynamicObjects.nvbuffer,
-                                    MAX_SCENE_DYNAMIC_OBJECTS*sizeof(uint),
+                                    MAX_SCENE_DYNAMIC_OBJECTS*sizeof(shaderio::DynamicObject),
                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
                                         | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                       VMA_MEMORY_USAGE_AUTO,
                                       VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT
                                       | VMA_ALLOCATION_CREATE_MAPPED_BIT));
       m_sceneDynamicObjects.mappedData = m_sceneDynamicObjects.nvbuffer.mapping;
-      m_sceneDynamicObjects.count = 1;
-      NVVK_CHECK(m_stagingUploader.appendBuffer(m_sceneDynamicObjects.nvbuffer, 0,std::span(zeros_dynamic)));  
 
       // ------------------
       // Accel structure buffers
@@ -1951,54 +1947,23 @@ public:
   }
 
   void readAndProcessDynamicObjects(VkCommandBuffer cmd){
-
-    if(!m_firstFrame){
-      
-
-      assert(rwbuff.mappedData != nullptr);
-/* 
-      nvvk::cmdBufferMemoryBarrier(cmd, {
-        m_sceneDynamicObjects.nvbuffer.buffer,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_2_HOST_BIT
-      });
- */
-      // Read buffer
-      uint* rdata = reinterpret_cast<uint*>(m_sceneDynamicObjects.mappedData);
-
-      for(uint i = 0; i < m_sceneDynamicObjects.count; i++){
-        m_test = rdata[i];
-        LOGI("CPU Read %u @ %i\n",m_test,m_pushConst.frameCount);
-      }
-      // Process data
-/* 
-      nvvk::cmdBufferMemoryBarrier(cmd, {
-        m_sceneDynamicObjects.nvbuffer.buffer,
-        VK_PIPELINE_STAGE_2_HOST_BIT,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
-      });
-       */
+    if(m_sceneDynamicObjects.count <= 0) return;
+    assert(rwbuff.mappedData != nullptr);
+    shaderio::DynamicObject* rdata = reinterpret_cast<shaderio::DynamicObject*>(m_sceneDynamicObjects.mappedData);
+    std::vector<shaderio::DynamicObject> data;
+    data.reserve(m_sceneDynamicObjects.count);
+    for(uint i = 0; i < m_sceneDynamicObjects.count; i++){
+      data.push_back(rdata[i]);
     }
-    m_sceneDynamicObjects.count = 1;
-    // Write buffer
-    /* 
-    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer,
-                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                  VK_PIPELINE_STAGE_2_TRANSFER_BIT});
- */
-    //vkCmdUpdateBuffer(cmd, m_sceneDynamicObjects.nvbuffer.buffer, 0, sizeof(uint), &m_test);
-    /* 
-    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer,
-                                  VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
-                                   */
-    LOGI("CPU Write %u @ %i\n",m_test,m_pushConst.frameCount);
-
   }
 
   void updateSceneDynamicObjects(VkCommandBuffer cmd){
-    m_test++;
-    vkCmdUpdateBuffer(cmd, m_sceneDynamicObjects.nvbuffer.buffer, 0, sizeof(uint), &m_test);
+    std::vector<shaderio::DynamicObject> data = m_scene.getDynamicObjects();
+    m_sceneDynamicObjects.count = data.size();
+    m_pushConst.numDynamicObjects = data.size();
+    if(data.size() <= 0) return;
+
+    vkCmdUpdateBuffer(cmd, m_sceneDynamicObjects.nvbuffer.buffer, 0, data.size()*sizeof(shaderio::DynamicObject), &data);
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer,
                                         VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
@@ -2099,9 +2064,6 @@ private:
   bool m_firstFrame = true;
   glm::vec3 m_zenithColor = glm::vec3(0.644, 0.635, 0.608);
   glm::vec3 m_horizonColor = glm::vec3(0.628, 0.495, 0.279);
-
-  // Test TODO: Remove
-  uint m_test = 0;
 
   // Startup managers for profiler and paramter registry
   Info m_info;

@@ -36,6 +36,7 @@
 NAMESPACE_SHADERIO_BEGIN()
 
 // Dispatch group counts
+#define WORKGROUP_SIZE_1D 64
 #define WORKGROUP_SIZE_2D 16
 #define WORKGROUP_SIZE_3D 8
 
@@ -200,16 +201,21 @@ struct LightinParams{
 };
 
 struct DebugParams{
-  int mode;     // 0: Off, 1: Debug color, 2: Albedo, 3: Normal, 4:Depth, 5:BBox
+  int mode; // Refers to shaderio::DebugModes
   int palette;
   bool brickPercent;
 };
 
+struct PhysicsParams{
+  float dts;
+  float3 gravity = float3(0.0f,-9.8f,0.0f);
+};
+
 struct PushConstant{
   float time;
-  float dts;
   DebugParams debug;
   LightinParams lp;
+  PhysicsParams pyp;
   int numObjects;
   int numDynamicObjects;
   uint frameCount = 0;
@@ -262,7 +268,7 @@ struct BrickJob{
 };
 CHECK_STRUCT_ALIGNMENT(BrickJob)
 
-struct DynamicNode{
+struct DynamicObject{
   float4x4 tInv;
   float4 position;
   float4 rotation;
@@ -275,9 +281,9 @@ struct DynamicNode{
   int type;
   float scale;
   float inv_mass;
-  uint _pad;
+  int index;
 };  
-CHECK_STRUCT_ALIGNMENT(DynamicNode)
+CHECK_STRUCT_ALIGNMENT(DynamicObject)
 
 struct DispatchIndirectCommand {
   uint x;

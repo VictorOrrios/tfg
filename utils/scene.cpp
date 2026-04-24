@@ -597,16 +597,17 @@ std::vector<nvutils::Bbox> Scene::getAllBboxes() {
   return out;
 }
 
-glm::mat4 columnMajorToRowMajor(const glm::mat4& mat) {
-  glm::mat4 result;
-  
-  for (int row = 0; row < 4; row++) {
-    for (int col = 0; col < 4; col++) {
-      result[row][col] = mat[col][row];
-    }
-  }
-  
-  return glm::transpose(mat);
+glm::vec4 quat2vec4(glm::quat x){
+  return glm::vec4(x.x,x.y,x.z,x.w);
+}
+
+glm::quat vec42quat(glm::vec4 x){
+  glm::quat q;
+  q.x = x.x;
+  q.y = x.y;
+  q.z = x.z;
+  q.w = x.w;
+  return q;
 }
 
 
@@ -620,7 +621,7 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
     int morphPrim = sdp.morphPrim+1;
     
     out.push_back({
-      .tInv=columnMajorToRowMajor(p.tInv),
+      .tInv=glm::transpose(p.tInv),
       .spacing=glm::vec4(sdp.spacing,0),
       .defP=glm::vec4(sdp.defP,0),
       .terrain=glm::vec4(sdp.terrain),
@@ -653,6 +654,57 @@ std::vector<shaderio::Material> Scene::getMaterials(){
 
   return out;
 }
+
+std::vector<shaderio::DynamicObject> Scene::getDynamicObjects(){
+  std::vector<shaderio::DynamicObject> out;
+  int idx = 0;
+  for (auto &node : m_root) {
+    GeneralParams& gp = node.gp; 
+    PhysicsParams& pyp = node.pyp; 
+    if(!pyp.physicsActive) continue;
+
+    out.push_back({
+      .tInv=glm::transpose(gp.tInv),
+      .position=glm::vec4(gp.position,0.0),
+      .rotation=quat2vec4(gp.rotation),
+      .prev_position=glm::vec4(pyp.prev_position,0.0),
+      .inv_rotation=quat2vec4(pyp.inv_rotation),
+      .prev_rotation=quat2vec4(pyp.prev_rotation),
+      .vel=glm::vec4(pyp.vel,0.0),
+      .omega=glm::vec4(pyp.omega,0.0),
+      .inv_inertia=glm::vec4(pyp.inv_inertia,0.0),
+      .type=(int)gp.type,
+      .scale=gp.scale,
+      .inv_mass=pyp.inv_mass,
+      .index=idx
+    });
+
+    idx++;
+  }
+  
+  return out;
+}
+
+void Scene::processDynamicObjects(std::vector<shaderio::DynamicObject> data){
+  for (auto &dnode : data) {
+    Node& node = m_root[dnode.index];
+    if(node.needsRemoval) continue;
+
+    GeneralParams& gp = node.gp; 
+    PhysicsParams& pyp = node.pyp; 
+
+    gp.tInv = glm::transpose(dnode.tInv);
+    gp.position = dnode.position;
+    gp.rotation = vec42quat(dnode.rotation);
+    pyp.prev_position = dnode.prev_position;
+    pyp.inv_rotation = vec42quat(dnode.inv_rotation);
+    pyp.prev_position = dnode.prev_position;
+    pyp.vel = dnode.vel;
+    pyp.omega = dnode.omega;    
+
+  }
+}
+
 
 
 bool pointInBBox(const glm::vec3& p, const nvutils::Bbox& bbox) {

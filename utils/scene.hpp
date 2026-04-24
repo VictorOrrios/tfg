@@ -89,11 +89,13 @@ public:
 
   void simulate(float dts);
   void centerCamAction(glm::vec3 pos, glm::vec3 dir);
+  void processDynamicObjects(std::vector<shaderio::DynamicObject> data);
 
   std::vector<float> generateDenseGrid();
   void flushDeletedNodes();
   std::vector<nvutils::Bbox> getAllBboxes();
   std::vector<shaderio::SceneObject> getObjects();
+  std::vector<shaderio::DynamicObject> getDynamicObjects();
   std::vector<shaderio::Material> getMaterials();
   std::vector<shaderio::BuildJob> getBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
   std::vector<shaderio::BuildJob> getDenseBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
