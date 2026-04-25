@@ -12,6 +12,13 @@ float map(float3 p){
   return min(mapValue,maxD);
 }
 
+// Evaluates the whole sdf scene in a point in space without the dynamic objects
+float mapStatic(float3 p){
+  const float maxD = BRICK_SIZES[CLIPMAP_LEVELS-1];
+  float mapValue = mapStatic(p,CLIPMAP_LEVELS-1);
+  return min(mapValue,maxD);
+}
+
 // True numerical
 float3 evalNormalTrue(float3 p){
   const float eps = 0.0001;
@@ -32,6 +39,17 @@ float3 evalNormal(float3 p){
     k.yyx*map(p + k.yyx*h) + 
     k.yxy*map(p + k.yxy*h) + 
     k.xxx*map(p + k.xxx*h)
+  );
+}
+
+float3 evalNormalStatic(float3 p){
+  const float h = 0.0001;
+  const float2 k = float2(1,-1);
+  return normalize(
+    k.xyy*mapStatic(p + k.xyy*h) +
+    k.yyx*mapStatic(p + k.yyx*h) + 
+    k.yxy*mapStatic(p + k.yxy*h) + 
+    k.xxx*mapStatic(p + k.xxx*h)
   );
 }
 

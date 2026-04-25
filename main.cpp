@@ -1955,6 +1955,7 @@ public:
     for(uint i = 0; i < m_sceneDynamicObjects.count; i++){
       data.push_back(rdata[i]);
     }
+    m_scene.processDynamicObjects(data);
   }
 
   void updateSceneDynamicObjects(VkCommandBuffer cmd){
@@ -1963,7 +1964,7 @@ public:
     m_pushConst.numDynamicObjects = data.size();
     if(data.size() <= 0) return;
 
-    vkCmdUpdateBuffer(cmd, m_sceneDynamicObjects.nvbuffer.buffer, 0, data.size()*sizeof(shaderio::DynamicObject), &data);
+    vkCmdUpdateBuffer(cmd, m_sceneDynamicObjects.nvbuffer.buffer, 0, data.size()*sizeof(shaderio::DynamicObject), data.data());
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer,
                                         VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});

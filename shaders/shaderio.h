@@ -248,6 +248,8 @@ struct SceneObject{
   float smoothness;
   float morph;
   uint mat;
+  bool physicsActive;
+  uint _pad;
 };
 CHECK_STRUCT_ALIGNMENT(SceneObject)
 

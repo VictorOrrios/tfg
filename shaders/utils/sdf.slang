@@ -333,6 +333,47 @@ float map(float3 point, int level){
   return result;
 }
 
+float mapStatic(float3 point, int level){
+  const float iniD = 10000.0f;
+  const float nearRange = MAX_BRICK_VALUES[level];
+  float result = iniD;
+
+  for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
+    float3 p = float3(point);
+    SceneObject params = objects[obIdx];
+
+    // Skip dynamic objects
+    if(params.physicsActive)
+      continue;
+
+    Bbox bbox = aabbs[obIdx];
+
+    // If not inside bbox primitive continue with next 
+    if(!nearBbox(p,bbox,nearRange))
+      continue;
+
+    p = mul(params.tInv, float4(p, 1.0)).xyz;
+
+    p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit_octaves.xyz);
+
+    p = applyDefOp(params.defOp, p, params.defP);
+
+    p /= params.scale;
+
+    float d = evalPrimitive(params.type, p) - params.roundness;
+
+    d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
+
+    d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
+
+    d *= params.scale;
+
+    result = evalCombOp(params.combOp, d, result, params.smoothness);
+  }
+
+  return result;
+}
+
 // Map function for getting the material at point
 float map(float3 point, out Material matResult){
   const float iniD = 1e5;

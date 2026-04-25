@@ -597,16 +597,16 @@ std::vector<nvutils::Bbox> Scene::getAllBboxes() {
   return out;
 }
 
-glm::vec4 quat2vec4(glm::quat x){
-  return glm::vec4(x.x,x.y,x.z,x.w);
+glm::vec4 quat2vec4(glm::quat q){
+  return glm::vec4(q.x,q.y,q.z,q.w);
 }
 
-glm::quat vec42quat(glm::vec4 x){
+glm::quat vec42quat(glm::vec4 v){
   glm::quat q;
-  q.x = x.x;
-  q.y = x.y;
-  q.z = x.z;
-  q.w = x.w;
+  q.x = v.x;
+  q.y = v.y;
+  q.z = v.z;
+  q.w = v.w;
   return q;
 }
 
@@ -636,6 +636,7 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
       .smoothness=sdp.smoothness,
       .morph=sdp.morph,
       .mat=uint(p.mat),
+      .physicsActive=node.pyp.physicsActive
     });
   }
 
@@ -661,23 +662,24 @@ std::vector<shaderio::DynamicObject> Scene::getDynamicObjects(){
   for (auto &node : m_root) {
     GeneralParams& gp = node.gp; 
     PhysicsParams& pyp = node.pyp; 
-    if(!pyp.physicsActive) continue;
-
-    out.push_back({
-      .tInv=glm::transpose(gp.tInv),
-      .position=glm::vec4(gp.position,0.0),
-      .rotation=quat2vec4(gp.rotation),
-      .prev_position=glm::vec4(pyp.prev_position,0.0),
-      .inv_rotation=quat2vec4(pyp.inv_rotation),
-      .prev_rotation=quat2vec4(pyp.prev_rotation),
-      .vel=glm::vec4(pyp.vel,0.0),
-      .omega=glm::vec4(pyp.omega,0.0),
-      .inv_inertia=glm::vec4(pyp.inv_inertia,0.0),
-      .type=(int)gp.type,
-      .scale=gp.scale,
-      .inv_mass=pyp.inv_mass,
-      .index=idx
-    });
+    
+    if(pyp.physicsActive){
+      out.push_back({
+        .tInv=glm::transpose(gp.tInv),
+        .position=glm::vec4(gp.position,0.0),
+        .rotation=quat2vec4(gp.rotation),
+        .prev_position=glm::vec4(pyp.prev_position,0.0),
+        .inv_rotation=quat2vec4(pyp.inv_rotation),
+        .prev_rotation=quat2vec4(pyp.prev_rotation),
+        .vel=glm::vec4(pyp.vel,0.0),
+        .omega=glm::vec4(pyp.omega,0.0),
+        .inv_inertia=glm::vec4(pyp.inv_inertia,0.0),
+        .type=(int)gp.type,
+        .scale=gp.scale,
+        .inv_mass=pyp.inv_mass,
+        .index=idx
+      });
+    }
 
     idx++;
   }
@@ -701,10 +703,10 @@ void Scene::processDynamicObjects(std::vector<shaderio::DynamicObject> data){
     pyp.prev_position = dnode.prev_position;
     pyp.vel = dnode.vel;
     pyp.omega = dnode.omega;    
-
+    
+    updateNodeData(&node);
   }
 }
-
 
 
 bool pointInBBox(const glm::vec3& p, const nvutils::Bbox& bbox) {
