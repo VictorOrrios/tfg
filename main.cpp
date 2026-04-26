@@ -323,6 +323,10 @@ public:
     if(!ImGui::CollapsingHeader("Tracing")){
       ImGui::Checkbox("RTX", &m_rtxON);
     }
+    
+    if(!ImGui::CollapsingHeader("Simulation")){
+      ImGui::SliderFloat("Time dialtion", &m_simTimeDilation,0.0,10.0);
+    }
 
     if(ImGui::CollapsingHeader("Lighting data")){
       bool dirtyLight = false;
@@ -555,8 +559,8 @@ public:
 
     {
       // User espcial action
-      //glm::vec3 eye = m_cameraManip->getEye();
-      //glm::vec3 center = m_cameraManip->getCenter();
+      glm::vec3 eye = m_cameraManip->getEye();
+      glm::vec3 center = m_cameraManip->getCenter();
       //m_scene.simulate(deltaT);
       //m_scene.centerCamAction(eye, glm::normalize(center-eye));
     }
@@ -824,7 +828,7 @@ public:
     if(m_prevTime < 0){
       m_prevTime = m_pushConst.time;
     }else{
-      m_pushConst.pyp.dts = (m_pushConst.time - m_prevTime)/SIM_NUM_SUBSTEPS;
+      m_pushConst.pyp.dts = m_simTimeDilation*(m_pushConst.time - m_prevTime)/SIM_NUM_SUBSTEPS;
       m_prevTime = m_pushConst.time;
     }
 
@@ -2063,6 +2067,7 @@ private:
   bool m_refreshShadowKernels = false;
   bool m_updateTlas = false;
   bool m_firstFrame = true;
+  float m_simTimeDilation = 1.0;
   glm::vec3 m_zenithColor = glm::vec3(0.644, 0.635, 0.608);
   glm::vec3 m_horizonColor = glm::vec3(0.628, 0.495, 0.279);
 
