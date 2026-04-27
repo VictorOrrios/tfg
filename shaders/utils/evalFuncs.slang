@@ -12,13 +12,6 @@ float map(float3 p){
   return min(mapValue,maxD);
 }
 
-// Evaluates the whole sdf scene in a point in space without the dynamic objects
-float mapStatic(float3 p){
-  const float maxD = BRICK_SIZES[CLIPMAP_LEVELS-1];
-  float mapValue = mapStatic(p,CLIPMAP_LEVELS-1);
-  return min(mapValue,maxD);
-}
-
 // True numerical
 float3 evalNormalTrue(float3 p){
   const float eps = 0.0001;
@@ -30,13 +23,13 @@ float3 evalNormalTrue(float3 p){
   ));
 }
 
-float3 evalNormalTrueStatic(float3 p){
+float3 evalNormalTrueStatic(float3 p, float nearRange){
   const float eps = 0.0001;
   const float2 h = float2(eps,0.0);
   return normalize(float3(
-    mapStatic(p+h.xyy)-mapStatic(p-h.xyy),
-    mapStatic(p+h.yxy)-mapStatic(p-h.yxy),
-    mapStatic(p+h.yyx)-mapStatic(p-h.yyx)
+    mapStatic(p+h.xyy,nearRange)-mapStatic(p-h.xyy,nearRange),
+    mapStatic(p+h.yxy,nearRange)-mapStatic(p-h.yxy,nearRange),
+    mapStatic(p+h.yyx,nearRange)-mapStatic(p-h.yyx,nearRange)
   ));
 }
 
@@ -52,13 +45,13 @@ float3 evalNormal(float3 p){
   );
 }
 
-float3 evalGradStatic(float3 p, float h){
+float3 evalGradStatic(float3 p, float h, float nearRange){
   const float2 k = float2(1,-1);
   return (
-    k.xyy*mapStatic(p + k.xyy*h) +
-    k.yyx*mapStatic(p + k.yyx*h) + 
-    k.yxy*mapStatic(p + k.yxy*h) + 
-    k.xxx*mapStatic(p + k.xxx*h)
+    k.xyy*mapStatic(p + k.xyy*h,nearRange) +
+    k.yyx*mapStatic(p + k.yyx*h,nearRange) + 
+    k.yxy*mapStatic(p + k.yxy*h,nearRange) + 
+    k.xxx*mapStatic(p + k.xxx*h,nearRange)
   )/(2*h);
 }
 

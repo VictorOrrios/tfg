@@ -47,25 +47,28 @@ float getInverseMass(const DynamicObject dyn, float3 normal, float3 pos){
   return w;
 }
 
-void applyCorrection(inout DynamicObject dyn, float3 corr, float3 point){
+void applyCorrection(inout DynamicObject dyn, float3 impulse, float3 point){
+  float3 center_old = dyn.position.xyz;
+  
+  float3 r = point - center_old;
+  float3 torque = cross(r, impulse);
+  
   // Linear
-  dyn.position.xyz += corr * dyn.inv_mass;
-
+  dyn.position.xyz += impulse * dyn.inv_mass;
+  
+  float3 local_torque = rotateByQuat(dyn.inv_rotation, torque);
+  float3 delta_omega = local_torque * dyn.inv_inertia.xyz;
+  delta_omega = rotateByQuat(dyn.rotation, delta_omega);
+  
   // Angular
-  float3 dOmega = point - dyn.position.xyz;
-  dOmega = cross(dOmega, corr);
-
-  dOmega = rotateByQuat(dyn.inv_rotation, dOmega);
-  dOmega *= dyn.inv_inertia.xyz;
-  dOmega = rotateByQuat(dyn.rotation, dOmega);
-
-  float4 d_rot = float4(dOmega, 0.0);
-  d_rot = quatMul(d_rot, dyn.rotation);
-
-  dyn.rotation += 0.5 * d_rot;
-  dyn.rotation = quatNormalize(dyn.rotation);
-
-  dyn.inv_rotation = quatInverse(dyn.rotation);
+  float angle = length(delta_omega);
+  if (angle > 1e-6f) {
+    float3 axis = normalize(delta_omega);
+    float4 delta_q = float4(axis * sin(angle * 0.5f), cos(angle * 0.5f));
+    dyn.rotation = quatMul(delta_q, dyn.rotation);
+    dyn.rotation = quatNormalize(dyn.rotation);
+    dyn.inv_rotation = quatInverse(dyn.rotation);
+  }
 }
 
 float applyCorrection(
@@ -114,17 +117,18 @@ void solveCollisionConstraint(
 {
   float3 center = dyn.position.xyz;
   float radius = dyn.scale * 0.5;
+  float nearRange = 4.0*dyn.scale;
 
-  float centerV = mapStatic(center);
+  float centerV = mapStatic(center,nearRange);
   const float h = 0.001;
-  float3 grad_center = evalGradStatic(center,h);
+  float3 grad_center = evalGradStatic(center,h,nearRange);
   float3 normal_center = normalize(grad_center);
   float C_center = radius-centerV;
   float vertical = clamp(dot(float3(0,1,0),normal_center),0.0,1.0);
 
   float3 sp = center - normal_center*radius;
-  float surfaceV = mapStatic(sp);
-  float3 grad_s = evalGradStatic(center,h);
+  float surfaceV = mapStatic(sp,nearRange);
+  float3 grad_s = evalGradStatic(center,h,nearRange);
   float3 normal_s = normalize(grad_s);
   float raw_C_surface = -surfaceV;
   float C_surface = min(radius/2.0, raw_C_surface);
@@ -132,7 +136,7 @@ void solveCollisionConstraint(
 
   float depth = centerV;
   for(int i = 0; i<8; i++){
-    float d = mapStatic(center-normal_center*depth);
+    float d = mapStatic(center-normal_center*depth,nearRange);
     depth += d;
     if(abs(d) < 1e-4)
       break;
@@ -151,14 +155,15 @@ void solveCollisionConstraint(
 
   float3 corr = normal_s * C;
    
-  printf("sp: %f %f %f | surfaceV: %f | raw_C: %f | radius/2: %f | C_surface: %f | frame %i\n",
-    sp.x, sp.y, sp.z, surfaceV, raw_C_surface, radius/2.0, C_surface, pushConst.frameCount);
  
-  applyCorrection(
+  float force = -applyCorrection(
     dyn, dyn, false,
     compliance, corr,
     sp,
     float3(0.0,0.0,0.0));
+
+  printf("force %f | surfaceV: %f | raw_C: %f | C_surface: %f | frame %i\n",
+    force,surfaceV, raw_C_surface, C_surface, pushConst.frameCount);
 }
 
 [shader("compute")]

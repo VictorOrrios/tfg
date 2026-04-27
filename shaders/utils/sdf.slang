@@ -377,9 +377,9 @@ float map(float3 point, int level){
   return result;
 }
 
-float mapStatic(float3 point, int level){
+// Evaluates the whole sdf scene in a point in space without the dynamic objects
+float mapStatic(float3 point, float nearRange){
   const float iniD = 10000.0f;
-  const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
 
   for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
