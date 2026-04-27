@@ -312,9 +312,9 @@ float sdLatticeMultiSpheres(float3 p, float spacing) {
 }
 
 float applyTerrainOp(float3 p, float d, int octaves, float4 terrain, float minD){
-  float s = 1.0, n;
-  for(int i=0; i<min(1,octaves); i++){
-/* 
+  float s = terrain.x, n;
+  for(int i=0; i<octaves; i++){
+
     if(i==0){
       n = s*sdBaseOctahedron(p);
       n = smax(n, d - terrain.z * s*2, terrain.w * s);
@@ -324,40 +324,14 @@ float applyTerrainOp(float3 p, float d, int octaves, float4 terrain, float minD)
       n = smax(n, d - terrain.z * s, terrain.w * s);
       d = smin(n, d,               terrain.w * s);
     }
- */
-    if(d>s/2.0) break;
-    int3 i = int3(floor(p));
-    float3 f = fract(p);
-    f.y = d/(s/2.0);
-    n = s * min(min(min(sphSphere(i,f,int3(0,0,0)),
-                      sphSphere(i,f,int3(0,0,1))),
-                  min(sphSphere(i,f,int3(0,1,0)),
-                      sphSphere(i,f,int3(0,1,1)))),
-              min(min(sphSphere(i,f,int3(1,0,0)),
-                      sphSphere(i,f,int3(1,0,1))),
-                  min(sphSphere(i,f,int3(1,1,0)),
-                      sphSphere(i,f,int3(1,1,1)))));
-    n = s*sdBaseSphere(p);
-    //n = max(n, d - 0.1 * s);
-    d = opSmoothUnion(n, d,0.01);
 
     // prepare next octave
-    /* 
     p = mul(float3x3( 0.00, 1.60, 1.20,
             -1.60, 0.72,-0.96,
             -1.20,-0.96, 1.28 ),p);
- */
-    float3x3 pureRot = float3x3(
-        1.0,  0.0,  0.0,
-        0.0,  1.0,  0.0,
-        0.0,  0.0,  1.0
-    );
-    float scale = 0.5;
-    p = mul(pureRot,p);
-    p/=scale;
-    s = scale*s;
+    s = terrain.y*s;
 
-    if(d<minD) break;
+    if(s<minD) break;
   }
   return d;
 }

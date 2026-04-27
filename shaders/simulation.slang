@@ -112,21 +112,52 @@ void solveCollisionConstraint(
   inout DynamicObject dyn,
   float compliance)
 {
-  float sdValue = mapStatic(dyn.position.xyz);
+  float3 center = dyn.position.xyz;
   float radius = dyn.scale * 0.5;
 
-  float C = radius - sdValue;
+  float centerV = mapStatic(center);
+  const float h = 0.001;
+  float3 grad_center = evalGradStatic(center,h);
+  float3 normal_center = normalize(grad_center);
+  float C_center = radius-centerV;
+  float vertical = clamp(dot(float3(0,1,0),normal_center),0.0,1.0);
 
-  if(C <= 0.0)
+  float3 sp = center - normal_center*radius;
+  float surfaceV = mapStatic(sp);
+  float3 grad_s = evalGradStatic(center,h);
+  float3 normal_s = normalize(grad_s);
+  float raw_C_surface = -surfaceV;
+  float C_surface = min(radius/2.0, raw_C_surface);
+
+
+  float depth = centerV;
+  for(int i = 0; i<8; i++){
+    float d = mapStatic(center-normal_center*depth);
+    depth += d;
+    if(abs(d) < 1e-4)
+      break;
+  }
+  
+  float C_medium = radius-depth;
+
+  float C = C_surface;
+
+  if(C <= 0.0){
     return;
+  }
 
-  float3 normal = evalNormalStatic(dyn.position.xyz);
-  float3 corr = normal * C;
+  float maxCorr = radius * 0.5;
+  C = clamp(C, 0.0, maxCorr);
 
+  float3 corr = normal_s * C;
+   
+  printf("sp: %f %f %f | surfaceV: %f | raw_C: %f | radius/2: %f | C_surface: %f | frame %i\n",
+    sp.x, sp.y, sp.z, surfaceV, raw_C_surface, radius/2.0, C_surface, pushConst.frameCount);
+ 
   applyCorrection(
     dyn, dyn, false,
     compliance, corr,
-    dyn.position.xyz,
+    sp,
     float3(0.0,0.0,0.0));
 }
 

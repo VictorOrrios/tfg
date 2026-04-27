@@ -30,6 +30,16 @@ float3 evalNormalTrue(float3 p){
   ));
 }
 
+float3 evalNormalTrueStatic(float3 p){
+  const float eps = 0.0001;
+  const float2 h = float2(eps,0.0);
+  return normalize(float3(
+    mapStatic(p+h.xyy)-mapStatic(p-h.xyy),
+    mapStatic(p+h.yxy)-mapStatic(p-h.yxy),
+    mapStatic(p+h.yyx)-mapStatic(p-h.yyx)
+  ));
+}
+
 // Tetrahedron aproximation
 float3 evalNormal(float3 p){
   const float h = 0.0001;
@@ -42,15 +52,14 @@ float3 evalNormal(float3 p){
   );
 }
 
-float3 evalNormalStatic(float3 p){
-  const float h = 0.0001;
+float3 evalGradStatic(float3 p, float h){
   const float2 k = float2(1,-1);
-  return normalize(
+  return (
     k.xyy*mapStatic(p + k.xyy*h) +
     k.yyx*mapStatic(p + k.yyx*h) + 
     k.yxy*mapStatic(p + k.yxy*h) + 
     k.xxx*mapStatic(p + k.xxx*h)
-  );
+  )/(2*h);
 }
 
 // Sphere traces the scene evaluating the scene sdf at every step

@@ -322,8 +322,8 @@ float traceScene(Ray r, out float3 normal, out Material mat, out float3 debug){
 
     // Trace bbox using the method defined by user
     float objDepth;
-    //objDepth = sphereTraceBbox(bboxRay,bbox,debug);
-    objDepth = evalTraceMap(bboxRay,length(far - bboxRay.orig));
+    objDepth = sphereTraceBbox(bboxRay,bbox,debug);
+    //objDepth = evalTraceMap(bboxRay,length(far - bboxRay.orig));
 
     // Update min depth
     if(objDepth >= 0){
