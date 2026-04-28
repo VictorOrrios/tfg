@@ -104,10 +104,11 @@ float applyCorrection(
 
   applyCorrection(na, normal, point);
   if(hasB) applyCorrection(nb, -normal, point);
-
+/* 
   printf("lambda %f | alpha %f | dt_m2 %f | dts %f | normal len %f | w %f \n",
     lambda, alpha, dt_m2, pushConst.pyp.dts, length(normal),w
   );
+   */
   return lambda * dt_m2;
 }
 
@@ -121,54 +122,65 @@ float3 world2Local(DynamicObject dyn, float3 p){
 
 static float3 prev_n = float3(0.0,0.0,0.0);
 static int substep = 0;
+static float prev_V = -1;
+static float prev_pos_diff;
 
-void solveCollisionConstraint(
+void solveStaticCollisionConstraint(
   inout DynamicObject dyn,
   float compliance)
 {
-  float3 center = dyn.position.xyz;
+  float3 fut_pos = dyn.vel.xyz * pushConst.pyp.dts;
+  float max_p_diff = max(0,length(fut_pos));
+
+  float3 center = dyn.prev_position.xyz;
   float radius = dyn.scale * 0.5;
   float nearRange = 4.0*dyn.scale;
 
   float centerV = mapStatic(center,nearRange);
   const float h = 0.001;
-  float3 grad_center = evalGradStatic(center,h,nearRange);
-  float gradLen = length(grad_center);
-  if(gradLen < 1e-4) return;
-  float3 normal_c = grad_center/gradLen;
+  float3 normal_c = evalNormalStatic(center,nearRange);
+  float3 normal_f = evalNormalStatic(fut_pos,nearRange);
   float C_center = radius-centerV;
 
   float n_diff = any(prev_n!=0.0)? dot(prev_n,normal_c): -2;
   prev_n = normal_c;
+
+  //if(n_diff<0.9) return;
 
   float3 sp = center - normal_c*radius;
   float surfaceV = mapStatic(sp,nearRange);
   float3 grad_s = evalGradStatic(sp,h,nearRange);
   float3 normal_s = normalize(grad_s);
   float C_surface = -surfaceV;
-
-  if(surfaceV >= 0)
+/* 
+  if(surfaceV >= 0){
+    prev_V = surfaceV; 
     return;
-
+  }
+ */
   float depth = 0.0, step = radius/2.0, mediumV;
   float3 mp;
-  for(int i = 2; i<10; i++){
+  for(int i = 2; i<50; i++){
     mp = center-normal_c*depth;
     mediumV = mapStatic(mp,nearRange);
     if(abs(mediumV) < radius/100.0) break;
     depth += step*sign(mediumV);
     step /= 2;
   }
+
+  depth = clamp(depth,0,radius);
   
   float C_medium = radius-depth;
 
-  float C = C_medium*0.2;
+  float C = C_surface;
 
   if(C <= 0.0){
+    prev_V = surfaceV; 
     return;
   }
 
-  float maxCorr = radius * 0.5;
+  float maxCorr = min(radius * 0.5, max_p_diff);
+  float corrPercent = C/maxCorr;
   C = clamp(C, 0.0, maxCorr);
 
   float3 corr = normal_c * C;
@@ -176,11 +188,40 @@ void solveCollisionConstraint(
   float applyRet = -applyCorrection(
     dyn, dyn, false,
     compliance, corr,
-    mp);
+    center);
 
-  printf("applyRet %f | centerV: %f | surfaceV: %f | medium depth: %f | C %f | n_diff: %f | gradLen %f | frame %i | substep %i\n",
-    applyRet, centerV, surfaceV, depth, C, n_diff, gradLen, pushConst.frameCount, substep);
+/* 
+  printf("applyRet %f | centerV: %f | surfaceV: %f | medium depth: %f | C %f -> %f/%f | n_diff: %f | gradLen %f | prev_pos_diff %f | frame %i | substep %i\n",
+    applyRet, centerV, surfaceV, depth, prev_V, C, maxCorr, n_diff, gradLen, prev_pos_diff, pushConst.frameCount, substep);
+   */
+  
+  if(corrPercent>1.0){
+    printf("===== WARN: Max correction reached: %f% %i =======\n",corrPercent*100.0,pushConst.frameCount);
+  }
 
+  prev_pos_diff = length(dyn.prev_position-dyn.position);
+  prev_V = surfaceV; 
+  
+}
+
+void solveDragConstraint(
+  inout DynamicObject dyn, 
+  float compliance)
+{
+  float3 corr = dyn.prev_position.xyz - dyn.position.xyz;
+  float applyRet = -applyCorrection(
+    dyn, dyn, false,
+    compliance, corr,
+    dyn.position.xyz);
+}
+
+void solveDynamicCollisionConstraint(
+  inout DynamicObject dynA, int dynBIdx, float compliance 
+){
+  DynamicObject dynb = dynamic_objects[dynBIdx];
+
+
+  dynamic_objects[dynBIdx] = dynb;
 }
 
 [shader("compute")]
@@ -192,6 +233,14 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 
   int dObjIdx = threadIdx.x;
   DynamicObject dyn = dynamic_objects[dObjIdx];
+
+  int dynConstNum;
+  if(dObjIdx<(pushConst.numDynamicObjects/2-1)){
+    dynConstNum = pushConst.numDynamicObjects/2;
+  }else{
+    dynConstNum = pushConst.numDynamicObjects/2 - 1 + (pushConst.numDynamicObjects%2);
+  }
+
   /* 
   printf("Processing dyn obj %i static obj %i pos %f,%f,%f\n",
     dObjIdx,dyn.index,
@@ -200,7 +249,9 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   for(int sub_step = 0; sub_step < SIM_NUM_SUBSTEPS; sub_step++){
     substep = sub_step;
     integrate(dyn);
-    solveCollisionConstraint(dyn,0.0);
+    solveStaticCollisionConstraint(dyn,0.0);
+    
+    solveDragConstraint(dyn,0.005);
     updateVelocities(dyn);
   }
   /* 

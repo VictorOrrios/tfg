@@ -45,6 +45,17 @@ float3 evalNormal(float3 p){
   );
 }
 
+float3 evalNormalStatic(float3 p,float nearRange){
+  const float h = 0.0001;
+  const float2 k = float2(1,-1);
+  return normalize(
+    k.xyy*mapStatic(p + k.xyy*h,nearRange) +
+    k.yyx*mapStatic(p + k.yyx*h,nearRange) + 
+    k.yxy*mapStatic(p + k.yxy*h,nearRange) + 
+    k.xxx*mapStatic(p + k.xxx*h,nearRange)
+  );
+}
+
 float3 evalGradStatic(float3 p, float h, float nearRange){
   const float2 k = float2(1,-1);
   return (
