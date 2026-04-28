@@ -5,6 +5,12 @@
 #include "utils/evalFuncs.slang"    // Scene evaluation functions
 
 void integrate(inout DynamicObject dyn){
+  /* 
+  float3 pos_diff = dyn.position.xyz - dyn.prev_position.xyz;
+  printf("Integrate: pos_diff %f,%f,%f len %f\n",
+    pos_diff.x,pos_diff.y,pos_diff.z,length(pos_diff)
+  );
+ */
   // Linear motion
   dyn.prev_position = dyn.position;
   dyn.vel.xyz += pushConst.pyp.gravity * pushConst.pyp.dts;
@@ -77,8 +83,7 @@ float applyCorrection(
   bool hasB,
   float compliance,
   float3 corr,
-  float3 pointA,
-  float3 pointB)
+  float3 point)
 {
   float C = length(corr);
 
@@ -86,20 +91,23 @@ float applyCorrection(
     return 0.0;
 
   float dt_m2 = 1.0 / (pushConst.pyp.dts * pushConst.pyp.dts);
-  float3 normal = corr / C;
+  float3 normal = normalize(corr);
 
-  float w = getInverseMass(na, normal, pointA);
-  if(hasB) w += getInverseMass(nb, normal, pointB);
+  float w = getInverseMass(na, normal, point);
+  if(hasB) w += getInverseMass(nb, normal, point);
 
   // XPBD
   float alpha = compliance * dt_m2;
   float lambda = -C / (w + alpha);
 
-  float3 impulse = normal * (-lambda);
+  normal *= -lambda;
 
-  applyCorrection(na, impulse, pointA);
-  if(hasB) applyCorrection(nb, -impulse, pointB);
+  applyCorrection(na, normal, point);
+  if(hasB) applyCorrection(nb, -normal, point);
 
+  printf("lambda %f | alpha %f | dt_m2 %f | dts %f | normal len %f | w %f \n",
+    lambda, alpha, dt_m2, pushConst.pyp.dts, length(normal),w
+  );
   return lambda * dt_m2;
 }
 
@@ -110,6 +118,9 @@ float3 local2World(DynamicObject dyn, float3 p){
 float3 world2Local(DynamicObject dyn, float3 p){
   return rotateByQuat(dyn.inv_rotation, (p - dyn.position.xyz));
 }
+
+static float3 prev_n = float3(0.0,0.0,0.0);
+static int substep = 0;
 
 void solveCollisionConstraint(
   inout DynamicObject dyn,
@@ -122,29 +133,36 @@ void solveCollisionConstraint(
   float centerV = mapStatic(center,nearRange);
   const float h = 0.001;
   float3 grad_center = evalGradStatic(center,h,nearRange);
-  float3 normal_center = normalize(grad_center);
+  float gradLen = length(grad_center);
+  if(gradLen < 1e-4) return;
+  float3 normal_c = grad_center/gradLen;
   float C_center = radius-centerV;
-  float vertical = clamp(dot(float3(0,1,0),normal_center),0.0,1.0);
 
-  float3 sp = center - normal_center*radius;
+  float n_diff = any(prev_n!=0.0)? dot(prev_n,normal_c): -2;
+  prev_n = normal_c;
+
+  float3 sp = center - normal_c*radius;
   float surfaceV = mapStatic(sp,nearRange);
-  float3 grad_s = evalGradStatic(center,h,nearRange);
+  float3 grad_s = evalGradStatic(sp,h,nearRange);
   float3 normal_s = normalize(grad_s);
-  float raw_C_surface = -surfaceV;
-  float C_surface = min(radius/2.0, raw_C_surface);
+  float C_surface = -surfaceV;
 
+  if(surfaceV >= 0)
+    return;
 
-  float depth = centerV;
-  for(int i = 0; i<8; i++){
-    float d = mapStatic(center-normal_center*depth,nearRange);
-    depth += d;
-    if(abs(d) < 1e-4)
-      break;
+  float depth = 0.0, step = radius/2.0, mediumV;
+  float3 mp;
+  for(int i = 2; i<10; i++){
+    mp = center-normal_c*depth;
+    mediumV = mapStatic(mp,nearRange);
+    if(abs(mediumV) < radius/100.0) break;
+    depth += step*sign(mediumV);
+    step /= 2;
   }
   
   float C_medium = radius-depth;
 
-  float C = C_surface;
+  float C = C_medium*0.2;
 
   if(C <= 0.0){
     return;
@@ -153,17 +171,16 @@ void solveCollisionConstraint(
   float maxCorr = radius * 0.5;
   C = clamp(C, 0.0, maxCorr);
 
-  float3 corr = normal_s * C;
-   
+  float3 corr = normal_c * C;
  
-  float force = -applyCorrection(
+  float applyRet = -applyCorrection(
     dyn, dyn, false,
     compliance, corr,
-    sp,
-    float3(0.0,0.0,0.0));
+    mp);
 
-  printf("force %f | surfaceV: %f | raw_C: %f | C_surface: %f | frame %i\n",
-    force,surfaceV, raw_C_surface, C_surface, pushConst.frameCount);
+  printf("applyRet %f | centerV: %f | surfaceV: %f | medium depth: %f | C %f | n_diff: %f | gradLen %f | frame %i | substep %i\n",
+    applyRet, centerV, surfaceV, depth, C, n_diff, gradLen, pushConst.frameCount, substep);
+
 }
 
 [shader("compute")]
@@ -181,6 +198,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     dyn.position.x,dyn.position.y,dyn.position.z);
   */
   for(int sub_step = 0; sub_step < SIM_NUM_SUBSTEPS; sub_step++){
+    substep = sub_step;
     integrate(dyn);
     solveCollisionConstraint(dyn,0.0);
     updateVelocities(dyn);
