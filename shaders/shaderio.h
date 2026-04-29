@@ -126,7 +126,7 @@ const static uint UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTE
 #define MAX_SHININESS 100
 
 // Simulation params
-#define SIM_NUM_SUBSTEPS 30  // Number of substep per every simulate(dt)
+#define SIM_NUM_SUBSTEPS 20  // Number of substep per every simulate(dt)
 
 // Shared between Host and Device
 enum BindingPoints{
@@ -280,10 +280,11 @@ struct DynamicObject{
   float4 vel;
   float4 omega;
   float4 inv_inertia;
+  float4 poss_diff;
   int type;
   float scale;
   float inv_mass;
-  int index;
+  int id;
 };  
 CHECK_STRUCT_ALIGNMENT(DynamicObject)
 

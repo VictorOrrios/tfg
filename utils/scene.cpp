@@ -674,10 +674,11 @@ std::vector<shaderio::DynamicObject> Scene::getDynamicObjects(){
         .vel=glm::vec4(pyp.vel,0.0),
         .omega=glm::vec4(pyp.omega,0.0),
         .inv_inertia=glm::vec4(pyp.inv_inertia,0.0),
+        .poss_diff=glm::vec4(pyp.poss_diff,0.0),
         .type=(int)gp.type,
         .scale=gp.scale,
         .inv_mass=pyp.inv_mass,
-        .index=idx
+        .id=int(node.id)
       });
     }
 
@@ -688,23 +689,25 @@ std::vector<shaderio::DynamicObject> Scene::getDynamicObjects(){
 }
 
 void Scene::processDynamicObjects(std::vector<shaderio::DynamicObject> data){
-  for (auto &dnode : data) {
-    Node& node = m_root[dnode.index];
-    if(node.needsRemoval) continue;
+  for (auto& dnode : data) {
+    for(auto& node: m_root){
+      if(node.id != dnode.id || node.needsRemoval) continue;
 
-    GeneralParams& gp = node.gp; 
-    PhysicsParams& pyp = node.pyp; 
+      GeneralParams& gp = node.gp; 
+      PhysicsParams& pyp = node.pyp; 
 
-    gp.tInv = glm::transpose(dnode.tInv);
-    gp.position = dnode.position;
-    gp.rotation = vec42quat(dnode.rotation);
-    pyp.prev_position = dnode.prev_position;
-    pyp.inv_rotation = vec42quat(dnode.inv_rotation);
-    pyp.prev_position = dnode.prev_position;
-    pyp.vel = dnode.vel;
-    pyp.omega = dnode.omega;    
-    
-    updateNodeData(&node);
+      gp.tInv = glm::transpose(dnode.tInv);
+      gp.position = dnode.position;
+      gp.rotation = vec42quat(dnode.rotation);
+      pyp.prev_position = dnode.prev_position;
+      pyp.inv_rotation = vec42quat(dnode.inv_rotation);
+      pyp.prev_position = dnode.prev_position;
+      pyp.vel = dnode.vel;
+      pyp.omega = dnode.omega;    
+      pyp.poss_diff = dnode.poss_diff;
+      
+      updateNodeData(&node);
+    }
   }
 }
 

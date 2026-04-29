@@ -331,7 +331,7 @@ float applyTerrainOp(float3 p, float d, int octaves, float4 terrain, float minD)
             -1.20,-0.96, 1.28 ),p);
     s = terrain.y*s;
 
-    if(s<minD) break;
+    if(d<=-minD) break;
   }
   return d;
 }

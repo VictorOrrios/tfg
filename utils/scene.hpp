@@ -46,6 +46,7 @@ public:
     glm::vec3 vel;
     glm::vec3 omega;
     glm::vec3 inv_inertia;
+    glm::vec3 poss_diff;
   };
 
   struct SDFParams {
