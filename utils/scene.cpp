@@ -1,5 +1,6 @@
 // TODO: Clean imports
 #include "scene.hpp"
+#include "rng.hpp"
 #include "glm/common.hpp"
 #include "glm/exponential.hpp"
 #include "glm/ext/matrix_transform.hpp"
@@ -24,7 +25,7 @@
 //------------------
 // TODO: CPU scene map not ~fully~ supported
 
-static constexpr const char * NodeTypeNames[] = {
+static constexpr const char * PrimTypeNames[] = {
     "Empty", "Box", "Sphere", "Torus", "Snowman", "Plane"
 };
 
@@ -53,12 +54,12 @@ static constexpr const char *MorphPrimNames[] = {
 // Helper functions
 //------------------
 
-std::string Scene::nodeTypeToString(NodeType type) {
-  return NodeTypeNames[(int)type];
+std::string Scene::PrimTypeToString(shaderio::PrimType type) {
+  return PrimTypeNames[(int)type];
 }
 
 std::string Scene::getLabel(Node *n) {
-  return nodeTypeToString(n->gp.type) + "##" + std::to_string(n->id);
+  return PrimTypeToString(n->gp.type) + "##" + std::to_string(n->id);
 }
 
 std::string Scene::getLabel(Material  mat) {
@@ -107,9 +108,9 @@ void Scene::drawButtonGroup() {
   }
 
   if (ImGui::BeginPopup("AddNodePopup")) {
-    for (int i = 0; i < IM_ARRAYSIZE(NodeTypeNames); ++i) {
-      if (ImGui::MenuItem(nodeTypeToString((NodeType)i).c_str()))
-        addNode((NodeType)i);
+    for (int i = 0; i < IM_ARRAYSIZE(PrimTypeNames); ++i) {
+      if (ImGui::MenuItem(PrimTypeToString((shaderio::PrimType)i).c_str()))
+        addNode((shaderio::PrimType)i);
     }
 
     ImGui::EndPopup();
@@ -422,7 +423,7 @@ void Scene::flushDeletedNodes(){
   );
 }
 
-Scene::Node *Scene::createNode(NodeType t) {
+Scene::Node *Scene::createNode(shaderio::PrimType t) {
   Node *node = new Node({
       .id = getNextId(),
       .needsRefresh=false,
@@ -459,7 +460,7 @@ Scene::Node *Scene::createNode(NodeType t) {
   return node;
 }
 
-void Scene::addNode(NodeType t) { addNode(createNode(t)); }
+void Scene::addNode(shaderio::PrimType t) { addNode(createNode(t)); }
 
 void Scene::addNode(Node *node) {
   int insertIdx = m_selected == -1 ? 0 : m_selected + 1;
@@ -538,7 +539,7 @@ void Scene::generateBBox(Node *n) {
   const glm::vec3 worldMax(1000.0);
 
   glm::vec3 min, max;
-  if(n->gp.type == NodeType::Plane){
+  if(n->gp.type == shaderio::PrimType::Plane){
     min = worldMin;
     max = worldMax;
     max.y = 0.1;
@@ -1037,8 +1038,13 @@ Scene::Scene() {
   mat.albedo = glm::vec3(0,0,1);
   int blue = addMaterial(mat);
 
+  mat = createMaterial();
+  mat.name = "Green";
+  mat.albedo = glm::vec3(0,1,0);
+  int green = addMaterial(mat);
+
   // Create the scene
-  Node *terrain = createNode(NodeType::Plane);
+  Node *terrain = createNode(shaderio::PrimType::Plane);
   terrain->gp.position = glm::vec3(0.0,-1.8,0.0);
   terrain->gp.scale = 10.0;
   terrain->sdp.octaves = 8;
@@ -1046,13 +1052,13 @@ Scene::Scene() {
   updateNodeData(terrain);
   addNode(terrain);
 
-  Node *snowMan = createNode(NodeType::Snowman);
+  Node *snowMan = createNode(shaderio::PrimType::Snowman);
   snowMan->gp.scale = 0.8;
   snowMan->gp.position = glm::vec3(0.0,0.0,-1.0);
   updateNodeData(snowMan);
   addNode(snowMan);
 
-  Node *box = createNode(NodeType::Box);
+  Node *box = createNode(shaderio::PrimType::Box);
   box->gp.scale = 0.2;
   box->gp.position = glm::vec3(-0.2, -0.15, -0.75);
   box->gp.rotation = glm::vec3(0.2, 0.4, 0.4);
@@ -1062,7 +1068,7 @@ Scene::Scene() {
   updateNodeData(box);
   addNode(box);
 
-  Node *sphere = createNode(NodeType::Sphere);
+  Node *sphere = createNode(shaderio::PrimType::Sphere);
   sphere->gp.scale = 0.2;
   sphere->gp.position = glm::vec3(0.1, 0.3, -0.9);
   sphere->gp.rotation = glm::vec3(0);
@@ -1071,7 +1077,7 @@ Scene::Scene() {
   updateNodeData(sphere);
   addNode(sphere);
 
-  Node *sphereGrid = createNode(NodeType::Sphere);
+  Node *sphereGrid = createNode(shaderio::PrimType::Sphere);
   sphereGrid->gp.position = glm::vec3(0, 0, -1.4);
   sphereGrid->gp.rotation = glm::vec3(0);
   sphereGrid->gp.scale = 0.1;
@@ -1082,7 +1088,7 @@ Scene::Scene() {
   updateNodeData(sphereGrid);
   addNode(sphereGrid);
 
-  Node *torus = createNode(NodeType::Torus);
+  Node *torus = createNode(shaderio::PrimType::Torus);
   torus->gp.scale = 0.2;
   torus->gp.position = glm::vec3(0.35, 0.1, -1.2);
   torus->gp.rotation = glm::vec3(0.75, 0, 0);
@@ -1090,7 +1096,7 @@ Scene::Scene() {
   updateNodeData(torus);
   addNode(torus);
 
-  Node *test = createNode(NodeType::Snowman);
+  Node *test = createNode(shaderio::PrimType::Snowman);
   test->gp.scale = 0.4;
   test->gp.position = glm::vec3(1.5,1.5,1.5);
   test->gp.rotation = glm::vec3(0.0);
@@ -1098,7 +1104,7 @@ Scene::Scene() {
   addNode(test);
 
   for(int level=1; level<3; level++){
-    Node *snowManL = createNode(NodeType::Snowman);
+    Node *snowManL = createNode(shaderio::PrimType::Snowman);
     snowManL->gp.scale = 0.5*(1<<level);
     snowManL->gp.position = glm::vec3(-((L0_AXIS_WORLD_SIZE*0.5)*(1<<level))*3/4, 0.0, 0.0);
     snowManL->gp.rotation = glm::vec3(0.0,0.4*level,0.0);
@@ -1106,12 +1112,44 @@ Scene::Scene() {
     addNode(snowManL);
   }
 
-  Node *sphere_main = createNode(NodeType::Sphere);
+  Node *sphere_main = createNode(shaderio::PrimType::Sphere);
   sphere_main->gp.scale = 0.2;
-  sphere_main->gp.position = glm::vec3(0.0,0.0,-0.5);
+  sphere_main->gp.position = glm::vec3(1.0,0.0,0.5);
   sphere_main->gp.rotation = glm::vec3(0);
   sphere_main->gp.mat = blue;
   updateNodeData(sphere_main);
   addNode(sphere_main);
+
+  Node *box_main = createNode(shaderio::PrimType::Box);
+  box_main->gp.scale = 0.2;
+  box_main->gp.position = glm::vec3(1.5,0.0,0.5);
+  box_main->gp.rotation = glm::vec3(0);
+  box_main->gp.mat = green;
+  updateNodeData(box_main);
+  addNode(box_main);
+
+  for(int i = 0; i<20; i++){
+    Node *body = createNode(shaderio::PrimType::Sphere);
+    body->gp.scale = 0.2;
+    body->gp.position = glm::vec3(1.0+randomFloat1(),0.0,1.0+randomFloat1());
+    body->gp.rotation = glm::vec3(0);
+    body->gp.mat = red;
+    body->pyp.physicsActive = true;
+    body->pyp.density = randomFloat1()*9.0+1.0;
+    updateNodeData(body);
+    addNode(body);
+  }
+
+  for(int i = 0; i<0; i++){
+    Node *body = createNode(shaderio::PrimType::Box);
+    body->gp.scale = 0.2;
+    body->gp.position = glm::vec3(1.0+randomFloat1(),0.0,1.0+randomFloat1());
+    body->gp.rotation = glm::vec3(0);
+    body->gp.mat = blue;
+    body->pyp.physicsActive = true;
+    body->pyp.density = randomFloat1()*9.0+1.0;
+    updateNodeData(body);
+    addNode(body);
+  }
 
 } 

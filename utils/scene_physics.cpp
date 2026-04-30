@@ -214,12 +214,22 @@ void Scene::updateNodePysicsData(Node *n) {
   PhysicsParams& pyp = n->pyp;
 
   if(pyp.physicsActive){
-    // Sphere
-    float mass = 4.0 / 3.0 * std::numbers::pi * gp.scale * gp.scale * gp.scale * pyp.density;
-    pyp.inv_mass = 1.0f/mass;
-    float I = 2.0 / 5.0 * mass * gp.scale * gp.scale;
-    float I_inv = 1.0/I;
-    pyp.inv_inertia = glm::vec3(I_inv,I_inv,I_inv);
+    if(n->gp.type == shaderio::PrimType::Sphere){
+      float mass = 4.0 / 3.0 * std::numbers::pi * gp.scale * gp.scale * gp.scale * pyp.density;
+      pyp.inv_mass = 1.0f/mass;
+      float I = 2.0 / 5.0 * mass * gp.scale * gp.scale;
+      float I_inv = 1.0/I;
+      pyp.inv_inertia = glm::vec3(I_inv,I_inv,I_inv);
+    }else if(n->gp.type == shaderio::PrimType::Box){
+      float scale2 = gp.scale*gp.scale;
+      float scale3 = scale2*gp.scale;
+      float mass = scale3 * pyp.density;
+      pyp.inv_mass = 1.0f/mass;
+      float I = 1.0 / 6.0 * mass * scale2;
+      float I_inv = 1.0/I;
+      pyp.inv_inertia = glm::vec3(I_inv,I_inv,I_inv);
+    }
+
     pyp.inv_rotation = glm::inverse(gp.rotation);
   }else{
     pyp.vel = glm::vec3(0.0);
@@ -250,13 +260,13 @@ solve(𝐶, ∆𝑡):
     compute ∆𝐱𝑖
     𝐱𝑖 ← 𝐱𝑖 + ∆𝐱𝑖
 */
-void Scene::simulate(float dts){
+void Scene::simulate(float dts, int substeps){
   if(dts <= 0.0) 
     return;
 
   int lastIdx = m_root.size()-1;
 
-  for(int sub_step = 0; sub_step < SIM_NUM_SUBSTEPS; sub_step++){
+  for(int sub_step = 0; sub_step < substeps; sub_step++){
     if(m_root[lastIdx].pyp.physicsActive){
       //LOGI("====================\n");
       for(int i = 0; i<m_root.size(); i++)

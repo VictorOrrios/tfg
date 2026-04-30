@@ -125,9 +125,6 @@ const static uint UNIFORM_NEGATIVE_BRICK_POINTER = UNIFORM_POSITIVE_BRICK_POINTE
 // User constants
 #define MAX_SHININESS 100
 
-// Simulation params
-#define SIM_NUM_SUBSTEPS 20  // Number of substep per every simulate(dt)
-
 // Shared between Host and Device
 enum BindingPoints{
   sceneInfo = 0,
@@ -182,6 +179,8 @@ enum DebugModes{
   dmAO,
   dmBoundingBox
 };
+  
+enum class PrimType { Empty=0, Box, Sphere, Torus, Snowman, Plane };
 
 struct LightinParams{
   float3 lightDir         = normalize(float3(0.9f,0.2f,0.2f));
@@ -208,6 +207,8 @@ struct DebugParams{
 
 struct PhysicsParams{
   float dts;
+  float time_dilation = 0.0;
+  int sub_steps = 3;
   float3 gravity = float3(0.0f,-9.8f,0.0f);
 };
 

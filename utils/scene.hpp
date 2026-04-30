@@ -14,13 +14,12 @@
 
 class Scene {
 public:
-  enum class NodeType { Empty, Box, Sphere, Torus, Snowman, Plane };
   enum class CombinationOp { Union, Substraction, Intersection };
   enum class RepetitionOp { NoneOP, LimRepetition, IlimRepetition };
   enum class DeformationOp { NoneOP, Elongate };
 
   struct GeneralParams{
-    NodeType type;
+    shaderio::PrimType type;
     int mat;
     glm::vec3 position;
     glm::quat rotation;
@@ -88,7 +87,7 @@ public:
   void draw();
   void drawGuizmo(ImVec2 viewportPos, ImVec2 viewportSize, glm::mat4 cameraView, glm::mat4 cameraProjection);
 
-  void simulate(float dts);
+  void simulate(float dts, int substeps);
   void centerCamAction(glm::vec3 pos, glm::vec3 dir);
   void processDynamicObjects(std::vector<shaderio::DynamicObject> data);
 
@@ -105,7 +104,7 @@ public:
   bool m_usingGuizmo = false;
 
 private:
-  std::string nodeTypeToString(NodeType type);
+  std::string PrimTypeToString(shaderio::PrimType type);
   std::string getLabel(Node *n);
   std::string getLabel(Material mat);
   uint32_t getNextId();
@@ -118,9 +117,9 @@ private:
   void drawMaterialParams();
 
   void deleteSelected();
-  void addNode(NodeType t);
+  void addNode(shaderio::PrimType t);
   void addNode(Node*);
-  Node* createNode(NodeType t);
+  Node* createNode(shaderio::PrimType t);
 
   Material createMaterial();
   int addMaterial(Material mat);

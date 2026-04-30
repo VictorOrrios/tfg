@@ -209,12 +209,12 @@ float evalPrimitive(int primType, float3 p){
   switch(primType)
   {
     default:
-    case 0: return sdEmpty(p);
-    case 1: return sdBox(p);
-    case 2: return sdSphere(p);
-    case 3: return sdTorus(p);
-    case 4: return sdSnowMan(p);
-    case 5: return sdPlane(p);
+    case PrimType::Empty: return sdEmpty(p);
+    case PrimType::Box: return sdBox(p);
+    case PrimType::Sphere: return sdSphere(p);
+    case PrimType::Torus: return sdTorus(p);
+    case PrimType::Snowman: return sdSnowMan(p);
+    case PrimType::Plane: return sdPlane(p);
   }
 }
 
@@ -406,7 +406,7 @@ float mapStatic(float3 point, float nearRange){
 
     float d = evalPrimitive(params.type, p) - params.roundness;
 
-    d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
+    d = d>0.0 ? applyTerrainOp(p, d, min(params.limit_octaves.w,5), params.terrain, VOXEL_SIZES[0]/10.0): d;
 
     d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
 

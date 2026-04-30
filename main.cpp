@@ -325,7 +325,9 @@ public:
     }
     
     if(!ImGui::CollapsingHeader("Simulation")){
-      ImGui::SliderFloat("Time dialtion", &m_simTimeDilation,0.0,10.0);
+      ImGui::SliderFloat("Time dialtion", &m_pushConst.pyp.time_dilation, 0.0,10.0);
+      ImGui::SliderInt("Sub steps", &m_pushConst.pyp.sub_steps, 1,30);
+      ImGui::SliderFloat3("Gravity", &m_pushConst.pyp.gravity.x,-20.0f,20.0f);
     }
 
     if(ImGui::CollapsingHeader("Lighting data")){
@@ -828,7 +830,7 @@ public:
     if(m_prevTime < 0){
       m_prevTime = m_pushConst.time;
     }else{
-      m_pushConst.pyp.dts = m_simTimeDilation*(m_pushConst.time - m_prevTime)/SIM_NUM_SUBSTEPS;
+      m_pushConst.pyp.dts = m_pushConst.pyp.time_dilation*(m_pushConst.time - m_prevTime)/m_pushConst.pyp.sub_steps;
       m_prevTime = m_pushConst.time;
     }
 
@@ -2067,7 +2069,6 @@ private:
   bool m_refreshShadowKernels = false;
   bool m_updateTlas = false;
   bool m_firstFrame = true;
-  float m_simTimeDilation = 1.0;
   glm::vec3 m_zenithColor = glm::vec3(0.644, 0.635, 0.608);
   glm::vec3 m_horizonColor = glm::vec3(0.628, 0.495, 0.279);
 
