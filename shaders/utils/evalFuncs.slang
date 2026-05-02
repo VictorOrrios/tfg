@@ -12,6 +12,12 @@ float map(float3 p){
   return min(mapValue,maxD);
 }
 
+// Evaluates a dynamic node in world spcace
+float evalDynamic(float3 point, DynamicObject dyn){
+  float3 p = world2Local(dyn,point)/dyn.scale;
+  return evalPrimitive(dyn.type, p)*dyn.scale;
+}
+
 // True numerical
 float3 evalNormalTrue(float3 p){
   const float eps = 0.0001;
@@ -54,6 +60,11 @@ float3 evalNormalStatic(float3 p,float nearRange){
     k.yxy*mapStatic(p + k.yxy*h,nearRange) + 
     k.xxx*mapStatic(p + k.xxx*h,nearRange)
   );
+}
+
+float3 evalNormalDynamic(float3 p, DynamicObject dyn){
+  float3 p = world2Local(dyn,p)/dyn.scale;
+  return normalize(local2World(dyn,evalPrimitiveNormal(dyn.type, p)));
 }
 
 float3 evalGradStatic(float3 p, float h, float nearRange){

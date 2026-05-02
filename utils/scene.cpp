@@ -216,7 +216,7 @@ void Scene::drawNodeParams(){
 
     ImGui::Separator();
     dirty |= ImGui::Checkbox("Physics active", &selectedNode.pyp.physicsActive);
-    dirty |= ImGui::SliderFloat("Density", &selectedNode.pyp.density, 0.01f, 10.0f);
+    dirty |= ImGui::SliderFloat("Density", &selectedNode.pyp.density, 0.01f, 50.0f);
 
     ImGui::Separator();
     dirty |= ImGui::SliderFloat(("Roundness" + id).c_str(),
@@ -676,7 +676,8 @@ std::vector<shaderio::DynamicObject> Scene::getDynamicObjects(){
         .omega=glm::vec4(pyp.omega,0.0),
         .inv_inertia=glm::vec4(pyp.inv_inertia,0.0),
         .poss_diff=glm::vec4(pyp.poss_diff,0.0),
-        .corr_delta=glm::vec4(0.0),
+        .pos_delta=glm::vec4(0.0),
+        .rot_delta=glm::vec4(0,0,0,1),
         .type=(int)gp.type,
         .scale=gp.scale,
         .inv_mass=pyp.inv_mass,
@@ -1027,7 +1028,7 @@ Scene::Scene() {
   Material mat = createMaterial();
   mat.name = "Default";
   mat.shininess = 1.0;
-  int matIdx = addMaterial(mat);
+  int grey = addMaterial(mat);
 
   mat = createMaterial();
   mat.name = "Red";
@@ -1129,12 +1130,17 @@ Scene::Scene() {
   updateNodeData(box_main);
   addNode(box_main);
 
-  for(int i = 0; i<10; i++){
-    Node *body = createNode(shaderio::PrimType::Sphere);
+  for(int i = 0; i<15; i++){
+    Node *body;
+    if(randomFloat1()>=0.5){
+      body = createNode(shaderio::PrimType::Box);
+    }else{
+      body = createNode(shaderio::PrimType::Sphere);
+    }
     body->gp.scale = 0.2;
-    body->gp.position = glm::vec3(1.0+randomFloat1()*2.0,0.0,1.0+randomFloat1()*2.0);
+    body->gp.position = glm::vec3(1.0+randomFloat1()*2.0,randomFloat1()*4.0,1.0+randomFloat1()*2.0);
     body->gp.rotation = glm::vec3(0);
-    body->gp.mat = red;
+    body->gp.mat = grey;
     body->pyp.physicsActive = true;
     body->pyp.density = randomFloat1()*9.0+1.0;
     updateNodeData(body);

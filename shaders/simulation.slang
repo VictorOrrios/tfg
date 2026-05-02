@@ -181,9 +181,7 @@ float getInverseMassSphere(const DynamicObject dyn, float3 normal, float3 pos){
 }
 
 void applyCorrection(inout DynamicObject dyn, float3 impulse, float3 point){
-  float3 center_old = dyn.position.xyz;
-  
-  float3 r = point - center_old;
+  float3 r = point - dyn.position.xyz;
   float3 torque = cross(r, impulse);
   
   // Linear
@@ -201,6 +199,27 @@ void applyCorrection(inout DynamicObject dyn, float3 impulse, float3 point){
     dyn.rotation = quatMul(delta_q, dyn.rotation);
     dyn.rotation = quatNormalize(dyn.rotation);
     dyn.inv_rotation = quatInverse(dyn.rotation);
+  }
+}
+
+void applyCorrection2Delta(inout DynamicObject dyn, float3 impulse, float3 point){
+  float3 r = point - dyn.position.xyz;
+  float3 torque = cross(r, impulse);
+  
+  // Linear
+  dyn.pos_delta.xyz += impulse * dyn.inv_mass;
+  
+  float3 local_torque = rotateByQuat(dyn.inv_rotation, torque);
+  float3 delta_omega = local_torque * dyn.inv_inertia.xyz;
+  delta_omega = rotateByQuat(dyn.rotation, delta_omega);
+  
+  // Angular
+  float angle = length(delta_omega);
+  if (angle > 1e-6f) {
+    float3 axis = normalize(delta_omega);
+    float4 delta_q = float4(axis * sin(angle * 0.5f), cos(angle * 0.5f));
+    dyn.rot_delta = quatMul(delta_q, dyn.rot_delta);
+    dyn.rot_delta = quatNormalize(dyn.rot_delta);
   }
 }
 
@@ -269,14 +288,6 @@ float applyCorrectionSphere(
   applyCorrectionSphere(dyn, normal, point);
 
   return lambda * dt_m2;
-}
-
-float3 local2World(DynamicObject dyn, float3 p){
-  return rotateByQuat(dyn.rotation, p) + dyn.position.xyz;
-}
-
-float3 world2Local(DynamicObject dyn, float3 p){
-  return rotateByQuat(dyn.inv_rotation, (p - dyn.position.xyz));
 }
 
 float3 getVelocityAtPoint(DynamicObject dyn, float3 point)
@@ -426,7 +437,7 @@ void solveStaticCollisionSphereConstraint(
 
 }
 
-void solveBodyCollissionConstrain(
+void solve_SS_BodyCollissionConstrain(
   inout DynamicObject dynA, 
   DynamicObject dynB,
   float compliance){
@@ -441,16 +452,15 @@ void solveBodyCollissionConstrain(
   float d = length(center_diff);
   if(d>=radiusSum) return;
 
-  float invWeightSum = dynA.inv_mass+dynB.inv_mass;
-  float forceP = invWeightSum/dynA.inv_mass;
-
   float C = radiusSum-d;
 
   float dt_m2 = 1.0 / (pushConst.pyp.dts * pushConst.pyp.dts);
   float3 normal = normalize(center_diff);
 
-  float w = getInverseMass(dynA, normal, centerA + normal*radiusA);
-  w += getInverseMass(dynB, normal, centerB - normal*radiusB);
+  float3 p = centerA + normal*(radiusA-d/2.0);
+
+  float w = getInverseMass(dynA, normal, p);
+  w += getInverseMass(dynB, normal, p);
 
   // XPBD
   float alpha = compliance * dt_m2;
@@ -458,9 +468,136 @@ void solveBodyCollissionConstrain(
 
   normal *= -lambda;
 
-  dynA.corr_delta.xyz += normal * dynA.inv_mass;
+  dynA.pos_delta.xyz += normal * dynA.inv_mass;
   
 }
+
+void solve_SB_BodyCollissionConstrain(
+  inout DynamicObject dynA, 
+  inout DynamicObject dynB,
+  float compliance,
+  bool apply2A
+){
+    
+  float3 centerA = dynA.position.xyz;
+  float radiusA = dynA.scale*0.5;
+
+  float center_v = evalDynamic(centerA,dynB);
+  if(center_v>=radiusA) return;
+
+  //float3 normal = evalNormalDynamic(centerA,dynB);
+  const float h = 0.0001;
+  const float2 k = float2(1,-1);
+  float3 normal = normalize(
+    k.xyy*evalDynamic(centerA + k.xyy*h,dynB) +
+    k.yyx*evalDynamic(centerA + k.yyx*h,dynB) + 
+    k.yxy*evalDynamic(centerA + k.yxy*h,dynB) + 
+    k.xxx*evalDynamic(centerA + k.xxx*h,dynB)
+  );
+  float C = radiusA-center_v;
+  float3 p = centerA - normal*center_v;
+
+  float dt_m2 = 1.0 / (pushConst.pyp.dts * pushConst.pyp.dts);
+
+  float w = getInverseMass(dynA, normal, p);
+  w += getInverseMass(dynB, normal, p);
+
+  // XPBD
+  float alpha = compliance * dt_m2;
+  float lambda = -C / (w + alpha);
+
+  normal *= -lambda;
+
+  if(apply2A)
+    dynA.pos_delta.xyz += normal * dynA.inv_mass;
+  else
+    applyCorrection2Delta(dynB,-normal,p);
+}
+
+void solve_BB_BodyCollissionConstrain(
+  inout DynamicObject dynA, 
+  inout DynamicObject dynB,
+  float compliance,
+  bool apply2A
+){
+    
+  float3 centerA = dynA.position.xyz;
+  float radiusA = dynA.scale*0.877;
+
+  float center_v = evalDynamic(centerA,dynB);
+  if(center_v>=radiusA) return;
+
+  for(int i = 0; i<cube_p_size; i++){
+    float3 local_p = cube_p[i]*dynA.scale;
+    float3 a_point = local2World(dynA,local_p);
+    float a_sdV = evalDynamic(a_point,dynB);
+    if(a_sdV >= 0) continue;
+
+    const float h = 0.0001;
+    const float2 k = float2(1,-1);
+    float3 normal = normalize(
+      k.xyy*evalDynamic(a_point + k.xyy*h,dynB) +
+      k.yyx*evalDynamic(a_point + k.yyx*h,dynB) + 
+      k.yxy*evalDynamic(a_point + k.yxy*h,dynB) + 
+      k.xxx*evalDynamic(a_point + k.xxx*h,dynB)
+    );
+    float C = -a_sdV;
+
+    float dt_m2 = 1.0 / (pushConst.pyp.dts * pushConst.pyp.dts);
+
+    float w = getInverseMass(dynA, normal, a_point);
+    w += getInverseMass(dynB, normal, a_point);
+
+    // XPBD
+    float alpha = compliance * dt_m2;
+    float lambda = -C / (w + alpha);
+
+    normal *= -lambda;
+
+    if(apply2A){
+      applyCorrection2Delta(dynA,normal,a_point);
+    }else{
+      applyCorrection2Delta(dynB,-normal,a_point);
+    }
+    return;
+  }
+
+  for(int i = 0; i<cube_p_size; i++){
+    float3 local_p = cube_p[i]*dynB.scale;
+    float3 b_point = local2World(dynB,local_p);
+    float b_sdV = evalDynamic(b_point,dynA);
+    if(b_sdV >= 0) continue;
+
+    const float h = 0.0001;
+    const float2 k = float2(1,-1);
+    float3 normal = normalize(
+      k.xyy*evalDynamic(b_point + k.xyy*h,dynA) +
+      k.yyx*evalDynamic(b_point + k.yyx*h,dynA) + 
+      k.yxy*evalDynamic(b_point + k.yxy*h,dynA) + 
+      k.xxx*evalDynamic(b_point + k.xxx*h,dynA)
+    );
+    float C = -b_sdV;
+
+    float dt_m2 = 1.0 / (pushConst.pyp.dts * pushConst.pyp.dts);
+
+    float w = getInverseMass(dynA, normal, b_point);
+    w += getInverseMass(dynB, normal, b_point);
+
+    // XPBD
+    float alpha = compliance * dt_m2;
+    float lambda = -C / (w + alpha);
+
+    normal *= -lambda;
+
+    if(apply2A){
+      applyCorrection2Delta(dynA,-normal,b_point);
+    }else{
+      applyCorrection2Delta(dynB,normal,b_point);
+    }
+    return;
+  }
+}
+
 
 void solveDragConstraint(
   inout DynamicObject dyn, 
@@ -518,33 +655,50 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   switch(dyn.type){
     default:
     case PrimType::Sphere:
-    for(int sub_step = 0; sub_step < 1; sub_step++){
       max_corr_length = max(gravity_length_dts,length(dyn.poss_diff));
       integrateLinear(dyn);
 
       for(int i = 0; i<pushConst.numDynamicObjects; i++){
-        if(i != dObjIdx)
-          solveBodyCollissionConstrain(dyn,dynamic_objects[i],bodyColissionCompliance);
+        if(i == dObjIdx) continue;
+        if(dynamic_objects[i].type == PrimType::Sphere)
+          solve_SS_BodyCollissionConstrain(dyn,dynamic_objects[i],bodyColissionCompliance);
+        else
+          solve_SB_BodyCollissionConstrain(dyn,dynamic_objects[i],bodyColissionCompliance,true);
       }
-      dyn.position.xyz += dyn.corr_delta.xyz;
-      dyn.corr_delta = float4(0.0);
+      dyn.position.xyz += dyn.pos_delta.xyz;
+      dyn.pos_delta = float4(0.0);
+
       solveStaticCollisionSphereConstraint(dyn,colissionCompliance);
       solveDragConstraintSphere(dyn,dragCompliance);
       
       updateVelocitiesLinear(dyn);
-    }
     break;
 
     case PrimType::Box:
-    for(int sub_step = 0; sub_step < pushConst.pyp.sub_steps; sub_step++){
       max_corr_length = length(dyn.poss_diff);
       integrate(dyn);
+
+      for(int i = 0; i<pushConst.numDynamicObjects; i++){
+        if(i == dObjIdx) continue;
+        if(dynamic_objects[i].type == PrimType::Sphere){
+          solve_SB_BodyCollissionConstrain(dynamic_objects[i],dyn,bodyColissionCompliance,false);
+        }else if(i>dObjIdx){
+          solve_BB_BodyCollissionConstrain(dyn,dynamic_objects[i],bodyColissionCompliance,true);
+        }else{
+          solve_BB_BodyCollissionConstrain(dynamic_objects[i],dyn,bodyColissionCompliance,false);
+        }
+      }
+      dyn.position.xyz += dyn.pos_delta.xyz;
+      dyn.pos_delta = float4(0.0);
+      dyn.rotation = quatMul(dyn.rot_delta,dyn.rotation);
+      dyn.rotation = quatNormalize(dyn.rotation);
+      dyn.inv_rotation = quatInverse(dyn.rotation);
+      dyn.rot_delta = float4(0,0,0,1);
 
       solveStaticCollisionCubeConstraint(dyn,colissionCompliance);
       solveDragConstraint(dyn,dragCompliance);
 
       updateVelocities(dyn);
-    }
     break;
   }
     

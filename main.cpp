@@ -899,7 +899,7 @@ public:
       vkCmdDispatch(cmd, int(trunc(m_pushConst.numDynamicObjects/WORKGROUP_SIZE_1D))+1, 1, 1);
 
       nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer, 
-                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 
                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
       }
   }

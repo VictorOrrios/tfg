@@ -7,6 +7,7 @@
 #include "descriptors.slang"  // External memory definitions
 #include "materials.slang"    // material functions
 #include "rng.slang"          // Random numbers and hashes
+#include "quat.slang"         // Quaternion support
 
 //---------------------------------------
 // Operations
@@ -82,6 +83,10 @@ float sdSphere(float3 p){
   return length(p) - 0.5f;
 }
 
+float3 nSphere(float3 p){
+  return normalize(p);
+}
+
 float sdBox(float3 p, float3 b) {
   float3 q = abs(p) - b;
   return length(max(q, float3(0.0f))) +
@@ -90,6 +95,26 @@ float sdBox(float3 p, float3 b) {
 float sdBox(float3 p) {
   return sdBox(p,float3(0.5));
 }
+
+float3 nBox(float3 p, float3 b) {
+  float3 q = abs(p) - b;
+
+  float3 outside = max(q, 0.0);
+  if (length(outside) > 0.0)
+    return normalize(outside * sign(p));
+
+  // inside
+  if (q.x > q.y && q.x > q.z)
+    return float3(sign(p.x), 0, 0);
+  else if (q.y > q.z)
+    return float3(0, sign(p.y), 0);
+  else
+    return float3(0, 0, sign(p.z));
+}
+float3 nBox(float3 p){
+  return nBox(p,float3(0.5));
+}
+
 
 // Pre: n must be normalized
 float sdPlane(float3 p, float3 n, float h ){
@@ -218,6 +243,15 @@ float evalPrimitive(int primType, float3 p){
   }
 }
 
+float3 evalPrimitiveNormal(int primType, float3 p){
+  switch(primType)
+  {
+    default:
+    case PrimType::Sphere: return nSphere(p);
+    case PrimType::Box: return nBox(p);
+  }
+}
+
 float evalCombOp(int opIndex, float d, float result, float smoothness){
   switch(opIndex)
   {
@@ -265,50 +299,6 @@ float3 applyDefOp(int opIndex, float3 p, float4 defP){
 float applyMorphOp(float3 p, float prevPrim, int morphPrim, float morph, float roundness){
   float mD = evalPrimitive(morphPrim, p) - roundness;
   return lerp(prevPrim,mD,morph);
-}
-
-float sdLatticeSpheres(float3 p, float spacing, float minRadius, float maxRadius) {
-    // 1. Encontrar la celda del grid (fija, periódica)
-    float3 cell = floor(p / spacing);
-    float3 local = p - cell * spacing;  // coordenada local en [0, spacing]
-    
-    // 2. Calcular radio aleatorio (pero DETERMINÍSTICO para cada celda)
-    float3 seed = cell * 0.123456789;   // semilla única por celda
-    float r = minRadius + fract(sin(dot(seed, float3(12.9898, 78.233, 37.719))) * 43758.5453) * (maxRadius - minRadius);
-    
-    // 3. Distancia al centro de la esfera en esta celda (centro = centro de celda)
-    float3 center = float3(spacing/2.0, spacing/2.0, spacing/2.0);
-    float dist = length(local - center) - r;
-    
-    return dist;
-}
-// Cada celda contiene N esferas en posiciones fijas
-float sdLatticeMultiSpheres(float3 p, float spacing) {
-    float3 cell = floor(p / spacing);
-    float3 local = p - cell * spacing;
-    
-    float minDist = 1e10;
-    
-    // Posiciones relativas FIJAS dentro de la celda (NO aleatorias por punto)
-    // Ejemplo: 4 esferas en posiciones predefinidas
-    float3 offsets[4] = {
-        float3(0.25, 0.25, 0.25),
-        float3(0.25, 0.75, 0.25),
-        float3(0.75, 0.25, 0.75),
-        float3(0.75, 0.75, 0.75)
-    };
-    
-    for (int i = 0; i < 4; i++) {
-        // Radio determinístico pero fijo para cada celda
-        float3 seed = cell + offsets[i];
-        float r = 0.1 + 0.2 * fract(sin(dot(seed, float3(12.9898, 78.233, 37.719))) * 43758.5453);
-        
-        float3 center = offsets[i] * spacing;
-        float d = length(local - center) - r;
-        minDist = min(minDist, d);
-    }
-    
-    return minDist;
 }
 
 float applyTerrainOp(float3 p, float d, int octaves, float4 terrain, float minD){
