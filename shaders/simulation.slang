@@ -93,7 +93,6 @@ const static float3 sphere_p[sphere_p_size] = {
 const static int sphere_p_size = 14;
 const static float3 sphere_p[sphere_p_size] = {
 
-  // 🔹 ejes
   float3( 1, 0, 0),
   float3(-1, 0, 0),
   float3( 0, 1, 0),
@@ -101,7 +100,6 @@ const static float3 sphere_p[sphere_p_size] = {
   float3( 0, 0, 1),
   float3( 0, 0,-1),
 
-  // 🔹 diagonales
   normalize(float3( 1, 1, 1)),
   normalize(float3(-1, 1, 1)),
   normalize(float3( 1,-1, 1)),
@@ -410,6 +408,7 @@ void solveStaticCollisionSphereConstraint(
     float3 global_p = local_p+center;
     float sdV = mapStatic(global_p,nearRange);
     if(sdV<0.0){
+      touching = true;
       float3 normal = evalNormalStatic(global_p,nearRange);
       float depth = -sdV;
       float C = clamp(depth,0.0,max_corr_length);
@@ -418,16 +417,49 @@ void solveStaticCollisionSphereConstraint(
         dyn,
         compliance, corr,
         global_p);
-
-      
     }
-    touching = true;
   }
 
 
   if(touching) applyFriction(dyn, center, normal_c, FRICTION_COEFF_SPHERE);
   //if(touching) solveDragConstraint(dyn,4.0/pushConst.pyp.dts);
 
+}
+
+void solveBodyCollissionConstrain(
+  inout DynamicObject dynA, 
+  DynamicObject dynB,
+  float compliance){
+    
+  float3 centerA = dynA.position.xyz;
+  float3 centerB = dynB.position.xyz;
+  float radiusA = dynA.scale*0.5;
+  float radiusB = dynB.scale*0.5;
+  float radiusSum = radiusA + radiusB;
+
+  float3 center_diff = centerA-centerB;
+  float d = length(center_diff);
+  if(d>=radiusSum) return;
+
+  float invWeightSum = dynA.inv_mass+dynB.inv_mass;
+  float forceP = invWeightSum/dynA.inv_mass;
+
+  float C = radiusSum-d;
+
+  float dt_m2 = 1.0 / (pushConst.pyp.dts * pushConst.pyp.dts);
+  float3 normal = normalize(center_diff);
+
+  float w = getInverseMass(dynA, normal, centerA + normal*radiusA);
+  w += getInverseMass(dynB, normal, centerB - normal*radiusB);
+
+  // XPBD
+  float alpha = compliance * dt_m2;
+  float lambda = -C / (w + alpha);
+
+  normal *= -lambda;
+
+  dynA.corr_delta.xyz += normal * dynA.inv_mass;
+  
 }
 
 void solveDragConstraint(
@@ -471,6 +503,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   int dObjIdx = threadIdx.x;
   DynamicObject dyn = dynamic_objects[dObjIdx];
 
+  const float bodyColissionCompliance = 0.0/pushConst.pyp.dts;
   const float colissionCompliance = 0.0/pushConst.pyp.dts;
   const float dragCompliance = 0.1/pushConst.pyp.dts;
   const float gravity_length_dts = length(pushConst.pyp.gravity)*pushConst.pyp.dts;
@@ -485,10 +518,16 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   switch(dyn.type){
     default:
     case PrimType::Sphere:
-    for(int sub_step = 0; sub_step < pushConst.pyp.sub_steps; sub_step++){
+    for(int sub_step = 0; sub_step < 1; sub_step++){
       max_corr_length = max(gravity_length_dts,length(dyn.poss_diff));
       integrateLinear(dyn);
 
+      for(int i = 0; i<pushConst.numDynamicObjects; i++){
+        if(i != dObjIdx)
+          solveBodyCollissionConstrain(dyn,dynamic_objects[i],bodyColissionCompliance);
+      }
+      dyn.position.xyz += dyn.corr_delta.xyz;
+      dyn.corr_delta = float4(0.0);
       solveStaticCollisionSphereConstraint(dyn,colissionCompliance);
       solveDragConstraintSphere(dyn,dragCompliance);
       

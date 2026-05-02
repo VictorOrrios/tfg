@@ -676,6 +676,7 @@ std::vector<shaderio::DynamicObject> Scene::getDynamicObjects(){
         .omega=glm::vec4(pyp.omega,0.0),
         .inv_inertia=glm::vec4(pyp.inv_inertia,0.0),
         .poss_diff=glm::vec4(pyp.poss_diff,0.0),
+        .corr_delta=glm::vec4(0.0),
         .type=(int)gp.type,
         .scale=gp.scale,
         .inv_mass=pyp.inv_mass,
@@ -1128,10 +1129,10 @@ Scene::Scene() {
   updateNodeData(box_main);
   addNode(box_main);
 
-  for(int i = 0; i<20; i++){
+  for(int i = 0; i<10; i++){
     Node *body = createNode(shaderio::PrimType::Sphere);
     body->gp.scale = 0.2;
-    body->gp.position = glm::vec3(1.0+randomFloat1(),0.0,1.0+randomFloat1());
+    body->gp.position = glm::vec3(1.0+randomFloat1()*2.0,0.0,1.0+randomFloat1()*2.0);
     body->gp.rotation = glm::vec3(0);
     body->gp.mat = red;
     body->pyp.physicsActive = true;

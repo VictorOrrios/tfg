@@ -325,6 +325,9 @@ public:
     }
     
     if(!ImGui::CollapsingHeader("Simulation")){
+      if(ImGui::Button("Stop")) m_pushConst.pyp.time_dilation = 0.0;
+      ImGui::SameLine();
+      if(ImGui::Button("Resume")) m_pushConst.pyp.time_dilation = 1.0;
       ImGui::SliderFloat("Time dialtion", &m_pushConst.pyp.time_dilation, 0.0,10.0);
       ImGui::SliderInt("Sub steps", &m_pushConst.pyp.sub_steps, 1,30);
       ImGui::SliderFloat3("Gravity", &m_pushConst.pyp.gravity.x,-20.0f,20.0f);
@@ -892,11 +895,13 @@ public:
     // Bind pipeline
     bindComputePipeline(cmd,&m_simulationPipeline);
     // Dispatch
-    vkCmdDispatch(cmd, int(trunc(m_pushConst.numDynamicObjects/WORKGROUP_SIZE_1D))+1, 1, 1);
+    for(int i = 0; i<m_pushConst.pyp.sub_steps; i++){
+      vkCmdDispatch(cmd, int(trunc(m_pushConst.numDynamicObjects/WORKGROUP_SIZE_1D))+1, 1, 1);
 
-    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer, 
-                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
+      nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer, 
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
+      }
   }
 
   void setupSlangCompiler(){
