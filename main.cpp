@@ -251,7 +251,8 @@ public:
     destroyPipeline(&m_aoPipeline);
     destroyPipeline(&m_bilateralHPipeline);
     destroyPipeline(&m_bilateralVPipeline);
-    destroyPipeline(&m_simulationPipeline);
+    destroyPipeline(&m_simIntegratePipeline);
+    destroyPipeline(&m_simConstraintPipeline);
 
     vkDestroyShaderModule(device,m_tracingPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_lightingPipeline.shader,nullptr);
@@ -261,7 +262,8 @@ public:
     vkDestroyShaderModule(device,m_aoPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_bilateralHPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_bilateralVPipeline.shader,nullptr);
-    vkDestroyShaderModule(device,m_simulationPipeline.shader,nullptr);
+    vkDestroyShaderModule(device,m_simIntegratePipeline.shader,nullptr);
+    //vkDestroyShaderModule(device,m_simConstraintPipeline.shader,nullptr);
 
     m_alloc.destroyAcceleration(m_bLas);
     m_alloc.destroyAcceleration(m_tLas);
@@ -892,16 +894,25 @@ public:
   void simulationPass(VkCommandBuffer cmd){
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Simulation");
     if(m_pushConst.numDynamicObjects == 0) return;
-    // Bind pipeline
-    bindComputePipeline(cmd,&m_simulationPipeline);
-    // Dispatch
     for(int i = 0; i<m_pushConst.pyp.sub_steps; i++){
+      // Bind pipeline
+      bindComputePipeline(cmd,&m_simIntegratePipeline);
+      // Dispatch
       vkCmdDispatch(cmd, int(trunc(m_pushConst.numDynamicObjects/WORKGROUP_SIZE_1D))+1, 1, 1);
-
+      // Barrier
       nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer, 
                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 
                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
-      }
+      
+      // Bind pipeline
+      bindComputePipeline(cmd,&m_simConstraintPipeline);
+      // Dispatch
+      vkCmdDispatch(cmd, int(trunc(m_pushConst.numDynamicObjects/WORKGROUP_SIZE_1D))+1, 1, 1);
+      // Barrier
+      nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer, 
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
+    }
   }
 
   void setupSlangCompiler(){
@@ -1769,7 +1780,8 @@ public:
     createShaderModule(&m_aoPipeline.shader,"ao.slang",ao_slang);
     createShaderModule(&m_bilateralHPipeline.shader,"bilateral_h.slang",bilateral_h_slang);
     createShaderModule(&m_bilateralVPipeline.shader,"bilateral_v.slang",bilateral_v_slang);
-    createShaderModule(&m_simulationPipeline.shader,"simulation.slang",simulation_slang);
+    createShaderModule(&m_simIntegratePipeline.shader,"simulation.slang",simulation_slang);
+    m_simConstraintPipeline.shader = m_simIntegratePipeline.shader;
   }
 
   void createPipelines(){
@@ -1783,10 +1795,11 @@ public:
     createComputePipeline(&m_aoPipeline);
     createComputePipeline(&m_bilateralHPipeline);
     createComputePipeline(&m_bilateralVPipeline);
-    createComputePipeline(&m_simulationPipeline);
+    createComputePipeline(&m_simIntegratePipeline,"integrateMain");
+    createComputePipeline(&m_simConstraintPipeline,"constraintMain");
   }
 
-  void createComputePipeline(Pipeline* pl){
+  void createComputePipeline(Pipeline* pl, const char* entrypoint = "computeMain"){
     destroyPipeline(pl);
     createPipelineLayout(&pl->layout);
 
@@ -1794,7 +1807,7 @@ public:
     stage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stage.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
     stage.module = pl->shader;
-    stage.pName  = "computeMain";
+    stage.pName  = entrypoint;
 
     VkComputePipelineCreateInfo cpci{};
     cpci.sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
@@ -1999,15 +2012,16 @@ private:
   VkFence                 m_auxFence{};         // Fence for the end of aux cmd
 
   // Pipelines
-  Pipeline m_tracingPipeline{};     // Tracing pipeline, fills the gbuffers with info
-  Pipeline m_lightingPipeline{};    // Lighting pipeline, uses the gbuffers to paint th viewport
-  Pipeline m_rtPipeline{};          // Hardware accelerated ray tracing pipeline
-  Pipeline m_buildJobPipeline{};    // Build job pipeline
-  Pipeline m_brickJobPipeline{};    // Brick job pipeline
-  Pipeline m_aoPipeline{};          // Ambient occlussion generation pipeline
-  Pipeline m_bilateralHPipeline{};  // Bilateral blur horizontal pass
-  Pipeline m_bilateralVPipeline{};  // Bilateral blur vertical pass
-  Pipeline m_simulationPipeline{};  // Simluation pass
+  Pipeline m_tracingPipeline{};       // Tracing pipeline, fills the gbuffers with info
+  Pipeline m_lightingPipeline{};      // Lighting pipeline, uses the gbuffers to paint th viewport
+  Pipeline m_rtPipeline{};            // Hardware accelerated ray tracing pipeline
+  Pipeline m_buildJobPipeline{};      // Build job pipeline
+  Pipeline m_brickJobPipeline{};      // Brick job pipeline
+  Pipeline m_aoPipeline{};            // Ambient occlussion generation pipeline
+  Pipeline m_bilateralHPipeline{};    // Bilateral blur horizontal pass
+  Pipeline m_bilateralVPipeline{};    // Bilateral blur vertical pass
+  Pipeline m_simIntegratePipeline{};  // Simluation integration pass
+  Pipeline m_simConstraintPipeline{}; // Simluation constraint pass
 
   // Shader binding table management
   nvvk::SBTGenerator    m_sbtGen;             // SBT manager

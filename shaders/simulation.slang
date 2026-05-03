@@ -359,11 +359,13 @@ void solveStaticCollisionCubeConstraint(
     if(sdV<0.0){
       float3 normal = evalNormalStatic(global_p,nearRange);
       float depth = -sdV;
+      /* 
       for(int s = 0; s<10; s++){
         float sdIV = mapStatic(global_p+normal*depth,nearRange);
         depth -= sdIV;
         if(sdIV>=0.0) break;
       }
+      */
       float C = clamp(depth,0.0,max_corr_length);
       float3 corr = normal*C;
       applyCorrection(
@@ -374,6 +376,7 @@ void solveStaticCollisionCubeConstraint(
       applyFrictionXPBD(
         dyn, global_p, normal, FRICTION_COEFF_BOX, 0.0
       );
+      
     }
   }
 }
@@ -628,6 +631,97 @@ void solveDynamicCollisionConstraint(
 
 
   dynamic_objects[dynBIdx] = dynb;
+}
+
+[shader("compute")]
+[numthreads(WORKGROUP_SIZE_1D, 1, 1)]
+void integrateMain(uint3 threadIdx : SV_DispatchThreadID)
+{
+  if(threadIdx.x >= pushConst.numDynamicObjects || pushConst.pyp.dts <= 0.0)
+    return;
+
+  int dObjIdx = threadIdx.x;
+  DynamicObject dyn = dynamic_objects[dObjIdx];
+
+  const float bodyColissionCompliance = 0.0/pushConst.pyp.dts;
+  const float colissionCompliance = 0.0/pushConst.pyp.dts;
+  const float dragCompliance = 0.1/pushConst.pyp.dts;
+  const float gravity_length_dts = length(pushConst.pyp.gravity)*pushConst.pyp.dts;
+
+  if(dyn.type == PrimType::Sphere){
+    max_corr_length = max(gravity_length_dts,length(dyn.poss_diff));
+    
+    solveStaticCollisionSphereConstraint(dyn,colissionCompliance);
+    solveDragConstraintSphere(dyn,dragCompliance);
+    updateVelocitiesLinear(dyn);
+    integrateLinear(dyn);
+  }else{
+    max_corr_length = length(dyn.poss_diff);
+    
+    solveStaticCollisionCubeConstraint(dyn,colissionCompliance);
+    //solveDragConstraint(dyn,dragCompliance);
+    updateVelocities(dyn);
+    integrate(dyn);
+  }
+
+  dynamic_objects[dObjIdx] = dyn;
+}
+
+[shader("compute")]
+[numthreads(WORKGROUP_SIZE_1D, 1, 1)]
+void constraintMain(uint3 threadIdx : SV_DispatchThreadID)
+{
+  return;
+  if(threadIdx.x >= pushConst.numDynamicObjects || pushConst.pyp.dts <= 0.0)
+    return;
+
+  int dObjIdx = threadIdx.x;
+  DynamicObject dyn = dynamic_objects[dObjIdx];
+
+  const float bodyColissionCompliance = 0.0/pushConst.pyp.dts;
+  const float colissionCompliance = 0.0/pushConst.pyp.dts;
+  const float dragCompliance = 0.1/pushConst.pyp.dts;
+  const float gravity_length_dts = length(pushConst.pyp.gravity)*pushConst.pyp.dts;
+
+  if(dyn.type == PrimType::Sphere){
+    max_corr_length = max(gravity_length_dts,length(dyn.poss_diff));
+    
+    for(int i = 0; i<pushConst.numDynamicObjects; i++){
+      if(i == dObjIdx) continue;
+      if(dynamic_objects[i].type == PrimType::Sphere)
+        solve_SS_BodyCollissionConstrain(dyn,dynamic_objects[i],bodyColissionCompliance);
+      else
+        solve_SB_BodyCollissionConstrain(dyn,dynamic_objects[i],bodyColissionCompliance,true);
+    }
+    dyn.position.xyz += dyn.pos_delta.xyz;
+    dyn.pos_delta = float4(0.0);
+
+    
+  }else{
+    /* 
+    max_corr_length = length(dyn.poss_diff);
+    
+    for(int i = 0; i<pushConst.numDynamicObjects; i++){
+      if(i == dObjIdx) continue;
+      if(dynamic_objects[i].type == PrimType::Sphere){
+        solve_SB_BodyCollissionConstrain(dynamic_objects[i],dyn,bodyColissionCompliance,false);
+      }else if(i>dObjIdx){
+        solve_BB_BodyCollissionConstrain(dyn,dynamic_objects[i],bodyColissionCompliance,true);
+      }else{
+        solve_BB_BodyCollissionConstrain(dynamic_objects[i],dyn,bodyColissionCompliance,false);
+      }
+    }
+    dyn.position.xyz += dyn.pos_delta.xyz;
+    dyn.pos_delta = float4(0.0);
+    dyn.rotation = quatMul(dyn.rot_delta,dyn.rotation);
+    dyn.rotation = quatNormalize(dyn.rotation);
+    dyn.inv_rotation = quatInverse(dyn.rotation);
+    dyn.rot_delta = float4(0,0,0,1);
+ */
+    
+  }
+
+  dynamic_objects[dObjIdx] = dyn;
 }
 
 [shader("compute")]

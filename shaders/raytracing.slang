@@ -89,7 +89,7 @@ void rgenMain(){
     // If there was a hit and its facing the light => Cast shadow ray
     if( hit && dot(normal,pushConst.lp.lightDir) > -0.3 ){
       ShadowPayload shadowPayload;
-      ray.Origin = r.orig + r.dir*depth + normal * 0.05;
+      ray.Origin = r.orig + r.dir*depth + normal * 0.02;
       float occlussion = 0.0;
 
 

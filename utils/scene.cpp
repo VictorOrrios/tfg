@@ -437,7 +437,7 @@ Scene::Node *Scene::createNode(shaderio::PrimType t) {
         .terrain = glm::vec4(1.0,0.5,0.1,0.3),
       },
       .pyp={
-        .density = 1.0
+        .density = 1.0,
       },
       .gzp = {
         ImGuizmo::TRANSLATE,
@@ -445,6 +445,8 @@ Scene::Node *Scene::createNode(shaderio::PrimType t) {
         glm::mat4(1.0)
       },
   });
+
+  
 
   if (m_selected != -1) {
     Node selectedNode = m_root[m_selected];
@@ -1130,17 +1132,23 @@ Scene::Scene() {
   updateNodeData(box_main);
   addNode(box_main);
 
-  for(int i = 0; i<15; i++){
+  for(int i = 0; i<5; i++){
     Node *body;
+    /* 
     if(randomFloat1()>=0.5){
       body = createNode(shaderio::PrimType::Box);
     }else{
       body = createNode(shaderio::PrimType::Sphere);
     }
+ */
+    body = createNode(shaderio::PrimType::Box);
     body->gp.scale = 0.2;
-    body->gp.position = glm::vec3(1.0+randomFloat1()*2.0,randomFloat1()*4.0,1.0+randomFloat1()*2.0);
+    body->gp.position = glm::vec3(1.0+randomFloat1()*2.0,randomFloat1()*1.0,1.0+randomFloat1()*2.0);
     body->gp.rotation = glm::vec3(0);
     body->gp.mat = grey;
+    //body->sdp.combOp = (int)CombinationOp::Union + 3;
+    //body->sdp.smoothness = 0.02;
+    updateNodeData(body);
     body->pyp.physicsActive = true;
     body->pyp.density = randomFloat1()*9.0+1.0;
     updateNodeData(body);
