@@ -396,7 +396,7 @@ float mapStatic(float3 point, float nearRange){
 
     float d = evalPrimitive(params.type, p) - params.roundness;
 
-    d = d>0.0 ? applyTerrainOp(p, d, min(params.limit_octaves.w,5), params.terrain, VOXEL_SIZES[0]/10.0): d;
+    d = d>0.0 ? applyTerrainOp(p, d, min(params.limit_octaves.w,4), params.terrain, VOXEL_SIZES[0]/10.0): d;
 
     d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
 

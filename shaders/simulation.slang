@@ -525,10 +525,14 @@ void solve_BB_BodyCollissionConstrain(
 ){
     
   float3 centerA = dynA.position.xyz;
-  float radiusA = dynA.scale*0.877;
+  float maxRadiusA = dynA.scale*0.877;
+  float minRadiusA = dynA.scale*0.5;
 
   float center_v = evalDynamic(centerA,dynB);
-  if(center_v>=radiusA) return;
+
+  // Outside max range
+  if(center_v>=maxRadiusA) return;
+
 
   for(int i = 0; i<cube_p_size; i++){
     float3 local_p = cube_p[i]*dynA.scale;
@@ -562,7 +566,6 @@ void solve_BB_BodyCollissionConstrain(
     }else{
       applyCorrection2Delta(dynB,-normal,a_point);
     }
-    return;
   }
 
   for(int i = 0; i<cube_p_size; i++){
@@ -597,7 +600,6 @@ void solve_BB_BodyCollissionConstrain(
     }else{
       applyCorrection2Delta(dynB,normal,b_point);
     }
-    return;
   }
 }
 
@@ -657,11 +659,10 @@ void integrateMain(uint3 threadIdx : SV_DispatchThreadID)
     integrateLinear(dyn);
   }else{
     max_corr_length = length(dyn.poss_diff);
-    
-    solveStaticCollisionCubeConstraint(dyn,colissionCompliance);
-    //solveDragConstraint(dyn,dragCompliance);
     updateVelocities(dyn);
     integrate(dyn);
+    solveStaticCollisionCubeConstraint(dyn,colissionCompliance);
+    solveDragConstraint(dyn,dragCompliance);
   }
 
   dynamic_objects[dObjIdx] = dyn;
@@ -671,7 +672,6 @@ void integrateMain(uint3 threadIdx : SV_DispatchThreadID)
 [numthreads(WORKGROUP_SIZE_1D, 1, 1)]
 void constraintMain(uint3 threadIdx : SV_DispatchThreadID)
 {
-  return;
   if(threadIdx.x >= pushConst.numDynamicObjects || pushConst.pyp.dts <= 0.0)
     return;
 
@@ -696,10 +696,9 @@ void constraintMain(uint3 threadIdx : SV_DispatchThreadID)
     dyn.position.xyz += dyn.pos_delta.xyz;
     dyn.pos_delta = float4(0.0);
 
-    
   }else{
-    /* 
     max_corr_length = length(dyn.poss_diff);
+
     
     for(int i = 0; i<pushConst.numDynamicObjects; i++){
       if(i == dObjIdx) continue;
@@ -717,7 +716,6 @@ void constraintMain(uint3 threadIdx : SV_DispatchThreadID)
     dyn.rotation = quatNormalize(dyn.rotation);
     dyn.inv_rotation = quatInverse(dyn.rotation);
     dyn.rot_delta = float4(0,0,0,1);
- */
     
   }
 
@@ -769,7 +767,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     break;
 
     case PrimType::Box:
-      max_corr_length = length(dyn.poss_diff);
+      max_corr_length = length(dyn.poss_diff)*0.8;
       integrate(dyn);
 
       for(int i = 0; i<pushConst.numDynamicObjects; i++){

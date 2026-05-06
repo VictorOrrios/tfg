@@ -706,7 +706,7 @@ void Scene::processDynamicObjects(std::vector<shaderio::DynamicObject> data){
       gp.rotation = vec42quat(dnode.rotation);
       pyp.prev_position = dnode.prev_position;
       pyp.inv_rotation = vec42quat(dnode.inv_rotation);
-      pyp.prev_position = dnode.prev_position;
+      pyp.prev_rotation = vec42quat(dnode.prev_rotation);
       pyp.vel = dnode.vel;
       pyp.omega = dnode.omega;    
       pyp.poss_diff = dnode.poss_diff;
@@ -1132,7 +1132,7 @@ Scene::Scene() {
   updateNodeData(box_main);
   addNode(box_main);
 
-  for(int i = 0; i<5; i++){
+  for(int i = 0; i<20; i++){
     Node *body;
     /* 
     if(randomFloat1()>=0.5){
