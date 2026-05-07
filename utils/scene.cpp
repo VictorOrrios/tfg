@@ -677,9 +677,9 @@ std::vector<shaderio::DynamicObject> Scene::getDynamicObjects(){
         .vel=glm::vec4(pyp.vel,0.0),
         .omega=glm::vec4(pyp.omega,0.0),
         .inv_inertia=glm::vec4(pyp.inv_inertia,0.0),
-        .poss_diff=glm::vec4(pyp.poss_diff,0.0),
-        .pos_delta=glm::vec4(0.0),
-        .rot_delta=glm::vec4(0,0,0,1),
+        .pos_diff=glm::vec4(pyp.pos_diff,0.0),
+        .pos_delta=glm::vec4(pyp.pos_delta,0.0),
+        .omega_delta=glm::vec4(pyp.omega_delta,0),
         .type=(int)gp.type,
         .scale=gp.scale,
         .inv_mass=pyp.inv_mass,
@@ -709,7 +709,9 @@ void Scene::processDynamicObjects(std::vector<shaderio::DynamicObject> data){
       pyp.prev_rotation = vec42quat(dnode.prev_rotation);
       pyp.vel = dnode.vel;
       pyp.omega = dnode.omega;    
-      pyp.poss_diff = dnode.poss_diff;
+      pyp.pos_diff = dnode.pos_diff;
+      pyp.pos_delta = dnode.pos_delta;
+      pyp.omega_delta = dnode.omega_delta;
       
       updateNodeData(&node);
     }

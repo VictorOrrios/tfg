@@ -281,9 +281,9 @@ struct DynamicObject{
   float4 vel;
   float4 omega;
   float4 inv_inertia;
-  float4 poss_diff;
+  float4 pos_diff;
   float4 pos_delta;
-  float4 rot_delta;
+  float4 omega_delta;
   int type;
   float scale;
   float inv_mass;
