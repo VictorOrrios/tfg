@@ -304,11 +304,11 @@ float traceScene(Ray r, out float3 normal, out Material mat, out float3 debug){
   for(int i = 0; i<pushConst.numObjects; i++){
     Bbox bbox = aabbs[i];
 
-    if(any(bbox.bMin >= bbox.bMax))
-      continue;
-
     bbox.bMin = max(bbox.bMin,worldMin);
     bbox.bMax = min(bbox.bMax,worldMax);
+
+    if(any(bbox.bMin >= bbox.bMax))
+      continue;
 
     // Peprare the ray that will trace the object
     Ray bboxRay = r;
