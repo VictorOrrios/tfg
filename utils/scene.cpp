@@ -1134,18 +1134,19 @@ Scene::Scene() {
 
   for(int i = 0; i<20; i++){
     Node *body;
-    /* 
+    
     if(randomFloat1()>=0.5){
       body = createNode(shaderio::PrimType::Box);
     }else{
       body = createNode(shaderio::PrimType::Sphere);
     }
- */
-    body = createNode(shaderio::PrimType::Box);
+ 
+    //body = createNode(shaderio::PrimType::Sphere);
+    
     body->gp.scale = 0.2;
     body->gp.position = glm::vec3(1.0+randomFloat1()*2.0,randomFloat1()*1.0,1.0+randomFloat1()*2.0);
     body->gp.rotation = glm::vec3(0);
-    body->gp.mat = grey;
+    body->gp.mat = red;
     //body->sdp.combOp = (int)CombinationOp::Union + 3;
     //body->sdp.smoothness = 0.02;
     updateNodeData(body);

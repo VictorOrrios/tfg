@@ -50,7 +50,7 @@ const static int NUM_BRICKS_IN_ATLAS = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS
 // Global grid parameters
 #define NUM_BRICKS_PER_AXIS 64  // How many bricks per axis per level in clip map
 #define L0_AXIS_WORLD_SIZE  2.0 // Axis size of the first clip map level
-#define CLIPMAP_LEVELS      5   // How many levels are in the clip map | WARNING: If updated then all sizes MUST BE UPDATED TO
+#define CLIPMAP_LEVELS      8   // How many levels are in the clip map | WARNING: If updated then all sizes MUST BE UPDATED TO
 #define BRICK_SIZE          8   // How many values per axis does a brick store  
 #define MAT_PER_BRICK_AXIS  4   // How many materials are stored per brick axis
 CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS) // Power of two needed for faster calculations
@@ -68,15 +68,15 @@ const static int NUM_VALUES_PER_AXIS = NUM_BRICKS_PER_AXIS*BRICK_SIZE;
 #define MAX_BRICK_V(level) (float(sqrt(3.0 * S_BRICK(level) * S_BRICK(level)) / 2.0 + MAX_VOXEL_V(level)))
 
 const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
-  S_AXIS(0),S_AXIS(1),S_AXIS(2),S_AXIS(3),S_AXIS(4)};
+  S_AXIS(0),S_AXIS(1),S_AXIS(2),S_AXIS(3),S_AXIS(4),S_AXIS(5),S_AXIS(6),S_AXIS(7)};
 const static float BRICK_SIZES[CLIPMAP_LEVELS] = {
-  S_BRICK(0),S_BRICK(1),S_BRICK(2),S_BRICK(3),S_BRICK(4)};
+  S_BRICK(0),S_BRICK(1),S_BRICK(2),S_BRICK(3),S_BRICK(4),S_BRICK(5),S_BRICK(6),S_BRICK(7)};
 const static float VOXEL_SIZES[CLIPMAP_LEVELS] = {
-  S_VOXEL(0),S_VOXEL(1),S_VOXEL(2),S_VOXEL(3),S_VOXEL(4)};
+  S_VOXEL(0),S_VOXEL(1),S_VOXEL(2),S_VOXEL(3),S_VOXEL(4),S_VOXEL(5),S_VOXEL(6),S_VOXEL(7)};
 const static float MAX_VOXEL_VALUES[CLIPMAP_LEVELS] = {
-  MAX_VOXEL_V(0),MAX_VOXEL_V(1),MAX_VOXEL_V(2),MAX_VOXEL_V(3),MAX_VOXEL_V(4)};
+  MAX_VOXEL_V(0),MAX_VOXEL_V(1),MAX_VOXEL_V(2),MAX_VOXEL_V(3),MAX_VOXEL_V(4),MAX_VOXEL_V(5),MAX_VOXEL_V(6),MAX_VOXEL_V(7)};
 const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
-  MAX_BRICK_V(0),MAX_BRICK_V(1),MAX_BRICK_V(2),MAX_BRICK_V(3),MAX_BRICK_V(4)};
+  MAX_BRICK_V(0),MAX_BRICK_V(1),MAX_BRICK_V(2),MAX_BRICK_V(3),MAX_BRICK_V(4),MAX_BRICK_V(5),MAX_BRICK_V(6),MAX_BRICK_V(7)};
 
 /* 
 const static float AXIS_SIZES[CLIPMAP_LEVELS] = {

@@ -462,8 +462,8 @@ void solve_SS_BodyCollissionConstrain(
 
   float3 p = centerA + normal*(radiusA-d/2.0);
 
-  float w = getInverseMass(dynA, normal, p);
-  w += getInverseMass(dynB, normal, p);
+  float w = getInverseMassSphere(dynA, normal, p);
+  w += getInverseMassSphere(dynB, normal, p);
 
   // XPBD
   float alpha = compliance * dt_m2;
@@ -488,21 +488,13 @@ void solve_SB_BodyCollissionConstrain(
   float center_v = evalDynamic(centerA,dynB);
   if(center_v>=radiusA) return;
 
-  //float3 normal = evalNormalDynamic(centerA,dynB);
-  const float h = 0.0001;
-  const float2 k = float2(1,-1);
-  float3 normal = normalize(
-    k.xyy*evalDynamic(centerA + k.xyy*h,dynB) +
-    k.yyx*evalDynamic(centerA + k.yyx*h,dynB) + 
-    k.yxy*evalDynamic(centerA + k.yxy*h,dynB) + 
-    k.xxx*evalDynamic(centerA + k.xxx*h,dynB)
-  );
+  float3 normal = evalNormalDynamic(centerA,dynB);
   float C = radiusA-center_v;
   float3 p = centerA - normal*center_v;
 
   float dt_m2 = 1.0 / (pushConst.pyp.dts * pushConst.pyp.dts);
 
-  float w = getInverseMass(dynA, normal, p);
+  float w = getInverseMassSphere(dynA, normal, p);
   w += getInverseMass(dynB, normal, p);
 
   // XPBD
@@ -540,14 +532,7 @@ void solve_BB_BodyCollissionConstrain(
     float a_sdV = evalDynamic(a_point,dynB);
     if(a_sdV >= 0) continue;
 
-    const float h = 0.0001;
-    const float2 k = float2(1,-1);
-    float3 normal = normalize(
-      k.xyy*evalDynamic(a_point + k.xyy*h,dynB) +
-      k.yyx*evalDynamic(a_point + k.yyx*h,dynB) + 
-      k.yxy*evalDynamic(a_point + k.yxy*h,dynB) + 
-      k.xxx*evalDynamic(a_point + k.xxx*h,dynB)
-    );
+    float3 normal = evalNormalDynamic(a_point,dynB);
     float C = -a_sdV;
 
     float dt_m2 = 1.0 / (pushConst.pyp.dts * pushConst.pyp.dts);
@@ -574,14 +559,7 @@ void solve_BB_BodyCollissionConstrain(
     float b_sdV = evalDynamic(b_point,dynA);
     if(b_sdV >= 0) continue;
 
-    const float h = 0.0001;
-    const float2 k = float2(1,-1);
-    float3 normal = normalize(
-      k.xyy*evalDynamic(b_point + k.xyy*h,dynA) +
-      k.yyx*evalDynamic(b_point + k.yyx*h,dynA) + 
-      k.yxy*evalDynamic(b_point + k.yxy*h,dynA) + 
-      k.xxx*evalDynamic(b_point + k.xxx*h,dynA)
-    );
+    float3 normal = evalNormalDynamic(b_point,dynA);
     float C = -b_sdV;
 
     float dt_m2 = 1.0 / (pushConst.pyp.dts * pushConst.pyp.dts);

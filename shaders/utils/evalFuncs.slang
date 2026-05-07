@@ -64,7 +64,7 @@ float3 evalNormalStatic(float3 p,float nearRange){
 
 float3 evalNormalDynamic(float3 p, DynamicObject dyn){
   float3 p = world2Local(dyn,p)/dyn.scale;
-  return normalize(local2World(dyn,evalPrimitiveNormal(dyn.type, p)));
+  return normalize(rotateByQuat(dyn.rotation,evalPrimitiveNormal(dyn.type, p)));
 }
 
 float3 evalGradStatic(float3 p, float h, float nearRange){

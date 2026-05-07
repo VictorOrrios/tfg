@@ -99,17 +99,13 @@ float sdBox(float3 p) {
 float3 nBox(float3 p, float3 b) {
   float3 q = abs(p) - b;
 
-  float3 outside = max(q, 0.0);
-  if (length(outside) > 0.0)
-    return normalize(outside * sign(p));
+  if(q.x > q.y && q.x > q.z)
+      return float3(sign(p.x),0,0);
 
-  // inside
-  if (q.x > q.y && q.x > q.z)
-    return float3(sign(p.x), 0, 0);
-  else if (q.y > q.z)
-    return float3(0, sign(p.y), 0);
-  else
-    return float3(0, 0, sign(p.z));
+  if(q.y > q.z)
+      return float3(0,sign(p.y),0);
+
+  return float3(0,0,sign(p.z));
 }
 float3 nBox(float3 p){
   return nBox(p,float3(0.5));
