@@ -345,7 +345,6 @@ float traceScene(Ray r, out float3 normal, out Material mat, out float3 debug){
     mat = evalMat(p);
     //mat = sampleInterpolatedMat(p);
 
-
     normal = analyticNormal(p);
     //normal = evalNormal(p);
   }

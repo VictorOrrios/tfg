@@ -17,7 +17,7 @@ float opUnion(float a, float b){
   return min(a,b);
 }
 float opUnionMat(float a, float b, Material matA, inout Material matB){
-  if(a<b) matB = matA;
+  if(a<=b) matB = matA;
   return min(a,b);
 }
 float opSmoothUnion(float a, float b, float k){
@@ -428,9 +428,8 @@ float map(float3 point, out Material matResult){
     }
   }
 
-  
   if(secondInsideIdx != -1){
-    for(int obIdx = firstInsideIdx; obIdx < pushConst.numObjects && result > VOXEL_SIZES[0]/10.0f; obIdx++) {
+    for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
       float3 p = float3(point);
       Bbox bbox = aabbs[obIdx];
 
