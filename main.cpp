@@ -335,6 +335,8 @@ public:
       ImGui::SliderFloat3("Gravity", &m_pushConst.pyp.gravity.x,-20.0f,20.0f);
     }
 
+    m_scene.drawUserActionMenu();
+
     if(ImGui::CollapsingHeader("Lighting data")){
       bool dirtyLight = false;
       ImGui::Text("Directional Light");
@@ -569,7 +571,7 @@ public:
       glm::vec3 eye = m_cameraManip->getEye();
       glm::vec3 center = m_cameraManip->getCenter();
       //m_scene.simulate(deltaT);
-      //m_scene.centerCamAction(eye, glm::normalize(center-eye));
+      m_scene.userAction(eye, glm::normalize(center-eye), m_pushConst.pyp.dts);
     }
 
 
@@ -1972,7 +1974,7 @@ public:
 
   void readAndProcessDynamicObjects(VkCommandBuffer cmd){
     if(m_sceneDynamicObjects.count <= 0) return;
-    assert(rwbuff.mappedData != nullptr);
+    assert(m_sceneDynamicObjects.mappedData != nullptr);
     shaderio::DynamicObject* rdata = reinterpret_cast<shaderio::DynamicObject*>(m_sceneDynamicObjects.mappedData);
     std::vector<shaderio::DynamicObject> data;
     data.reserve(m_sceneDynamicObjects.count);

@@ -233,27 +233,17 @@ void applyCorrection(inout DynamicObject dyn, float3 impulse, float3 point){
 }
 
 void applyCorrection2Delta(inout DynamicObject dyn, float3 impulse, float3 point){
-  float3 r = point - dyn.position.xyz;
-  float3 torque = cross(r, impulse);
-  
   // Linear
   dyn.pos_delta.xyz += impulse * dyn.inv_mass;
   
+  // Angular
+  float3 r = point - dyn.position.xyz;
+  float3 torque = cross(r, impulse);
   float3 local_torque = rotateByQuat(dyn.inv_rotation, torque);
   float3 delta_omega = local_torque * dyn.inv_inertia.xyz;
   delta_omega = rotateByQuat(dyn.rotation, delta_omega);
 
   dyn.omega_delta.xyz += delta_omega;
-  /* 
-  // Angular
-  float angle = length(delta_omega);
-  if (angle > 1e-6f) {
-    float3 axis = normalize(delta_omega);
-    float4 delta_q = float4(axis * sin(angle * 0.5f), cos(angle * 0.5f));
-    dyn.rot_delta = quatMul(delta_q, dyn.rot_delta);
-    dyn.rot_delta = quatNormalize(dyn.rot_delta);
-  }
-   */
 }
 
 void applyCorrectionSphere(inout DynamicObject dyn, float3 impulse){

@@ -11,6 +11,7 @@
 #include "nvutils/bounding_box.hpp"
 #include "nvutils/logger.hpp"
 #include "sdf.hpp"
+#include "rng.hpp"
 #include <glm/ext/vector_float3.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -19,36 +20,6 @@
 #include <omp.h>
 #include <string>
 #include <vector>
-
-//------------------
-// Defintions
-//------------------
-// TODO: CPU scene map not ~fully~ supported
-
-static constexpr const char * PrimTypeNames[] = {
-    "Empty", "Box", "Sphere", "Torus", "Snowman", "Plane"
-};
-
-static constexpr const char *CombinationOpNames[] = {
-  "Union",
-  "Substraction",
-  "Intersection",
-};
-
-static constexpr const char *RepetitionOpnames[] = {
-    "None", "Limited repetition", "Unlimited repetition"};
-
-static constexpr const char *DeformationOpNames[] = {
-  "None",
-  "Elongate",
-};
-
-static constexpr const char *MorphPrimNames[] = {
-  "Box",
-  "Sphere",
-  "Torus",
-  "Snowman",
-};
 
 //------------------
 // Helper functions
@@ -764,6 +735,43 @@ float Scene::map(glm::vec3 point, int objIdxExcluded) {
   return result;
 }
 
+float Scene::mapTerrain(glm::vec3 point) {
+  const float iniD = 10000.0f;
+  float result = iniD;
+
+  for(int obIdx = 0; obIdx < m_root.size(); obIdx++) {
+    Node& n = m_root[obIdx];
+
+    if(n.sdp.octaves <= 0)
+      continue;
+    
+    glm::vec3 p = glm::vec3(point);
+    nvutils::Bbox& bbox = n.gp.bbox;
+    Scene::GeneralParams& gp = n.gp;
+    Scene::SDFParams& sdp = n.sdp;
+
+    p = gp.tInv * glm::vec4(p, 1.0);
+
+    p = applyRepOp(sdp.repOp, p, sdp.spacing, sdp.limit);
+
+    p = applyDefOp(sdp.defOp, p, sdp.defP);
+
+    p /= gp.scale;
+
+    float d = evalPrimitive(int(gp.type), p) - sdp.roundness;
+
+    d = d>0.0 ? applyTerrainOp(p, d, sdp.octaves, sdp.terrain, shaderio::VOXEL_SIZES[0]/10.0): d;
+
+    d = sdp.morph>0.0 ? applyMorphOp(p,d,sdp.morphPrim,sdp.morph,sdp.roundness) : d;
+
+    d *= gp.scale;
+
+    result = evalCombOp(sdp.combOp, d, result, sdp.smoothness);
+  }
+
+  return result;
+}
+
 glm::vec3 Scene::evalNormal(glm::vec3 p, int objIdxExcluded) {
   const float h = 0.0001f;
   const glm::vec2 k = glm::vec2(1.0f, -1.0f);
@@ -1040,14 +1048,15 @@ Scene::Scene() {
   int red = addMaterial(mat);
 
   mat = createMaterial();
-  mat.name = "Blue";
-  mat.albedo = glm::vec3(0,0,1);
-  int blue = addMaterial(mat);
-
-  mat = createMaterial();
   mat.name = "Green";
   mat.albedo = glm::vec3(0,1,0);
   int green = addMaterial(mat);
+
+  mat = createMaterial();
+  mat.name = "Blue";
+  mat.albedo = glm::vec3(0.22, 0.533, 1);
+  int blue = addMaterial(mat);
+
 
   // Create the scene
   Node *terrain = createNode(shaderio::PrimType::Plane);
@@ -1133,7 +1142,7 @@ Scene::Scene() {
   box_main->gp.mat = green;
   updateNodeData(box_main);
   addNode(box_main);
-
+/* 
   for(int i = 0; i<20; i++){
     Node *body;
     
@@ -1157,7 +1166,7 @@ Scene::Scene() {
     updateNodeData(body);
     addNode(body);
   }
-
+ */
   for(int i = 0; i<0; i++){
     Node *body = createNode(shaderio::PrimType::Box);
     body->gp.scale = 0.2;

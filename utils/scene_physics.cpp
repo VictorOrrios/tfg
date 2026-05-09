@@ -1,7 +1,15 @@
+#include "glm/ext/quaternion_common.hpp"
+#include "glm/ext/vector_float3.hpp"
 #include "glm/geometric.hpp"
+#include "glm/matrix.hpp"
+#include "imgui.h"
 #include "scene.hpp"
 #include "nvutils/logger.hpp"
 #include <numbers>
+#include "rng.hpp"
+
+
+
 
 void integrate(Scene::Node* n, float dt, glm::vec3 gravity){
   Scene::GeneralParams& gp = n->gp;
@@ -288,7 +296,20 @@ void Scene::simulate(float dts, int substeps){
   }
 }
 
-float Scene::sphereTrace(glm::vec3 orig, glm::vec3 dir, int objIdxExcluded){
+void Scene::drawUserActionMenu(){
+  if(ImGui::CollapsingHeader("User action")){
+    ImGui::Combo("Action", &m_userAction, UserActionNames, IM_ARRAYSIZE(UserActionNames));
+    ImGui::SliderFloat("Delay", &m_userActionDelay, 0.0, 1.0);
+    ImGui::Combo("Primitive", &m_userActionPrimitive, PrimTypeNames, IM_ARRAYSIZE(PrimTypeNames));
+    ImGui::SliderFloat("Size", &m_userActionSize, 0.0, 2.0);
+    if(m_userAction == int(UserAction::Launch))
+      ImGui::SliderFloat("Force", &m_launchForce, 0.0, 30.0);
+
+  }
+}
+
+
+float Scene::sphereTrace(glm::vec3 orig, glm::vec3 dir){
   const int MAX_ITERATIONS = shaderio::NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
   const float MIN_DIST = 0.0001;
   const float maxDepth = 100.0;
@@ -297,7 +318,7 @@ float Scene::sphereTrace(glm::vec3 orig, glm::vec3 dir, int objIdxExcluded){
 
   for(int i = 0; i < MAX_ITERATIONS; i++){
     glm::vec3 p = orig + dir * depth;
-    float dist = map(p,objIdxExcluded);
+    float dist = map(p);
     
     if(glm::abs(dist) < MIN_DIST){
       return depth;  // Hit
@@ -311,15 +332,120 @@ float Scene::sphereTrace(glm::vec3 orig, glm::vec3 dir, int objIdxExcluded){
   return -1.0;
 }
 
-void Scene::centerCamAction(glm::vec3 pos, glm::vec3 dir){
-  int lastIdx = m_root.size()-1;
-  float depth = sphereTrace(pos, dir, lastIdx);
-  glm::vec3 p = pos + dir*depth;
-  glm::vec3 normal = evalNormal(p,lastIdx);
-  if(depth >= 0){
-    m_root[lastIdx].gp.position = p;
-  }else{
-    m_root[lastIdx].gp.position = glm::vec3(0,-10,0);
+float Scene::sphereTraceTerrain(glm::vec3 orig, glm::vec3 dir){
+  const int MAX_ITERATIONS = shaderio::NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
+  const float MIN_DIST = 0.0001;
+  const float maxDepth = 100.0;
+  
+  float depth = 0.0;
+
+  for(int i = 0; i < MAX_ITERATIONS; i++){
+    glm::vec3 p = orig + dir * depth;
+    float dist = mapTerrain(p);
+    
+    if(glm::abs(dist) < MIN_DIST){
+      return depth;  // Hit
+    }
+    
+    if(depth >= maxDepth) return -1.0;  // No hit
+
+    depth += dist;
   }
-  updateNodeData(&m_root[lastIdx]);
+  
+  return -1.0;
+}
+
+glm::quat randomQuaternion(){
+  float u1 = randomFloat1();
+  float u2 = randomFloat1();
+  float u3 = randomFloat1();
+
+  float sqrt1MinusU1 = sqrt(1.0f - u1);
+  float sqrtU1       = sqrt(u1);
+
+  float theta1 = 2.0f * glm::pi<float>() * u2;
+  float theta2 = 2.0f * glm::pi<float>() * u3;
+
+  float x = sqrt1MinusU1 * sin(theta1);
+  float y = sqrt1MinusU1 * cos(theta1);
+  float z = sqrtU1 * sin(theta2);
+  float w = sqrtU1 * cos(theta2);
+
+  return glm::quat(w, x, y, z);
+}
+
+glm::vec3 randomVec3(){
+  return glm::vec3(randomFloat2(),randomFloat2(),randomFloat2());
+}
+
+void Scene::userAction(glm::vec3 pos, glm::vec3 dir, float dts){
+  if(ImGui::IsKeyDown(ImGuiKey_Space)){
+
+    float curr_time = static_cast<float>(ImGui::GetTime());
+    if(curr_time >= m_lastUserAction+m_userActionDelay || m_lastUserAction < 0.0){
+      m_lastUserAction = curr_time;
+
+      switch (UserAction(m_userAction)) {
+        default:
+        case UserAction::NoneAction:
+          // Do nothing
+          break;
+        
+        case UserAction::Launch:{
+
+          m_selected = m_root.size()-1;
+          Node *body = createNode(shaderio::PrimType(m_userActionPrimitive));
+
+          dir += glm::normalize(randomVec3())*0.05f;
+          dir = glm::normalize(dir);
+      
+          body->gp.scale = m_userActionSize;
+          body->gp.position = pos + dir*(m_userActionSize+0.15f);
+          body->gp.mat = m_mat.size()-1;
+          updateNodeData(body);
+          body->pyp.physicsActive = true;
+          body->pyp.density = 5.0;
+          body->pyp.vel = dir*m_launchForce + randomFloat2()*0.5f;
+          body->pyp.prev_position = body->gp.position - body->pyp.vel*dts;
+          body->pyp.omega = randomVec3()*4.0f;
+          body->gp.rotation = randomQuaternion();
+          glm::vec3 neg_omega = -body->pyp.omega;
+          float angle = glm::length(neg_omega) * dts;
+          if (angle > 0.0f){
+            glm::vec3 axis = glm::normalize(neg_omega);
+            glm::quat dq = glm::angleAxis(angle, axis);
+            body->pyp.prev_rotation = glm::normalize(dq * body->gp.rotation);
+          }
+          updateNodeData(body);
+          addNode(body);
+          m_selected = -1;
+
+          break;
+
+        }
+
+        case UserAction::Carve:{
+          float depth = sphereTraceTerrain(pos,dir);
+
+          glm::vec3 p = pos + dir*depth;
+
+          m_selected = m_root.size()-1;
+          Node *body = createNode(shaderio::PrimType(m_userActionPrimitive));
+
+          body->gp.scale = m_userActionSize;
+          body->gp.position = p;
+          body->gp.mat = m_mat.size()-1;
+          body->gp.rotation = randomQuaternion();
+          body->sdp.combOp = (int)CombinationOp::Substraction + 3;
+          body->sdp.smoothness = 0.01;
+          updateNodeData(body);
+          addNode(body);
+          m_selected = -1;
+          
+          break;
+        }
+
+      }
+    }
+  }
 }

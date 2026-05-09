@@ -12,11 +12,36 @@
 #include <nvvk/profiler_vk.hpp>
 #include "ImGuizmo.h"
 
+static constexpr const char * PrimTypeNames[] = {
+    "Empty", "Box", "Sphere", "Torus", "Snowman", "Plane"
+};
+
+static constexpr const char *CombinationOpNames[] = {
+  "Union", "Substraction", "Intersection",
+};
+
+static constexpr const char *RepetitionOpnames[] = {
+    "None", "Limited repetition", "Unlimited repetition"
+  };
+
+static constexpr const char *DeformationOpNames[] = {
+  "None", "Elongate",
+};
+
+static constexpr const char *MorphPrimNames[] = {
+  "Box", "Sphere", "Torus", "Snowman",
+};
+
+static constexpr const char *UserActionNames[] = {
+  "None", "Launch", "Carve", "Tunnel",
+};
+
 class Scene {
 public:
   enum class CombinationOp { Union, Substraction, Intersection };
   enum class RepetitionOp { NoneOP, LimRepetition, IlimRepetition };
   enum class DeformationOp { NoneOP, Elongate };
+  enum class UserAction { NoneAction, Launch, Carve, Tunnel };
 
   struct GeneralParams{
     shaderio::PrimType type;
@@ -90,8 +115,10 @@ public:
   void drawGuizmo(ImVec2 viewportPos, ImVec2 viewportSize, glm::mat4 cameraView, glm::mat4 cameraProjection);
 
   void simulate(float dts, int substeps);
-  void centerCamAction(glm::vec3 pos, glm::vec3 dir);
   void processDynamicObjects(std::vector<shaderio::DynamicObject> data);
+
+  void userAction(glm::vec3 pos, glm::vec3 dir, float dts);
+  void drawUserActionMenu();
 
   std::vector<float> generateDenseGrid();
   void flushDeletedNodes();
@@ -127,7 +154,8 @@ private:
   int addMaterial(Material mat);
 
   void solveCollisionConstraint(int nodeIdx, float compliance, float dt);
-  float sphereTrace(glm::vec3 orig, glm::vec3 dir, int objIdxExcluded = -1);
+  float sphereTrace(glm::vec3 orig, glm::vec3 dir);
+  float sphereTraceTerrain(glm::vec3 orig, glm::vec3 dir);
 
   void updateNodeData(Node *n);
   void updateNodePysicsData(Node *n);
@@ -135,6 +163,7 @@ private:
   void generateMatrix(Node *n);
   void generateBBox(Node *n);
   float map(glm::vec3 p, int objIdxExcluded = -1);
+  float mapTerrain(glm::vec3 p);
   glm::vec3 evalNormal(glm::vec3 p, int objIdxExcluded = -1);
 
   std::vector<shaderio::BuildJob> createBaseBuildJobs(nvutils::Bbox aabb, glm::ivec3 camId0);
@@ -147,6 +176,13 @@ private:
   int m_selected = -1;
   int m_selectedMat = -1;
   uint32_t m_nextID = 1;
+
+  int m_userAction = int(UserAction::Launch);
+  float m_userActionDelay = 0.1f;
+  float m_userActionSize = 0.2f;
+  float m_launchForce = 5.0f;
+  int m_userActionPrimitive = int(shaderio::PrimType::Box);
+  float m_lastUserAction = -1.0;
 
   glm::vec3 m_gravity = glm::vec3(0.0f,-9.8f,0.0f);
 };
