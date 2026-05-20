@@ -123,3 +123,14 @@ float3 scalarToColor(float x){
     case 5: return paletteInferno(x);
   }
 }
+
+float3 scalarToStepedColor(float x){
+  const float min_threshold = 0.05;
+  const float steps = 10.0;
+  const float scale_correction = 1/(1+1/steps);
+  x = clamp(x,0.0,0.999);
+  float g = fract(steps*x);
+  float f = (x+g/steps)*scale_correction;
+  if(g<=min_threshold) f = -1.0;
+  return scalarToColor(f);
+}

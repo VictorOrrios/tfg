@@ -103,7 +103,7 @@ template <class Archive> void serialize(Archive &ar, Scene::Node &n) {
 // Material
 //------------------------------
 template <class Archive> void serialize(Archive &ar, Scene::Material &m) {
-  ar(m.id, m.name, m.albedo, m.shininess, m.roughness, m.metalness);
+  ar(m.id, m.name, m.albedo, m.shininess, m.roughness, m.metalness, m.type);
 }
 
 

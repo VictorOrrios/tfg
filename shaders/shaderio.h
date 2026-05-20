@@ -181,6 +181,7 @@ enum DebugModes{
 };
   
 enum class PrimType { Empty=0, Box, Sphere, Torus, Snowman, Plane };
+enum class MaterialType { Normal=0, Debug, Terrain };
 
 struct LightinParams{
   float3 lightDir         = normalize(float3(0.9f,0.2f,0.2f));
@@ -257,6 +258,8 @@ CHECK_STRUCT_ALIGNMENT(SceneObject)
 struct Material{
   float4 albedo_shininess;
   float2 alpha_metalness;
+  int type;
+  uint _pad;
 };
 CHECK_STRUCT_ALIGNMENT(Material)
 

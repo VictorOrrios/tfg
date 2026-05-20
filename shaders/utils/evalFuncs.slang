@@ -3,6 +3,7 @@
 #include "../shaderio.h"  // Shared definitions with CPU
 #include "common.slang"   // Shared definitions with shaders
 #include "sdf.slang"      // SDF functions, operations and primitives
+#include "palettes.slang" // Debug color palette
 
 
 // Evaluates the whole sdf scene in a point in space
@@ -143,5 +144,12 @@ float evalShadow(float3 p, float k){
 Material evalMat(float3 p){
   Material mat;
   map(p,mat);
+  
+  if(mat.type == MaterialType::Debug){
+    const float debug_scale = 1.0;
+    float debug_value = mapDebugColor(p,BRICK_SIZES[CLIPMAP_LEVELS-1])*debug_scale;
+    mat.albedo_shininess.xyz = scalarToStepedColor(debug_value);
+  }
+
   return mat;
 }

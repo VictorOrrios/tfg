@@ -36,6 +36,10 @@ static constexpr const char *UserActionNames[] = {
   "None", "Launch", "Carve", "Tunnel",
 };
 
+static constexpr const char *MaterialTypeNames[] = {
+  "Normal", "Debug", "Terrain",
+};
+
 class Scene {
 public:
   enum class CombinationOp { Union, Substraction, Intersection };
@@ -107,6 +111,7 @@ public:
     float shininess;
     float roughness;
     float metalness;
+    int type;
   };
 
   Scene();
