@@ -1,5 +1,8 @@
 # TFG Victor
 
+## Dependencies
+For scene saving and loading: cereal, zenity
+
 ## How to use
 
 1. Setup for release <br>
