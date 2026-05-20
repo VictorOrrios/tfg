@@ -120,6 +120,9 @@ public:
   void userAction(glm::vec3 pos, glm::vec3 dir, float dts);
   void drawUserActionMenu();
 
+  bool saveToFile(const std::string& path);
+  bool loadFromFile(const std::string& path);
+
   std::vector<float> generateDenseGrid();
   void flushDeletedNodes();
   std::vector<nvutils::Bbox> getAllBboxes();
@@ -183,6 +186,7 @@ private:
   float m_launchForce = 5.0f;
   int m_userActionPrimitive = int(shaderio::PrimType::Box);
   float m_lastUserAction = -1.0;
+  bool m_ignoreNextDynamicUpdate = false;
 
   glm::vec3 m_gravity = glm::vec3(0.0f,-9.8f,0.0f);
 };

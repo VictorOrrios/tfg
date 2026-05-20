@@ -39,6 +39,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <imgui/imgui.h>
 #include <imgui/backends/imgui_impl_vulkan.h>
+#include "utils/portable-file-dialogs.h"
 
 #include "shaders/shaderio.h"           // Shared between host and device
 #include "utils/path_utils.hpp"
@@ -431,12 +432,28 @@ public:
   void onUIMenu() override
   {
     bool vsync = m_app->isVsync();
-    bool reload = false;
+    bool reload_shaders = false;
+    bool save = false;
+    bool load = false;
+    bool file = false;
 
     if(ImGui::BeginMenu("File"))
     {
       if(ImGui::MenuItem("Exit", "Ctrl+Q"))
         m_app->close();
+      
+      save = ImGui::MenuItem("Save scene", "F5");
+      if(ImGui::MenuItem("Save scene to ...")){
+        file = true;
+        save = true;
+      };
+
+      load = ImGui::MenuItem("Load scene", "F9");
+      if(ImGui::MenuItem("Load scene from ...")){
+        file = true;
+        load = true;
+      };
+
       ImGui::EndMenu();
     }
     if(ImGui::BeginMenu("View"))
@@ -446,11 +463,27 @@ public:
     }
     if(ImGui::BeginMenu("Tools"))
     {
-      reload |= ImGui::MenuItem("Reload Shaders", "F5");
+      reload_shaders |= ImGui::MenuItem("Reload Shaders", "F8");
       ImGui::EndMenu();
     }
-    reload |= ImGui::IsKeyPressed(ImGuiKey_F5);
-    if(reload){
+
+    if(file){
+      auto dialog = pfd::open_file("Select a JSON scene file", ".", 
+                                    {"JSON Files", "*.json"});
+      
+      std::vector<std::string> selection = dialog.result();      
+      if (!selection.empty())
+        m_saveFilePath = selection[0];
+    }
+    if(save || ImGui::IsKeyPressed(ImGuiKey_F5)){
+      LOGI("Saving to %s\n",m_saveFilePath.c_str());
+      m_scene.saveToFile(m_saveFilePath);
+    }
+    if(load || ImGui::IsKeyPressed(ImGuiKey_F9)){
+      LOGI("Loading from %s\n",m_saveFilePath.c_str());
+      m_scene.loadFromFile(m_saveFilePath);
+    }
+    if(reload_shaders || ImGui::IsKeyPressed(ImGuiKey_F8)){
       vkQueueWaitIdle(m_app->getQueue(0).queue);
       reloadShaders();
     }
@@ -2092,6 +2125,7 @@ private:
   bool m_firstFrame = true;
   glm::vec3 m_zenithColor = glm::vec3(0.644, 0.635, 0.608);
   glm::vec3 m_horizonColor = glm::vec3(0.628, 0.495, 0.279);
+  std::string m_saveFilePath = "scene.json";
 
   // Startup managers for profiler and paramter registry
   Info m_info;

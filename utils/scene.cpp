@@ -665,6 +665,11 @@ std::vector<shaderio::DynamicObject> Scene::getDynamicObjects(){
 }
 
 void Scene::processDynamicObjects(std::vector<shaderio::DynamicObject> data){
+  if(m_ignoreNextDynamicUpdate){
+    m_ignoreNextDynamicUpdate = false;
+    return;
+  }
+
   for (auto& dnode : data) {
     for(auto& node: m_root){
       if(node.id != dnode.id || node.needsRemoval) continue;
@@ -1179,4 +1184,4 @@ Scene::Scene() {
     addNode(body);
   }
 
-} 
+}
