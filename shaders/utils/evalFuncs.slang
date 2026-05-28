@@ -141,7 +141,7 @@ float evalShadow(float3 p, float k){
   return shadow;
 }
 
-Material evalMat(float3 p){
+Material evalMat(float3 p, float3 n){
   Material mat;
   map(p,mat);
   
@@ -149,6 +149,9 @@ Material evalMat(float3 p){
     const float debug_scale = 1.0;
     float debug_value = mapDebugColor(p,BRICK_SIZES[CLIPMAP_LEVELS-1])*debug_scale;
     mat.albedo_shininess.xyz = scalarToStepedColor(debug_value);
+  }else if(mat.type == MaterialType::Terrain){
+    float slope = 1.0-dot(n,float3(0,1,0));
+    mat.albedo_shininess.xyz = getTerrainColor(p,slope);
   }
 
   return mat;

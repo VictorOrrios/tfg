@@ -1,12 +1,45 @@
 #pragma once
 
 #include "../shaderio.h"      // Shared definitions with CPU
+#include "rng.slang"          // Random numbers and hashes
+#include "descriptors.slang"  // External memory definitions
 
 Material lerpMaterial(Material matA, Material matB, float b){
   matB.albedo_shininess = lerp(matA.albedo_shininess,matB.albedo_shininess,b);
   matB.alpha_metalness = lerp(matA.alpha_metalness,matB.alpha_metalness,b);
   matB.type = min(matA.type,matB.type);
   return matB;
+}
+
+float3 getTerrainColor(float3 p, float slope) {
+  const float3 grass1 = float3(0.15, 0.3, 0.1);
+  const float3 grass2 = float3(0.4, 0.5, 0.2);
+  const float3 dirt   = float3(0.6, 0.5, 0.4);
+  const float3 snow   = float3(1.0, 1.0, 1.0);
+  const float3 rock   = float3(0.22, 0.2, 0.2);
+  const float3 sand   = float3(0.8, 0.7, 0.6);
+  const float3 water  = float3(0.122, 0.451, 0.788);
+  const float3 foam   = float3(1.0, 1.0, 1.0);
+
+  float height = p.y;
+  float3 random = noiseImage.Sample(gSampler,p.xz/1000.0).xyz;
+  float breakup = abs(length(random)/1.73);
+
+  float3 grassColor = lerp(
+      grass1,
+      grass2,
+      smoothstep(0.2, 0.8, breakup+height/3.0)
+  );
+  float3 color;
+  float3 grass_snow = lerp(grassColor, snow, smoothstep(0.8+breakup*0.7, 1.5, height));
+  float3 water_color = water*lerp(0.5,1.0,breakup);
+  float3 grass_snow_rock = lerp(grass_snow, rock, smoothstep(0.3, 0.4, slope));
+  color = lerp(water_color, sand, smoothstep(0.0, 0.15, height+(breakup*2.0-1.0)/8.0));
+  color = lerp(color, grass_snow_rock, smoothstep(0.15, 0.2, height+(2.0*breakup-1.0)/7.0));
+
+
+  return color;
+
 }
 
 void updateTopK(uint id, float score, inout uint4 ids, inout float4 scores){

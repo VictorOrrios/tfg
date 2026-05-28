@@ -107,12 +107,12 @@ bool sphereTraceBrickShadow(Ray r, int pointer, float3 brickPos, int level){
 
 // Pre: r.orig must be inside bbox
 float sphereTraceBbox(Ray r, Bbox bbox, out float3 debug){
-  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.23);
 
   // Debug visualizers
   const bool drawSilhouette   = debugColor && true;   // Draw the silhouette of the grid
-  const bool drawSteps        = debugColor && false;  // Draw the numer of steps taken
-  const bool drawLevel        = debugColor && true;  // Draw the clip map level at hit point
+  const bool drawSteps        = debugColor && true;  // Draw the numer of steps taken
+  const bool drawLevel        = debugColor && false;  // Draw the clip map level at hit point
   const bool drawHitIndex     = debugColor && false;  // Draw the grid brick index at the hit point
   const bool drawBrickPointer = debugColor && false;   // Draw the pointer value of the brick at hit point
 
@@ -341,12 +341,13 @@ float traceScene(Ray r, out float3 normal, out Material mat, out float3 debug){
   // Calc normal using user defined method
   if(depth >= 0){
     float3 p = r.orig + r.dir*depth;
-    
-    mat = evalMat(p);
-    //mat = sampleInterpolatedMat(p);
 
     normal = analyticNormal(p);
     //normal = evalNormal(p);
+    
+    mat = evalMat(p,normal);
+    //mat = sampleInterpolatedMat(p);
+
   }
 
   return depth;
