@@ -9,7 +9,7 @@ Developed as my Bachelor's Thesis at the University of Zaragoza (UNIZAR).
 ## Screenshots
 
 ![VisualDemo](screenshots/strand_render_rtx.png)
-![SimDemo](screenshots/Sim4.gif)
+![SimDemo](screenshots/sim.gif)
 
 ## Features
 
@@ -82,4 +82,4 @@ Developed as my Bachelor's Thesis at the University of Zaragoza (UNIZAR). Direct
 - Alfonso López Ruiz
 - Néstor Monzón González
 
-![Sunset](screenshots/super_render_sphere.png)
+![Sunset](screenshots/super_render_sphere.webp)
