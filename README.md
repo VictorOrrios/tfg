@@ -6,6 +6,11 @@ hardware ray tracing, and an integrated SDF-based physics engine.
 
 Developed as my Bachelor's Thesis at the University of Zaragoza (UNIZAR).
 
+## Screenshots
+
+![VisualDemo](screenshots/strand_render_rtx.png)
+![SimDemo](screenshots/Sim4.gif)
+
 ## Features
 
 - Sparse Brick Set representation with an LOD cache for distance values
@@ -70,12 +75,11 @@ Run:
 ./_bin/tfg
 ```
 
-## Screenshots
-
-
 ## License
 
 `nvpro_core2` and this project is licensed under [Apache 2.0](LICENSE).
 Developed as my Bachelor's Thesis at the University of Zaragoza (UNIZAR). Directors:
 - Alfonso López Ruiz
 - Néstor Monzón González
+
+![Sunset](screenshots/super_render_sphere.png)
