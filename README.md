@@ -2,7 +2,7 @@
 # SDF Engine
 
 A real-time Signed Distance Function (SDF) engine featuring sparse brick storage,
-hardware ray tracing, and an integrated SDF-based physics engine.
+hardware ray tracing, and an integrated SDF-based physics engine. All made in Vulkan.
 
 Developed as my Bachelor's Thesis at the University of Zaragoza (UNIZAR).
 
