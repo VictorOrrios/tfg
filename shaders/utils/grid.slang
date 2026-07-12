@@ -8,7 +8,6 @@
 // sBottom: r=s000 g=100 b=101 a=001
 // sTop:    r=s010 g=110 b=111 a=011
 // Left hand coordinate system (x=right, y=up, z=forwards)
-// TODO: This looks slow, might be interesting to make more efficient
 void sampleVoxel2(int3 index, int level, out float4 sBottom, out float4 sTop){
   const int NUM_VOXELS_PER_BRICK = BRICK_SIZE-1;
   const float max_voxel_value = MAX_VOXEL_VALUES[level];
@@ -239,7 +238,6 @@ float3 analyticNormal(float3 p){
 // return: x=c_0 y=c_1 z=c_2 w=c_3
 // This was based from the formula in "Ray Tracing of Signed Distance Function Grids" NVIDIA 2022
 // The paper uses a different coordinate system: xyz (Paper) => zxy (This code)
-// TODO: Check if it works, if not throw it and start again
 float4 getCubeCoeff(Ray r, float4 k0123, float4 k4567){
   float3 o = r.orig; float3 d = r.dir;
 

@@ -206,10 +206,8 @@ float evalCombOp(int opIndex, float d, float result, float smoothness){
     default:
     case 0: return opUnion(d,result);
     case 1: return opSubtraction(d,result);
-    case 2: return opIntersection(d,result);
-    case 3: return opSmoothUnion(d,result,smoothness);
-    case 4: return opSmoothSubtraction(d,result,smoothness);
-    case 5: return opSmoothIntersection(d,result,smoothness);
+    case 2: return opSmoothUnion(d,result,smoothness);
+    case 3: return opSmoothSubtraction(d,result,smoothness);
   }
 }
 

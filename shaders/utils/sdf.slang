@@ -254,10 +254,8 @@ float evalCombOp(int opIndex, float d, float result, float smoothness){
     default:
     case 0: return opUnion(d,result);
     case 1: return opSubtraction(d,result);
-    case 2: return opIntersection(d,result);
-    case 3: return opSmoothUnion(d,result,smoothness);
-    case 4: return opSmoothSubtraction(d,result,smoothness);
-    case 5: return opSmoothIntersection(d,result,smoothness);
+    case 2: return opSmoothUnion(d,result,smoothness);
+    case 3: return opSmoothSubtraction(d,result,smoothness);
   }
 }
 float evalCombOpMat(int opIndex, float d, float result, float smoothness, Material matA, inout Material matB){
@@ -266,10 +264,8 @@ float evalCombOpMat(int opIndex, float d, float result, float smoothness, Materi
     default:
     case 0: return opUnionMat(d,result,matA,matB);
     case 1: return opSubtraction(d,result);
-    case 2: return opIntersection(d,result);
-    case 3: return opSmoothUnionMat(d,result,smoothness,matA,matB);
-    case 4: return opSmoothSubtraction(d,result,smoothness);
-    case 5: return opSmoothIntersection(d,result,smoothness);
+    case 2: return opSmoothUnionMat(d,result,smoothness,matA,matB);
+    case 3: return opSmoothSubtraction(d,result,smoothness);
   }
 }
 
@@ -299,6 +295,11 @@ float applyMorphOp(float3 p, float prevPrim, int morphPrim, float morph, float r
 
 float applyTerrainOp(float3 p, float d, int octaves, float4 terrain, float minD){
   float s = terrain.x, n;
+
+  // Octaves LOD (Optional)
+  //float d_to_cam = clamp(length(p - sceneInfo.cameraPosition.xyz) / 10.0, 0.0, 1.0);
+  //octaves = lerp(octaves, 2.0, d_to_cam);
+
   for(int i=0; i<octaves; i++){
 
     if(i==0){

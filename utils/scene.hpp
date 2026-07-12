@@ -17,7 +17,7 @@ static constexpr const char * PrimTypeNames[] = {
 };
 
 static constexpr const char *CombinationOpNames[] = {
-  "Union", "Substraction", "Intersection",
+  "Union", "Substraction"
 };
 
 static constexpr const char *RepetitionOpnames[] = {
@@ -42,7 +42,7 @@ static constexpr const char *MaterialTypeNames[] = {
 
 class Scene {
 public:
-  enum class CombinationOp { Union, Substraction, Intersection };
+  enum class CombinationOp { Union, Substraction };
   enum class RepetitionOp { NoneOP, LimRepetition, IlimRepetition };
   enum class DeformationOp { NoneOP, Elongate };
   enum class UserAction { NoneAction, Launch, Carve, Tunnel };

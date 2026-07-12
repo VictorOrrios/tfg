@@ -454,7 +454,7 @@ void solveStaticCollisionSphereConstraint(
       touching = true;
       float3 normal = evalNormalStatic(global_p,nearRange);
       float depth = -sdV;
-      float C = clamp(depth,0.0,max_corr_length);
+      float C = depth;
       float3 corr = normal*C;
       applyCorrectionSphere(
         dyn,
@@ -642,9 +642,9 @@ void integrateMain(uint3 threadIdx : SV_DispatchThreadID)
   int dObjIdx = threadIdx.x;
   DynamicObject dyn = dynamic_objects[dObjIdx];
 
-  const float bodyColissionCompliance = 0.0/pushConst.pyp.dts;
-  const float colissionCompliance = 0.0/pushConst.pyp.dts;
-  const float dragCompliance = 0.1/pushConst.pyp.dts;
+  const float colissionCompliance = 0.00000;
+  //const float colissionCompliance = 0.00002;
+  const float dragCompliance = 0.1/pushConst.pyp.dts;  
   const float gravity_length_dts = length(pushConst.pyp.gravity)*pushConst.pyp.dts;
 
   if(dyn.type == PrimType::Sphere){
@@ -698,9 +698,6 @@ void constraintMain(uint3 threadIdx : SV_DispatchThreadID)
   DynamicObject dyn = dynamic_objects[dObjIdx];
 
   const float bodyColissionCompliance = 0.0/pushConst.pyp.dts;
-  const float colissionCompliance = 0.0/pushConst.pyp.dts;
-  const float dragCompliance = 0.1/pushConst.pyp.dts;
-  const float gravity_length_dts = length(pushConst.pyp.gravity)*pushConst.pyp.dts;
 
   if(dyn.type == PrimType::Sphere){
     for(int i = 0; i<pushConst.numDynamicObjects; i++){

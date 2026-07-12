@@ -107,7 +107,7 @@ bool sphereTraceBrickShadow(Ray r, int pointer, float3 brickPos, int level){
 
 // Pre: r.orig must be inside bbox
 float sphereTraceBbox(Ray r, Bbox bbox, out float3 debug){
-  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.23);
+  const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
 
   // Debug visualizers
   const bool drawSilhouette   = debugColor && true;   // Draw the silhouette of the grid
@@ -150,7 +150,6 @@ float sphereTraceBbox(Ray r, Bbox bbox, out float3 debug){
     float t = triLerp(voxelCoor,sBottom,sTop);
 
     // Cutoff condition: A distance of 1/10 voxels
-    // TODO: Fine tune to better performance/quality
     if(t < voxel_size/10){
 
       // Debug visualizer of step count
@@ -322,8 +321,11 @@ float traceScene(Ray r, out float3 normal, out Material mat, out float3 debug){
 
     // Trace bbox using the method defined by user
     float objDepth;
-    objDepth = sphereTraceBbox(bboxRay,bbox,debug);
-    //objDepth = evalTraceMap(bboxRay,length(far - bboxRay.orig));
+    if(pushConst.lp.tracingMode == TracingModes::compute){
+      objDepth = sphereTraceBbox(bboxRay,bbox,debug);
+    }else{
+      objDepth = evalTraceMap(bboxRay,length(far - bboxRay.orig));
+    }
 
     // Update min depth
     if(objDepth >= 0){
@@ -342,8 +344,11 @@ float traceScene(Ray r, out float3 normal, out Material mat, out float3 debug){
   if(depth >= 0){
     float3 p = r.orig + r.dir*depth;
 
-    normal = analyticNormal(p);
-    //normal = evalNormal(p);
+    if(pushConst.lp.tracingMode == TracingModes::compute){
+      normal = analyticNormal(p);
+    }else{
+      normal = evalNormal(p);
+    }
     
     mat = evalMat(p,normal);
     //mat = sampleInterpolatedMat(p);

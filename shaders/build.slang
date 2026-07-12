@@ -6,7 +6,6 @@
 
 
 int allocPointer(){
-  // TODO: Maybe add a max value check
   int index;
   InterlockedAdd(counters[int(Counters::allocCounter)],1,index);
   index = index%NUM_BRICKS_IN_ATLAS;
@@ -57,7 +56,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   const int3 hole_max = int3(NUM_BRICKS_PER_AXIS*3/4);
 
   const int jobIdx = tId.z/MAX_BUILD_JOB_SIZE;
-  const BuildJob job = build_job_queue[jobIdx]; // TODO: Group shared memory might be faster
+  const BuildJob job = build_job_queue[jobIdx]; // Group shared memory might be faster
   const int3 brickOffset = int3(tId.x, tId.y, tId.z%MAX_BUILD_JOB_SIZE);
 
   // Out of bounds thread for this build job => Discard
@@ -95,26 +94,32 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     }else{
       const float brick_size = BRICK_SIZES[level];
       const float max_brick_value = MAX_BRICK_VALUES[level];
+      const float max_brick_instance_value = MAX_BRICK_INSTANCE_VALUES[level];
 
       // Evaluate scene at brick center
       float3 p = (float3(brickId)+0.5)*brick_size;
-      uint mat = 0;
       float centerSDF = map(p,level);
+
+      bool outside_max = abs(centerSDF) > max_brick_value;            // Atlas cull
+      bool has_surface = abs(centerSDF) <= max_brick_instance_value;  // RTX Instance cull
+
+      int instance_ptr = prevClipPointer; // Pointer to update/mask
       
       // Uniform value brick check
-      if(abs(centerSDF) > max_brick_value){
-        if(brick_allocated){
-          freePointer(prevClipPointer);
-          maskInstance(prevClipPointer);
-        }
+      if(outside_max){
+        if(brick_allocated) freePointer(prevClipPointer);
         int newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
         clipMap[clipIndex] = newPointer | DIRTY_BIT;
       }else if(!brick_allocated){
         int newPointer = allocPointer();
-        updateInstance(newPointer,brickId,level);
+        instance_ptr = newPointer;
         clipMap[clipIndex] = newPointer | DIRTY_BIT;
-      }else{
-        updateInstance(prevClipPointer,brickId,level);
+      }
+
+      if(has_surface){
+        updateInstance(instance_ptr,brickId,level);
+      }else if(brick_allocated){
+        maskInstance(instance_ptr);
       }
     }
 

@@ -1,0 +1,226 @@
+{
+    "value0": [
+        {
+            "value0": 16,
+            "value1": false,
+            "value2": false,
+            "value3": {
+                "value0": 4,
+                "value1": 0,
+                "value2": {
+                    "value0": 0.0,
+                    "value1": 0.0,
+                    "value2": 0.0
+                },
+                "value3": {
+                    "value0": 0.0,
+                    "value1": 0.0,
+                    "value2": 0.0,
+                    "value3": 1.0
+                },
+                "value4": {
+                    "value0": 1.0,
+                    "value1": -0.0,
+                    "value2": 0.0,
+                    "value3": -0.0,
+                    "value4": -0.0,
+                    "value5": 1.0,
+                    "value6": -0.0,
+                    "value7": 0.0,
+                    "value8": 0.0,
+                    "value9": -0.0,
+                    "value10": 1.0,
+                    "value11": -0.0,
+                    "value12": -0.0,
+                    "value13": 0.0,
+                    "value14": -0.0,
+                    "value15": 1.0
+                },
+                "value5": 1.0,
+                "value6": {
+                    "value0": {
+                        "value0": -123.6500015258789,
+                        "value1": -21.649999618530275,
+                        "value2": -47.150001525878909
+                    },
+                    "value1": {
+                        "value0": 123.6500015258789,
+                        "value1": 21.649999618530275,
+                        "value2": 47.150001525878909
+                    }
+                },
+                "value7": {
+                    "value0": {
+                        "value0": -123.6500015258789,
+                        "value1": -21.649999618530275,
+                        "value2": -47.150001525878909
+                    },
+                    "value1": {
+                        "value0": 123.6500015258789,
+                        "value1": 21.649999618530275,
+                        "value2": 47.150001525878909
+                    }
+                }
+            },
+            "value4": {
+                "value0": 0.0,
+                "value1": 0,
+                "value2": 0.0,
+                "value3": 1,
+                "value4": {
+                    "value0": 1.5,
+                    "value1": 1.5,
+                    "value2": 1.5
+                },
+                "value5": {
+                    "value0": 82,
+                    "value1": 14,
+                    "value2": 31
+                },
+                "value6": 0,
+                "value7": {
+                    "value0": 0.0,
+                    "value1": 0.0,
+                    "value2": 0.0
+                },
+                "value8": 0,
+                "value9": {
+                    "value0": 1.0,
+                    "value1": 0.5,
+                    "value2": 0.10000000149011612,
+                    "value3": 0.30000001192092898
+                },
+                "value10": 0,
+                "value11": 0.0
+            },
+            "value5": {
+                "value0": false,
+                "value1": 1.0,
+                "value2": 0.0,
+                "value3": {
+                    "value0": 0.0,
+                    "value1": 0.0,
+                    "value2": 0.0
+                },
+                "value4": {
+                    "value0": 0.0,
+                    "value1": 0.0,
+                    "value2": 0.0,
+                    "value3": 0.0
+                },
+                "value5": {
+                    "value0": 0.0,
+                    "value1": 0.0,
+                    "value2": 0.0,
+                    "value3": 1.0
+                },
+                "value6": {
+                    "value0": 0.0,
+                    "value1": 0.0,
+                    "value2": 0.0
+                },
+                "value7": {
+                    "value0": 0.0,
+                    "value1": 0.0,
+                    "value2": 0.0
+                },
+                "value8": {
+                    "value0": 0.0,
+                    "value1": 0.0,
+                    "value2": 0.0
+                },
+                "value9": {
+                    "value0": 0.0,
+                    "value1": 0.0,
+                    "value2": 0.0
+                },
+                "value10": {
+                    "value0": 0.0,
+                    "value1": 0.0,
+                    "value2": 0.0
+                },
+                "value11": {
+                    "value0": 0.0,
+                    "value1": 0.0,
+                    "value2": 0.0
+                }
+            },
+            "value6": {
+                "value0": 7,
+                "value1": 1,
+                "value2": {
+                    "value0": 1.0,
+                    "value1": 0.0,
+                    "value2": 0.0,
+                    "value3": 0.0,
+                    "value4": 0.0,
+                    "value5": 1.0,
+                    "value6": 0.0,
+                    "value7": 0.0,
+                    "value8": 0.0,
+                    "value9": 0.0,
+                    "value10": 1.0,
+                    "value11": 0.0,
+                    "value12": 0.0,
+                    "value13": 0.0,
+                    "value14": 0.0,
+                    "value15": 1.0
+                }
+            }
+        }
+    ],
+    "value1": [
+        {
+            "value0": 1,
+            "value1": "Default",
+            "value2": {
+                "value0": 1.0,
+                "value1": 0.9998999834060669,
+                "value2": 0.9998999834060669
+            },
+            "value3": 1.0,
+            "value4": 0.34299999475479128,
+            "value5": 0.07699999958276749,
+            "value6": 0
+        },
+        {
+            "value0": 2,
+            "value1": "Red",
+            "value2": {
+                "value0": 1.0,
+                "value1": 0.0,
+                "value2": 0.0
+            },
+            "value3": 64.0,
+            "value4": 0.800000011920929,
+            "value5": 0.0,
+            "value6": 0
+        },
+        {
+            "value0": 3,
+            "value1": "Green",
+            "value2": {
+                "value0": 0.0,
+                "value1": 1.0,
+                "value2": 0.0
+            },
+            "value3": 64.0,
+            "value4": 0.800000011920929,
+            "value5": 0.0,
+            "value6": 0
+        },
+        {
+            "value0": 4,
+            "value1": "Blue",
+            "value2": {
+                "value0": 0.2199999988079071,
+                "value1": 0.5329999923706055,
+                "value2": 1.0
+            },
+            "value3": 64.0,
+            "value4": 0.800000011920929,
+            "value5": 0.0,
+            "value6": 0
+        }
+    ]
+}

@@ -52,7 +52,7 @@ const static int NUM_BRICKS_IN_ATLAS = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS
 #define L0_AXIS_WORLD_SIZE  2.0 // Axis size of the first clip map level
 #define CLIPMAP_LEVELS      8   // How many levels are in the clip map | WARNING: If updated then all sizes MUST BE UPDATED TO
 #define BRICK_SIZE          8   // How many values per axis does a brick store  
-#define MAT_PER_BRICK_AXIS  4   // How many materials are stored per brick axis
+#define MAT_PER_BRICK_AXIS  0   // How many materials are stored per brick axis. Needs to be >= 2 to work, if not it deactivates
 CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS) // Power of two needed for faster calculations
 
 // Extent calculations
@@ -65,7 +65,21 @@ const static int NUM_VALUES_PER_AXIS = NUM_BRICKS_PER_AXIS*BRICK_SIZE;
 #define S_BRICK(level) (S_AXIS(level) / NUM_BRICKS_PER_AXIS)
 #define S_VOXEL(level) (S_BRICK(level) / (BRICK_SIZE - 1))
 #define MAX_VOXEL_V(level) (float(2.5 * sqrt(3.0 * S_VOXEL(level) * S_VOXEL(level))))
-#define MAX_BRICK_V(level) (float(sqrt(3.0 * S_BRICK(level) * S_BRICK(level)) / 2.0 + MAX_VOXEL_V(level)))
+#define BRICK_R(level) (float(sqrt(3.0)/2.0 * S_BRICK(level)))
+#define MAX_BRICK_V(level) (BRICK_R(level) + MAX_VOXEL_V(level))
+#define MAX_BRICK_I_V(level) (BRICK_R(level) + float(S_VOXEL(level))/10.0f)
+/* 
+const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
+  S_AXIS(0),S_AXIS(1),S_AXIS(2),S_AXIS(3),S_AXIS(4),S_AXIS(5),S_AXIS(6),S_AXIS(7),S_AXIS(8),S_AXIS(9)};
+const static float BRICK_SIZES[CLIPMAP_LEVELS] = {
+  S_BRICK(0),S_BRICK(1),S_BRICK(2),S_BRICK(3),S_BRICK(4),S_BRICK(5),S_BRICK(6),S_BRICK(7),S_BRICK(8),S_BRICK(9)};
+const static float VOXEL_SIZES[CLIPMAP_LEVELS] = {
+  S_VOXEL(0),S_VOXEL(1),S_VOXEL(2),S_VOXEL(3),S_VOXEL(4),S_VOXEL(5),S_VOXEL(6),S_VOXEL(7),S_VOXEL(8),S_VOXEL(9)};
+const static float MAX_VOXEL_VALUES[CLIPMAP_LEVELS] = {
+  MAX_VOXEL_V(0),MAX_VOXEL_V(1),MAX_VOXEL_V(2),MAX_VOXEL_V(3),MAX_VOXEL_V(4),MAX_VOXEL_V(5),MAX_VOXEL_V(6),MAX_VOXEL_V(7),MAX_VOXEL_V(8),MAX_VOXEL_V(9)};
+const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
+  MAX_BRICK_V(0),MAX_BRICK_V(1),MAX_BRICK_V(2),MAX_BRICK_V(3),MAX_BRICK_V(4),MAX_BRICK_V(5),MAX_BRICK_V(6),MAX_BRICK_V(7),MAX_BRICK_V(8),MAX_BRICK_V(9)};
+ */
 
 const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
   S_AXIS(0),S_AXIS(1),S_AXIS(2),S_AXIS(3),S_AXIS(4),S_AXIS(5),S_AXIS(6),S_AXIS(7)};
@@ -77,7 +91,9 @@ const static float MAX_VOXEL_VALUES[CLIPMAP_LEVELS] = {
   MAX_VOXEL_V(0),MAX_VOXEL_V(1),MAX_VOXEL_V(2),MAX_VOXEL_V(3),MAX_VOXEL_V(4),MAX_VOXEL_V(5),MAX_VOXEL_V(6),MAX_VOXEL_V(7)};
 const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
   MAX_BRICK_V(0),MAX_BRICK_V(1),MAX_BRICK_V(2),MAX_BRICK_V(3),MAX_BRICK_V(4),MAX_BRICK_V(5),MAX_BRICK_V(6),MAX_BRICK_V(7)};
-
+const static float MAX_BRICK_INSTANCE_VALUES[CLIPMAP_LEVELS] = {
+  MAX_BRICK_I_V(0),MAX_BRICK_I_V(1),MAX_BRICK_I_V(2),MAX_BRICK_I_V(3),MAX_BRICK_I_V(4),MAX_BRICK_I_V(5),MAX_BRICK_I_V(6),MAX_BRICK_I_V(7)};
+ 
 /* 
 const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
   S_AXIS(0),S_AXIS(1)};
@@ -101,8 +117,54 @@ const static float MAX_VOXEL_VALUES[CLIPMAP_LEVELS] = {
   MAX_VOXEL_V(0)};
 const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
   MAX_BRICK_V(0)};
-  
  */
+/* 
+const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
+    S_AXIS(0),  S_AXIS(1),  S_AXIS(2),  S_AXIS(3),  S_AXIS(4),
+    S_AXIS(5),  S_AXIS(6),  S_AXIS(7),  S_AXIS(8),  S_AXIS(9),
+    S_AXIS(10), S_AXIS(11), S_AXIS(12), S_AXIS(13), S_AXIS(14),
+    S_AXIS(15), S_AXIS(16), S_AXIS(17), S_AXIS(18), S_AXIS(19),
+    S_AXIS(20), S_AXIS(21), S_AXIS(22), S_AXIS(23), S_AXIS(24),
+    S_AXIS(25), S_AXIS(26), S_AXIS(27), S_AXIS(28), S_AXIS(29)
+};
+
+const static float BRICK_SIZES[CLIPMAP_LEVELS] = {
+    S_BRICK(0),  S_BRICK(1),  S_BRICK(2),  S_BRICK(3),  S_BRICK(4),
+    S_BRICK(5),  S_BRICK(6),  S_BRICK(7),  S_BRICK(8),  S_BRICK(9),
+    S_BRICK(10), S_BRICK(11), S_BRICK(12), S_BRICK(13), S_BRICK(14),
+    S_BRICK(15), S_BRICK(16), S_BRICK(17), S_BRICK(18), S_BRICK(19),
+    S_BRICK(20), S_BRICK(21), S_BRICK(22), S_BRICK(23), S_BRICK(24),
+    S_BRICK(25), S_BRICK(26), S_BRICK(27), S_BRICK(28), S_BRICK(29)
+};
+
+const static float VOXEL_SIZES[CLIPMAP_LEVELS] = {
+    S_VOXEL(0),  S_VOXEL(1),  S_VOXEL(2),  S_VOXEL(3),  S_VOXEL(4),
+    S_VOXEL(5),  S_VOXEL(6),  S_VOXEL(7),  S_VOXEL(8),  S_VOXEL(9),
+    S_VOXEL(10), S_VOXEL(11), S_VOXEL(12), S_VOXEL(13), S_VOXEL(14),
+    S_VOXEL(15), S_VOXEL(16), S_VOXEL(17), S_VOXEL(18), S_VOXEL(19),
+    S_VOXEL(20), S_VOXEL(21), S_VOXEL(22), S_VOXEL(23), S_VOXEL(24),
+    S_VOXEL(25), S_VOXEL(26), S_VOXEL(27), S_VOXEL(28), S_VOXEL(29)
+};
+
+const static float MAX_VOXEL_VALUES[CLIPMAP_LEVELS] = {
+    MAX_VOXEL_V(0),  MAX_VOXEL_V(1),  MAX_VOXEL_V(2),  MAX_VOXEL_V(3),  MAX_VOXEL_V(4),
+    MAX_VOXEL_V(5),  MAX_VOXEL_V(6),  MAX_VOXEL_V(7),  MAX_VOXEL_V(8),  MAX_VOXEL_V(9),
+    MAX_VOXEL_V(10), MAX_VOXEL_V(11), MAX_VOXEL_V(12), MAX_VOXEL_V(13), MAX_VOXEL_V(14),
+    MAX_VOXEL_V(15), MAX_VOXEL_V(16), MAX_VOXEL_V(17), MAX_VOXEL_V(18), MAX_VOXEL_V(19),
+    MAX_VOXEL_V(20), MAX_VOXEL_V(21), MAX_VOXEL_V(22), MAX_VOXEL_V(23), MAX_VOXEL_V(24),
+    MAX_VOXEL_V(25), MAX_VOXEL_V(26), MAX_VOXEL_V(27), MAX_VOXEL_V(28), MAX_VOXEL_V(29)
+};
+
+const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
+    MAX_BRICK_V(0),  MAX_BRICK_V(1),  MAX_BRICK_V(2),  MAX_BRICK_V(3),  MAX_BRICK_V(4),
+    MAX_BRICK_V(5),  MAX_BRICK_V(6),  MAX_BRICK_V(7),  MAX_BRICK_V(8),  MAX_BRICK_V(9),
+    MAX_BRICK_V(10), MAX_BRICK_V(11), MAX_BRICK_V(12), MAX_BRICK_V(13), MAX_BRICK_V(14),
+    MAX_BRICK_V(15), MAX_BRICK_V(16), MAX_BRICK_V(17), MAX_BRICK_V(18), MAX_BRICK_V(19),
+    MAX_BRICK_V(20), MAX_BRICK_V(21), MAX_BRICK_V(22), MAX_BRICK_V(23), MAX_BRICK_V(24),
+    MAX_BRICK_V(25), MAX_BRICK_V(26), MAX_BRICK_V(27), MAX_BRICK_V(28), MAX_BRICK_V(29)
+};
+ */
+
 // Build & Brick jobs constants
 #define MAX_BUILD_JOB_SIZE 8
 #define BRICK_JOB_GROUP_X_DISPATCH_SIZE 256
@@ -179,18 +241,28 @@ enum DebugModes{
   dmAO,
   dmBoundingBox
 };
+
+enum TracingModes{
+  compute=0, rtx, sphere
+};
   
 enum class PrimType { Empty=0, Box, Sphere, Torus, Snowman, Plane };
 enum class MaterialType { Normal=0, Debug, Terrain };
 
 struct LightinParams{
   float3 lightDir         = normalize(float3(0.9f,0.2f,0.2f));
-  float3 lightColor       = float3(0.644, 0.635, 0.608);
-  float  lightPower       = 4.0f;
+  float3 lightDirView     = normalize(float3(0.9f,0.2f,0.2f));
+  float3 lightColor       = float3(1.0,0.9,0.7);
+  float  lightPower       = 4.8f;
+  float3 bowDir           = normalize(float3(0.259f,0.797f,0.556f));
+  float3 bowDirView       = normalize(float3(0.67f,0.55f,-0.5f));
+  float  bowFar           = 0.785;
+  float  bowNear          = 0.809;
+  float  bowFade          = 0.95;
   float3 ambientTop       = float3(0.3f, 0.35f, 0.5f);
   float3 ambientBottom    = float3(0.1f, 0.1f, 0.1f);
   float3 fogColor         = float3(0.5f, 0.6f, 0.7f);
-  float  fogDensity       = 0.03F;
+  float  fogDensity       = 0.022F;
   float  aoRadius         = 0.5f;
   float  aoBias           = 0.001f;
   int    aoSamples        = 80;
@@ -198,6 +270,7 @@ struct LightinParams{
   int    shadowSamples    = 2;
   int    shadowTexelSize  = 4;
   float  shadowSharpness  = 50.0f;
+  int    tracingMode      = 0;
 };
 
 struct DebugParams{

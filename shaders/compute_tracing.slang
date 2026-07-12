@@ -1,31 +1,9 @@
-/*
- * Copyright (c) 2022-2026, NVIDIA CORPORATION.  All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
- * SPDX-License-Identifier: Apache-2.0
- */
-// TODO: Change banner
-
 #include "shaderio.h"               // Shared definitions with CPU
 #include "utils/common.slang"       // Shared definitions with shaders
 #include "utils/palettes.slang"     // Debug color palette
 #include "utils/descriptors.slang"  // External memory definitions
 #include "utils/transforms.slang"   // World/View/Clip transforms
 #include "utils/tracing.slang"      // Ray/Sphere tracing functions
-
-
 
 
 [shader("compute")]
@@ -62,7 +40,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
     alpha = 0.0;
     metalness = 0.0;
     debug = r.dir;
-    position = float3(0.0,0.0,-1000000.0);
+    position = worldPoint2viewSpace(r.orig + r.dir);
   }else{
     albedo = mat.albedo_shininess.xyz;
     shininess = mat.albedo_shininess.w;
@@ -70,13 +48,19 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID){
     metalness = mat.alpha_metalness.y;
     position = worldPoint2viewSpace(r.orig + r.dir*depth);
 
+    // If the pixel needs to compute shadow
     if(all(fragCoord % pushConst.lp.shadowTexelSize == pushConst.lp.shadowTexelSize/2)){
-      if(dot(normal,pushConst.lp.lightDir) > -0.3){
+      if(pushConst.lp.shadowSamples == 0){
+      shadow = 1.0;
+      }else if(dot(normal,pushConst.lp.lightDir) > -0.3){
         const float k = 180.0;
         float3 p = r.orig + r.dir*depth;
         p += normal * 0.03;
-        //shadow = evalShadow(p,k);
-        shadow = traceShadow(p,k);
+        if(pushConst.lp.tracingMode == TracingModes::compute){
+          shadow = traceShadow(p,k);
+        }else{
+          shadow = evalShadow(p,k);
+        }
       }else{
         shadow = 0.0;
       }

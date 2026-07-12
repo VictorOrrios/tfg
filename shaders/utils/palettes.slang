@@ -7,8 +7,7 @@
 //--------------------------------------
 
 #ifdef NDEBUGSHADER
-  // TODO: Change to false for final release and boost performance
-  const static bool debugActive = true;
+  const static bool debugActive = false;
 #else
   const static bool debugActive = true;
 #endif
@@ -122,6 +121,10 @@ float3 scalarToColor(float x){
     case 4: return paletteTurbo(x);
     case 5: return paletteInferno(x);
   }
+}
+
+float3 scalarToRainbow(float x){
+  return paletteTurbo(x);
 }
 
 float3 scalarToStepedColor(float x){

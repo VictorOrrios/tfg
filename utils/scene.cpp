@@ -1,25 +1,28 @@
-// TODO: Clean imports
 #include "scene.hpp"
+
 #include "rng.hpp"
-#include "glm/common.hpp"
-#include "glm/exponential.hpp"
-#include "glm/ext/matrix_transform.hpp"
-#include "glm/ext/vector_int3.hpp"
-#include "glm/gtc/type_ptr.hpp"
-#include "glm/trigonometric.hpp"
-#include <glm/gtx/rotate_vector.hpp>
-#include "nvutils/bounding_box.hpp"
-#include "nvutils/logger.hpp"
 #include "sdf.hpp"
-#include "rng.hpp"
+
+#include <omp.h>
+#include <string>
+#include <vector>
+
+#include <imgui.h>
+#include <nvutils/bounding_box.hpp>
+#include <nvutils/logger.hpp>
+
+#include <glm/common.hpp>
+#include <glm/exponential.hpp>
+#include <glm/ext/matrix_transform.hpp>
+#include <glm/ext/vector_int3.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/trigonometric.hpp>
+#include <glm/gtx/rotate_vector.hpp>
 #include <glm/ext/vector_float3.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/matrix.hpp>
-#include <imgui.h>
-#include <omp.h>
-#include <string>
-#include <vector>
+
 
 //------------------
 // Helper functions
@@ -158,7 +161,7 @@ void Scene::drawNodeParams(){
 
     const std::string id = "##" + std::to_string(selectedNode.id);
     bool dirty = false;
-    int combOpUI = selectedNode.sdp.combOp >= 3 ? selectedNode.sdp.combOp - 3
+    int combOpUI = selectedNode.sdp.combOp >= 2 ? selectedNode.sdp.combOp - 2
                                               : selectedNode.sdp.combOp;
 
     dirty |= ComboVector("Material", &selectedNode.gp.mat, m_mat);
@@ -253,7 +256,7 @@ void Scene::drawNodeParams(){
       // If smoothness != 0 then apply the smooth combination operations (3,4,5)
       // if not use the faster version (0,1,2)
       if (selectedNode.sdp.smoothness > 0.0f) {
-        selectedNode.sdp.combOp = combOpUI + 3;
+        selectedNode.sdp.combOp = combOpUI + 2;
       } else {
         selectedNode.sdp.combOp = combOpUI;
       }
@@ -510,7 +513,6 @@ void Scene::generateMatrix(Node *n) {
   n->gp.tInv = glm::inverse(transform4x4);
 }
 
-// TODO: Make bboxes with intersection op include all bbox above it in the scene
 void Scene::generateBBox(Node *n) {
   const glm::vec3 worldMin(-1000.0);
   const glm::vec3 worldMax(1000.0);
@@ -674,6 +676,7 @@ void Scene::processDynamicObjects(std::vector<shaderio::DynamicObject> data){
     m_ignoreNextDynamicUpdate = false;
     return;
   }
+  static float time = 0.0;
 
   for (auto& dnode : data) {
     for(auto& node: m_root){
@@ -695,6 +698,16 @@ void Scene::processDynamicObjects(std::vector<shaderio::DynamicObject> data){
       pyp.omega_delta = dnode.omega_delta;
       
       updateNodeData(&node);
+
+      const bool LOG_Y_POS = false;
+      float now = static_cast<float>(ImGui::GetTime());
+      float pos = node.gp.position.y;
+      if(pos<3.5 && LOG_Y_POS){
+        LOGI("%f, %f\n",now-time,pos);
+      }else{
+        time = now;
+      }
+
     }
   }
 }
@@ -1087,7 +1100,7 @@ Scene::Scene() {
   box->gp.scale = 0.2;
   box->gp.position = glm::vec3(-0.2, -0.15, -0.75);
   box->gp.rotation = glm::vec3(0.2, 0.4, 0.4);
-  box->sdp.combOp = (int)CombinationOp::Union + 3;
+  box->sdp.combOp = (int)CombinationOp::Union + 2;
   box->sdp.smoothness = 0.02;
   box->gp.mat = red;
   updateNodeData(box);
@@ -1152,11 +1165,11 @@ Scene::Scene() {
   box_main->gp.mat = green;
   updateNodeData(box_main);
   addNode(box_main);
-/* 
-  for(int i = 0; i<20; i++){
+
+  for(int i = 0; i<0; i++){
     Node *body;
     
-    if(randomFloat1()>=0.5){
+    if(randomFloat1()>=0.5 && false){
       body = createNode(shaderio::PrimType::Box);
     }else{
       body = createNode(shaderio::PrimType::Sphere);
@@ -1168,7 +1181,7 @@ Scene::Scene() {
     body->gp.position = glm::vec3(1.0+randomFloat1()*2.0,randomFloat1()*1.0,1.0+randomFloat1()*2.0);
     body->gp.rotation = glm::vec3(0);
     body->gp.mat = red;
-    //body->sdp.combOp = (int)CombinationOp::Union + 3;
+    //body->sdp.combOp = (int)CombinationOp::Union + 2;
     //body->sdp.smoothness = 0.02;
     updateNodeData(body);
     body->pyp.physicsActive = true;
@@ -1176,11 +1189,11 @@ Scene::Scene() {
     updateNodeData(body);
     addNode(body);
   }
- */
+ 
   for(int i = 0; i<0; i++){
     Node *body = createNode(shaderio::PrimType::Box);
     body->gp.scale = 0.2;
-    body->gp.position = glm::vec3(1.0+randomFloat1(),0.0,1.0+randomFloat1());
+    body->gp.position = glm::vec3(1.0+randomFloat1()*2.0,randomFloat1()*2.0+1.0,1.0+randomFloat1()*2.0);
     body->gp.rotation = glm::vec3(0);
     body->gp.mat = blue;
     body->pyp.physicsActive = true;

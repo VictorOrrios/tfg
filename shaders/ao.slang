@@ -48,6 +48,25 @@ float gridAo(float2 fragCoord, float3 N, float3 fragPos){
   return 1.0 - (occlusion / pushConst.lp.aoSamples);
 }
 
+float evalAo(float2 fragCoord, float3 N, float3 fragPos){
+  float3 fragWorldPos = viewPoint2worldPoint(fragPos);
+  float3 noise = noiseImage[(int2(fragCoord))%NOISE_TEX_SIZE].xyz;
+  float3 tangent = normalize(cross(noise,N));
+  float3 bitangent = cross(N, tangent);
+  float3x3 TBN = float3x3(tangent, bitangent, N);
+
+  float occlusion = 0.0;
+  for(int i = 0; i < pushConst.lp.aoSamples; i++){
+    float3 randHemiVec = aoKernels[i];
+    float3 sampleOffset = mul(randHemiVec, TBN);
+    float3 samplePos = fragWorldPos + sampleOffset;
+    float sdfValue = map(samplePos,0);
+    occlusion += (sdfValue <= pushConst.lp.aoBias ? 1.0 : 0.0);
+  }
+
+  return 1.0 - (occlusion / pushConst.lp.aoSamples);
+}
+
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE_2D, WORKGROUP_SIZE_2D, 1)]
 void computeMain(uint3 threadIdx : SV_DispatchThreadID)
@@ -60,6 +79,11 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   if(any(fragCoord >= iResolution))
     return;
 
+  if(pushConst.lp.aoSamples == 0){
+    aoImage[fragCoord] = 1.0;
+    return;
+  }
+
   float occlussion = 1.0;
   float depth = depthImage[int2(sampleCoord)];
   if(depth >= 0){
@@ -68,7 +92,12 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
     float3 fragPos = positionImage[int2(sampleCoord)].xyz;
 
     //occlussion = ssao(sampleCoord,N,fragPos);
-    occlussion = gridAo(sampleCoord,N,fragPos);
+    if(pushConst.lp.tracingMode == TracingModes::sphere){
+      occlussion = evalAo(sampleCoord,N,fragPos);
+    }else{
+      //occlussion = ssao(sampleCoord,N,fragPos);
+      occlussion = gridAo(sampleCoord,N,fragPos);
+    }
   }
 
   aoImage[fragCoord] = occlussion;

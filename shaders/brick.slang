@@ -22,7 +22,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
   int3 brickIndex = id2index(brickId);
   int3 clipIndex = brickIdx2clipIdx(brickIndex,level);
 
-  // Clean dirty bit from pointer. TODO: This executes BRICK_SIZE³ times per brick
+  // Clean dirty bit from pointer. This executes BRICK_SIZE³ times per brick, not optimal
   int clipPointer = clipMap[clipIndex];
   clipPointer = clipPointer & NOT_DIRTY_BIT;
   clipMap[clipIndex] = clipPointer;
@@ -45,7 +45,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     brickAtlas[atlasIndex] = sdfValue;
 
     // If it needs to generate a material 
-    if(all(brixelOffset < MAT_PER_BRICK_AXIS)){
+    if(MAT_PER_BRICK_AXIS > 1 && all(brixelOffset < MAT_PER_BRICK_AXIS)){
       float mat_voxel_size = brick_size / (MAT_PER_BRICK_AXIS-1);
       p = brickPos + float3(brixelOffset)*mat_voxel_size;
 

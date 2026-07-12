@@ -17,35 +17,37 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-// This example demonstrates a minimal Vulkan application using the NVIDIA
-// Vulkan utility libraries. It creates a window displaying a single colored
-// pixel that animates through the HSV color space.
-
-// TODO: Change the comment paragraph
+// This is an extension from the proyect template of nvpro_core2
 
 
-
-#include "glm/common.hpp"
-#include "glm/ext/scalar_constants.hpp"
-#include "nvvk/barriers.hpp"
-#include <cstring>
-#include <string>
 #define VMA_IMPLEMENTATION
-// TODO: Organize and label imports
 
 #include <vulkan/vulkan_core.h>
 
-#include <glm/glm.hpp>
-#include <glm/gtc/type_ptr.hpp>
+#include <cstring>
+#include <string>
+#include <cstdint>
+#include <vector>
+#include <numeric>
+
 #include <imgui/imgui.h>
 #include <imgui/backends/imgui_impl_vulkan.h>
-#include "utils/portable-file-dialogs.h"
+
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/fwd.hpp>
+#include <glm/geometric.hpp>
+#include <glm/common.hpp>
+#include <glm/ext/scalar_constants.hpp>
+#include <glm/matrix.hpp>
+#include <glm/vector_relational.hpp>
 
 #include "shaders/shaderio.h"           // Shared between host and device
 #include "utils/path_utils.hpp"
 #include "utils/utils.hpp"
 #include "utils/scene.hpp"
 #include "utils/rng.hpp"
+#include "utils/portable-file-dialogs.h"
 
 #include "_autogen/compute_tracing.slang.h"
 #include "_autogen/lighting.slang.h"
@@ -81,7 +83,7 @@
 #include <nvutils/parameter_parser.hpp>
 #include <nvvk/gbuffers.hpp>                // GBuffer management
 #include <nvslang/slang.hpp>              // Slang compiler
-#include "nvvk/descriptors.hpp"           // Descriptor set management
+#include <nvvk/descriptors.hpp>           // Descriptor set management
 #include <nvapp/elem_camera.hpp>           // Camera manipulator
 #include <nvutils/camera_manipulator.hpp>
 #include <nvgui/tonemapper.hpp>            // Tonemapper widget
@@ -91,14 +93,8 @@
 #include <nvvk/shaders.hpp>
 #include <nvvk/pipeline.hpp>
 #include <nvvk/compute_pipeline.hpp>
-#include <glm/fwd.hpp>
-#include <glm/geometric.hpp>
-#include <glm/matrix.hpp>
-#include <cstdint>
-#include <vector>
-#include <glm/vector_relational.hpp>
+#include <nvvk/barriers.hpp>
 #include <nvvk/resources.hpp>
-#include <numeric>
 #include <nvvk/validation_settings.hpp>  
 
 const char* DebugModes[] = {
@@ -122,9 +118,9 @@ const char* DebugPalettes[] = {
 };
 
 const char* TracingModes[] = {
-    "Compute",
-    "RTX",
-    "Map",
+  "Compute tracing",
+  "Hardware tracing",
+  "Sphere tracing"
 };
 
 const char* NormalModes[] = {
@@ -186,7 +182,6 @@ public:
     prop2.pNext          = &m_rtProperties;
     vkGetPhysicalDeviceProperties2(m_app->getPhysicalDevice(), &prop2);
 
-
     // Initialize allocator
     VmaAllocatorCreateInfo allocatorInfo = {
         .flags            = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
@@ -202,9 +197,6 @@ public:
     m_stagingUploader.init(&m_alloc, true);
     m_sbtGen.init(app->getDevice(),m_rtProperties);
 
-
-
-    // TODO set back to on when proper lighting solution is made
     // Set tonemapping off by default
     m_tonemapperData.isActive = 0;
 
@@ -218,6 +210,9 @@ public:
     createDescriptorSetLayout();    // Create the descriptor set layout for the pipelines
     compileShaders();               // Creates and compiles the shaders modules
     createPipelines();              // Create the pipelines
+
+    // Release all tmp memory
+    m_stagingUploader.releaseStaging();
 
     // Initialize the tonemapper with proe-compiled shader
     m_tonemapper.init(&m_alloc, std::span<const uint32_t>(tonemapper_slang));
@@ -239,6 +234,12 @@ public:
   void onDetach() override
   {
     NVVK_CHECK(vkDeviceWaitIdle(m_app->getDevice()));
+
+    // Log allocator stats
+    char* stats = nullptr;
+    vmaBuildStatsString(m_alloc, &stats, VK_TRUE);
+    printf("%s\n", stats);
+    vmaFreeStatsString(m_alloc, stats);
 
     VkDevice device = m_app->getDevice();
 
@@ -324,7 +325,7 @@ public:
         nvgui::tonemapperWidget(m_tonemapperData);
 
     if(!ImGui::CollapsingHeader("Tracing")){
-      ImGui::Checkbox("RTX", &m_rtxON);
+      ImGui::Combo("Tracing Mode", &m_pushConst.lp.tracingMode, TracingModes, IM_ARRAYSIZE(TracingModes));
     }
     
     if(!ImGui::CollapsingHeader("Simulation")){
@@ -343,15 +344,19 @@ public:
       ImGui::Text("Directional Light");
 
       dirtyLight |= ImGui::SliderFloat3("Direction", &m_pushConst.lp.lightDir.x, -1.0f, 1.0f);
-      dirtyLight |= ImGui::ColorEdit3("Zenith Color", &m_zenithColor.x);
-      dirtyLight |= ImGui::ColorEdit3("Horizon Color", &m_horizonColor.x);
+      ImGui::ColorEdit3("Color", &m_pushConst.lp.lightColor.x);
       ImGui::SliderFloat("Power", &m_pushConst.lp.lightPower,0.0,10.0f);
 
-      if(dirtyLight){
-        m_pushConst.lp.lightColor = glm::mix(
-          m_horizonColor,m_zenithColor,
-          glm::max(0.0f,glm::dot(m_pushConst.lp.lightDir,glm::vec3(0,1,0))));
+      ImGui::Text("Inverse rainbow");
+      dirtyLight |= ImGui::SliderFloat3("Direction##Rainbow", &m_pushConst.lp.bowDir.x, -1.0f, 1.0f);
+      ImGui::SliderFloat("Radius far##Rainbow", &m_pushConst.lp.bowFar,0.0,1.0f);
+      ImGui::SliderFloat("Radius near##Rainbow", &m_pushConst.lp.bowNear,0.0,1.0f);
+      ImGui::SliderFloat("Radius fade##Rainbow", &m_pushConst.lp.bowFade,0.0,10.0f);
+
+      if(dirtyLight || m_firstFrame){
         m_pushConst.lp.lightDir = glm::normalize(m_pushConst.lp.lightDir);
+        m_pushConst.lp.bowDir = glm::normalize(m_pushConst.lp.bowDir);
+        m_refreshShadowKernels = true;
       }
 
       ImGui::Separator();
@@ -368,13 +373,13 @@ public:
       ImGui::Text("Ambient occlussion");
       m_refreshAOkernels |= ImGui::SliderFloat("Radius", &m_pushConst.lp.aoRadius, 0.0f, 5.0f);
       ImGui::SliderFloat("Bias", &m_pushConst.lp.aoBias, 0.0f, 0.01f);
-      ImGui::SliderInt("Samples##AO", &m_pushConst.lp.aoSamples, 1, MAX_NUM_AO_KERNELS);
+      ImGui::SliderInt("Samples##AO", &m_pushConst.lp.aoSamples, 0, MAX_NUM_AO_KERNELS);
       ImGui::SliderInt("Texel size##AO", &m_pushConst.lp.aoTexelSize, 1, 20);
 
       ImGui::Separator();
       ImGui::Text("Shadows");
       m_refreshShadowKernels |= ImGui::SliderFloat("Sharpness", &m_pushConst.lp.shadowSharpness, 1.0f, 500.0f);
-      ImGui::SliderInt("Samples##Shadow", &m_pushConst.lp.shadowSamples, 1, MAX_NUM_SHADOW_KERNELS);
+      ImGui::SliderInt("Samples##Shadow", &m_pushConst.lp.shadowSamples, 0, MAX_NUM_SHADOW_KERNELS);
       ImGui::SliderInt("Texel size##Shadow", &m_pushConst.lp.shadowTexelSize, 1, 20);
     }
     
@@ -395,6 +400,16 @@ public:
       }
     }
 
+    ImGui::End();
+
+    ImGui::Begin("FPS");
+    ImGui::SetWindowFontScale(2.0f);
+
+    ImGui::Text("%d FPS / %.3f ms",
+        static_cast<int>(ImGui::GetIO().Framerate),
+        1000.0f / ImGui::GetIO().Framerate);
+
+    ImGui::SetWindowFontScale(1.0f);
     ImGui::End();
 
     // Draw scene tree and object tab
@@ -620,7 +635,7 @@ public:
 
     generationPass(cmd);
 
-    if(m_rtxON){
+    if(m_pushConst.lp.tracingMode == int(shaderio::TracingModes::rtx)){
       raytracingPass(cmd);
     }else{
       tracingPass(cmd);
@@ -824,7 +839,8 @@ public:
       { const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Brick jobs"); }
     }
     
-    if(m_rtxON && (m_updateTlas || sceneRefresh)){
+    bool rtxON = m_pushConst.lp.tracingMode == int(shaderio::TracingModes::rtx);
+    if(rtxON && (m_updateTlas || sceneRefresh)){
       updateTopLevelAS(cmd,m_rebuildTlas);
       m_rebuildTlas = false;
     }else{
@@ -834,7 +850,7 @@ public:
 
     // Post generation submit updates
     m_prevCamId0 = m_currCamId0;
-    m_updateTlas = !m_rtxON;
+    m_updateTlas = !rtxON;
   }
 
   void genJobsPass(VkCommandBuffer cmd){
@@ -892,6 +908,9 @@ public:
       updateShadowKernels(cmd);
       m_refreshShadowKernels = false;
     }
+
+    // Release all staging memory
+    m_stagingUploader.releaseStaging();
   }
 
   void waitForAuxFences(){
@@ -951,6 +970,7 @@ public:
   }
 
   void setupSlangCompiler(){
+
 #ifdef NDEBUG
     SCOPED_TIMER(std::string(__FUNCTION__)+": RELEASE configuration");
 #else
@@ -960,6 +980,7 @@ public:
     m_slangCompiler.addSearchPaths(nvsamples::getShaderDirs());
     m_slangCompiler.defaultTarget();
     m_slangCompiler.defaultOptions();
+
 #ifdef NDEBUG
     m_slangCompiler.addOption({slang::CompilerOptionName::Optimization,
         { slang::CompilerOptionValueKind::Int, SLANG_OPTIMIZATION_LEVEL_MAXIMAL }
@@ -982,6 +1003,7 @@ public:
         { slang::CompilerOptionValueKind::Int, 0 }
     });
 #endif
+
   }
 
   void setupGBuffers(){
@@ -1005,7 +1027,8 @@ public:
           VK_FORMAT_R8_UNORM,                 // AO buffer
           VK_FORMAT_R8_UNORM,                 // AO Scratch buffer
         },          
-        .depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
+        //.depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
+        .depthFormat    = VK_FORMAT_R32_SFLOAT,
         .imageSampler   = m_gBuffersSampler,
         .descriptorPool = m_app->getTextureDescriptorPool(),
     };
@@ -1083,15 +1106,13 @@ public:
     ci.extent = extent;
     ci.mipLevels = 1;
     ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT; // Read/write texture
-    // ci.queueFamilyIndexCount = 2;
-    // ci.pQueueFamilyIndices = queueFamilies; // TODO: Check if necesary
 
     VkImageViewCreateInfo vi = DEFAULT_VkImageViewCreateInfo;
-    vi.image = image.image;
     vi.viewType = VK_IMAGE_VIEW_TYPE_3D;
     vi.format = format;
 
     NVVK_CHECK(m_alloc.createImage(image, ci, vi));
+    vi.image = image.image;
 
     // Setup sampler to be ortholinear storage with no interpolation or repetition
     VkSamplerCreateInfo si = DEFAULT_VkSamplerCreateInfo;
@@ -1121,8 +1142,66 @@ public:
     NVVK_DBG_NAME(image.descriptor.imageView);
   }
 
+  void create3DStorageTextureFixed(nvvk::Image& image, VkExtent3D extent, VkFormat format, VkClearColorValue clearColor){
+    // Destroy if already created
+    m_alloc.destroyImage(image);
+
+
+    std::array<uint32_t, 1> queueFamilies = {
+        m_app->getQueue(0).familyIndex,
+    };
+
+    VkImageCreateInfo ci = DEFAULT_VkImageCreateInfo;
+    ci.imageType = VK_IMAGE_TYPE_3D;
+    ci.format = format;
+    ci.extent = extent;
+    ci.mipLevels = 1;
+    ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT; // Read/write texture
+
+    VkImageViewCreateInfo vi = DEFAULT_VkImageViewCreateInfo;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_3D;
+    vi.format = format;
+
+    VmaAllocationCreateInfo allocInfo{};  
+    allocInfo.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;  
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+    NVVK_CHECK(m_alloc.createImage(image, ci, vi, allocInfo));
+
+    vi.image = image.image;
+
+    // Setup sampler to be ortholinear storage with no interpolation or repetition
+    VkSamplerCreateInfo si = DEFAULT_VkSamplerCreateInfo;
+    si.magFilter    = VK_FILTER_NEAREST;
+    si.minFilter    = VK_FILTER_NEAREST;
+    si.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    si.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    si.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+
+    NVVK_CHECK(m_samplerPool.acquireSampler(image.descriptor.sampler, si));
+
+    image.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+/* 
+    VkCommandBuffer cmd = m_app->createTempCmdBuffer();
+
+    nvvk::cmdImageMemoryBarrier(cmd, {image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL});
+    VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdClearColorImage(cmd, image.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
+
+    m_app->submitAndWaitTempCmdBuffer(cmd);
+    m_stagingUploader.releaseStaging();
+ */
+    // Debugging information
+    NVVK_DBG_NAME(image.image);
+    NVVK_DBG_NAME(image.descriptor.sampler);
+    NVVK_DBG_NAME(image.descriptor.imageView);
+  }
+
   void create3DTextures(){
     SCOPED_TIMER(__FUNCTION__);
+
+    int size;
 
     // Clipmap
     VkExtent3D extent = {NUM_BRICKS_PER_AXIS,NUM_BRICKS_PER_AXIS,NUM_BRICKS_PER_AXIS*CLIPMAP_LEVELS};  // XYZ size
@@ -1131,6 +1210,8 @@ public:
     VkClearColorValue clearColor = {.uint32={clearValueClip,clearValueClip,clearValueClip,clearValueClip}};
     create3DStorageTexture(m_clipMap, extent, format, clearColor);
     NVVK_DBG_NAME(m_clipMap.image);
+    size = 4 * extent.width * extent.height * extent.depth;
+    LOGI("Clipmaps size: %i bytes\n",size);
 
     // Brick atlas
     const int atlas_axis_size = BRICK_PER_ATLAS_AXIS*BRICK_SIZE;
@@ -1138,17 +1219,21 @@ public:
     format = VK_FORMAT_R8_SNORM;  // Texel format
     glm::float32 clearValueF = 1.0f;
     clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
-    create3DStorageTexture(m_brickAtlas, extent, format, clearColor);
+    create3DStorageTextureFixed(m_brickAtlas, extent, format, clearColor);
     NVVK_DBG_NAME(m_brickAtlas.image);
+    size = extent.width * extent.height * extent.depth;
+    LOGI("Brick atlas size: %i bytes\n",size);
 
     // Material atlas
-    const int mat_atlas_axis_size = BRICK_PER_ATLAS_AXIS*MAT_PER_BRICK_AXIS;
-    extent = {mat_atlas_axis_size,mat_atlas_axis_size,MAT_PER_BRICK_AXIS};  // XYZ size
-    format = VK_FORMAT_R8G8B8A8_UNORM;  // Texel format
-    clearValueF = 1.0f;
-    clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
-    create3DStorageTexture(m_matAtlas, extent, format, clearColor);
-    NVVK_DBG_NAME(m_matAtlas.image);
+    if(MAT_PER_BRICK_AXIS > 1){
+      const int mat_atlas_axis_size = BRICK_PER_ATLAS_AXIS*MAT_PER_BRICK_AXIS;
+      extent = {mat_atlas_axis_size,mat_atlas_axis_size,MAT_PER_BRICK_AXIS};  // XYZ size
+      format = VK_FORMAT_R8G8B8A8_UNORM;  // Texel format
+      clearValueF = 1.0f;
+      clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
+      create3DStorageTexture(m_matAtlas, extent, format, clearColor);
+      NVVK_DBG_NAME(m_matAtlas.image);
+    }
   }
 
   nvvk::AccelerationStructureGeometryInfo primitiveToGeometry(const uint32_t aabbCount){
@@ -1221,6 +1306,7 @@ public:
         .type  = asType,  // The type of acceleration structure (BLAS or TLAS)
     };
     NVVK_CHECK(m_alloc.createAcceleration(accelStruct, createInfo));
+    LOGI("\nAS size: %lu bytes\n",asBuildSize.accelerationStructureSize);
 
     // Build the acceleration structure
     {
@@ -1612,7 +1698,7 @@ public:
                                      zeros3.size()*sizeof(glm::uint32_t),
                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
                                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
-                                        )); // TODO: Is it necesary the transfer bit?
+                                        ));
       NVVK_DBG_NAME(m_countersB.buffer);
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_countersB, 0,std::span(zeros3)));
 
@@ -1998,6 +2084,12 @@ public:
     m_sceneInfo.cameraId0 = glm::ivec4(m_currCamId0,0);
     m_sceneInfo.cameraId0Pos = glm::vec4(id0Pos,0);
 
+    m_pushConst.lp.lightDirView = glm::normalize(
+      viewMatrix * glm::vec4(m_pushConst.lp.lightDir,0.0));
+    m_pushConst.lp.bowDirView = glm::normalize(
+      viewMatrix * glm::vec4(m_pushConst.lp.bowDir,0.0));
+
+
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneInfoB.buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        VK_PIPELINE_STAGE_2_TRANSFER_BIT});
     vkCmdUpdateBuffer(cmd, m_sceneInfoB.buffer, 0, sizeof(shaderio::SceneInfo), &m_sceneInfo);
@@ -2117,15 +2209,12 @@ private:
   // UI params
   bool m_debugActive = false;
   int m_debugMode = 0;
-  bool m_rtxON = false;
   bool m_rebuildTlas = false;
   bool m_refreshAOkernels = false;
   bool m_refreshShadowKernels = false;
   bool m_updateTlas = false;
   bool m_firstFrame = true;
-  glm::vec3 m_zenithColor = glm::vec3(0.644, 0.635, 0.608);
-  glm::vec3 m_horizonColor = glm::vec3(0.628, 0.495, 0.279);
-  std::string m_saveFilePath = "scene.json";
+  std::string m_saveFilePath = "strand.json";
 
   // Startup managers for profiler and paramter registry
   Info m_info;
@@ -2176,8 +2265,12 @@ int main(int argc, char** argv)
         {VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME},                           // Required by ray tracing pipeline
         {VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME}
       },
+#ifdef NDEBUG
+      .enableValidationLayers = false
+#else
       .instanceCreateInfoExt = validationSettings.buildPNextChain(),
-      .enableValidationLayers = true
+      .enableValidationLayers = true,
+#endif
   };
 
   // let's add a command-line option to enable/disable validation layers
@@ -2201,7 +2294,7 @@ int main(int argc, char** argv)
   }
 
   nvapp::ApplicationCreateInfo appInfo;
-  appInfo.name           = "Victor's TFG"; //TODO: Change to a *cooler* name
+  appInfo.name           = "SDF Engine";
   appInfo.useMenu        = true;
   appInfo.instance       = vkContext.getInstance();
   appInfo.device         = vkContext.getDevice();
@@ -2211,6 +2304,7 @@ int main(int argc, char** argv)
     ImGuiID centerNode = viewportID;
 
     ImGuiID settingID = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Right, 0.12f, nullptr, &centerNode);
+    ImGuiID fpsID   = ImGui::DockBuilderSplitNode(settingID, ImGuiDir_Down,  0.1f, nullptr, &settingID);
     ImGuiID sceneID   = ImGui::DockBuilderSplitNode(centerNode, ImGuiDir_Left,  0.2f, nullptr, &centerNode);
     ImGuiID objectID   = ImGui::DockBuilderSplitNode(sceneID, ImGuiDir_Down,  0.5f, nullptr, &sceneID);
     ImGuiID materialID   = ImGui::DockBuilderSplitNode(sceneID, ImGuiDir_Down,  0.2f, nullptr, &sceneID);
@@ -2218,6 +2312,7 @@ int main(int argc, char** argv)
     ImGuiID profilerID = ImGui::DockBuilderSplitNode(loggerID, ImGuiDir_Right, 0.5f, nullptr, &loggerID);
 
     ImGui::DockBuilderDockWindow("Settings", settingID);
+    ImGui::DockBuilderDockWindow("FPS", fpsID);
     ImGui::DockBuilderDockWindow("Scene", sceneID);
     ImGui::DockBuilderDockWindow("Object", objectID);
     ImGui::DockBuilderDockWindow("Material", materialID);

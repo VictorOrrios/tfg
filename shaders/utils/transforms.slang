@@ -42,6 +42,10 @@ float3 viewPoint2worldPoint(float3 viewP){
   return mul(float4(viewP.xyz,1.0),sceneInfo.viewMatrixInv).xyz;
 }
 
+float3 viewVec2worldPoint(float3 viewP){
+  return mul(float4(viewP.xyz,0.0),sceneInfo.viewMatrixInv).xyz;
+}
+
 float3 worldVec2viewSpace(float3 worldP){
   return mul(float4(worldP, 0.0),sceneInfo.viewMatrix).xyz;
 }
