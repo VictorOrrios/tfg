@@ -8,8 +8,13 @@ Developed as my Bachelor's Thesis at the University of Zaragoza (UNIZAR).
 
 ## Screenshots
 
-![VisualDemo](screenshots/strand_render_rtx.png)
-![SimDemo](screenshots/sim.gif)
+<p align="center">
+  <img src="screenshots/strand_render_rtx.png">
+</p>
+
+<p align="center">
+  <img src="screenshots/sim.gif">
+</p>
 
 ## Features
 
