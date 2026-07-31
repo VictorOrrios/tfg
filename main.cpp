@@ -1017,7 +1017,7 @@ public:
     nvvk::GBufferInitInfo gBufferInit{
         .allocator      = &m_alloc,
         .colorFormats   = {
-          VK_FORMAT_R8G8B8A8_SNORM,           // Normal buffer
+          VK_FORMAT_R32G32B32A32_SFLOAT,           // Normal buffer
           VK_FORMAT_R8G8B8A8_UNORM,           // Albedo buffer
           VK_FORMAT_R32G32B32A32_SFLOAT,      // Render target
           VK_FORMAT_R8G8B8A8_UNORM,           // Tonemapped

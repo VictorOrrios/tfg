@@ -214,6 +214,63 @@ float3 calcNormalAnalytic(float3 p, float4 sBottom, float4 sTop){
   return normalize(float3(dx,dy,dz));
 }
 
+float3 calcNormalAnalytic2(float3 p, float4 sBottom, float4 sTop) {
+    // p = saturate(p);
+    float dx = lerp(
+        lerp(
+            sBottom.g - sBottom.r, // s100 - s000
+            sTop.g - sTop.r,       // s110 - s010
+            p.y),
+        lerp(
+            sBottom.b - sBottom.a, // s101 - s001
+            sTop.b - sTop.a,       // s111 - s011
+            p.y),
+        p.z
+  );
+
+    float dy = lerp(
+        lerp(
+            sTop.r - sBottom.r, // s010 - s000
+            sTop.g - sBottom.g, // s110 - s100
+            p.x),
+        lerp(
+            sTop.a - sBottom.a, // s011 - s001
+            sTop.b - sBottom.b, // s111 - s101
+            p.x),
+        p.z
+  );
+
+    float dz = lerp(
+        lerp(
+            sBottom.a - sBottom.r, // s001 - s000
+            sBottom.b - sBottom.g, // s101 - s100
+            p.x),
+        lerp(
+            sTop.a - sTop.r, // s011 - s010
+            sTop.b - sTop.g, // s111 - s110
+            p.x),
+        p.y
+  );
+
+    return (float3(dx, dy, dz));
+}
+
+float3 interpolNormals(float3 coor, float3[8] normals) {
+    return lerp(
+        lerp(
+            lerp(normals[0], normals[1], coor.z),
+            lerp(normals[2], normals[3], coor.z),
+            coor.x
+    ),
+        lerp(
+            lerp(normals[4], normals[5], coor.z),
+            lerp(normals[6], normals[7], coor.z),
+            coor.x
+    ),
+        coor.y
+  );
+}
+
 float3 analyticNormal(float3 p){
   int level = getLevelOfPoint(p);
   float voxel_size = VOXEL_SIZES[level];
@@ -232,6 +289,61 @@ float3 analyticNormal(float3 p){
   sampleVoxel2(currentIndex,level,sBottom,sTop);
   // Calc normal
   return calcNormalAnalytic(voxelCoor,sBottom,sTop);
+}
+
+float3 analyticSmoothNormal(float3 p) {
+
+    int level = getLevelOfPoint(p);
+    float voxel_size = VOXEL_SIZES[level];
+    // Scale normalization
+    float3 pVoxelNorm = p / voxel_size;
+
+/*
+    float3 voxelCoor = frac(pVoxelNorm);
+    int3 sign = sign(voxelCoor - float(0.5));
+    int3 voxelId = int3(floor(pVoxelNorm));
+    float3 dualVoxelCoor = sign * (voxelCoor - sign * float3(0.5)) -(sign-1)/2;
+
+    float3[8] normals;
+
+    for (int y = 0; y < 2; y++)
+        for (int x = 0; x < 2; x++)
+            for (int z = 0; z < 2; z++) {
+                float4 sBottom, sTop;
+                int3 step = int3(x, y, z) * sign;
+                int3 id = voxelId + step;
+                int3 index = id2voxelIdx(id);
+                sampleVoxel2(index, level, sBottom, sTop);
+                float3 coor = voxelCoor - step;
+                normals[y * 4 + x * 2 + z] = calcNormalAnalytic(coor, sBottom, sTop);
+            }
+
+    return normalize(interpolNormals(dualVoxelCoor, normals));
+*/
+  
+  
+  float3 voxelCoor = frac(pVoxelNorm);
+  int3 sign = sign(voxelCoor - float(0.5));
+  int3 voxelId = int3(floor(pVoxelNorm)) + min(int3(0), sign);
+  float3 dualVoxelCoor = voxelCoor - sign * float3(0.5);
+  
+  float3[8] normals;
+
+  for (int y = 0; y < 2; y++)
+    for (int x = 0; x < 2; x++)
+        for (int z = 0; z < 2; z++) {
+            float4 sBottom, sTop;
+            int3 axis = int3(x, y, z);
+            int3 id = voxelId + axis;
+            int3 index = id2voxelIdx(id);
+            sampleVoxel2(index, level, sBottom, sTop);
+            float3 coor = dualVoxelCoor + float3(0.5) * (1 - 2 * axis);
+            normals[y * 4 + x * 2 + z] = calcNormalAnalytic2(coor, sBottom, sTop);
+  }
+
+  return normalize(interpolNormals(dualVoxelCoor, normals));
+
+
 }
 
 // Returns the coefficients for: f(t) = c_0 + c_1·t + c_2·t² + c_3·t³

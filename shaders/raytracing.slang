@@ -194,7 +194,8 @@ void rchitMain(inout HitPayload payload, in IntersectionPayload attr){
   r.dir  = WorldRayDirection();
   float3 p = r.orig + r.dir*payload.depth;
 
-  payload.normal = analyticNormal(p);
+  //payload.normal = analyticNormal(p);
+  payload.normal = analyticSmoothNormal(p);
   //payload.normal = evalNormal(p);
 
   payload.mat = evalMat(p,payload.normal);

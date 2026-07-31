@@ -41,14 +41,14 @@ float3 evalNormalTrueStatic(float3 p, float nearRange){
 }
 
 // Tetrahedron aproximation
-float3 evalNormal(float3 p){
-  const float h = 0.0001;
-  const float2 k = float2(1,-1);
-  return normalize(
-    k.xyy*map(p + k.xyy*h) +
-    k.yyx*map(p + k.yyx*h) + 
-    k.yxy*map(p + k.yxy*h) + 
-    k.xxx*map(p + k.xxx*h)
+float3 evalNormal(float3 p) {
+    const float h = 0.0001;
+    const float2 k = float2(1, -1);
+    return normalize(
+        k.xyy * map(p + k.xyy * h) +
+        k.yyx * map(p + k.yyx * h) +
+        k.yxy * map(p + k.yxy * h) +
+        k.xxx * map(p + k.xxx * h)
   );
 }
 

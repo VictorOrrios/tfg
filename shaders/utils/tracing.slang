@@ -345,7 +345,8 @@ float traceScene(Ray r, out float3 normal, out Material mat, out float3 debug){
     float3 p = r.orig + r.dir*depth;
 
     if(pushConst.lp.tracingMode == TracingModes::compute){
-      normal = analyticNormal(p);
+        //normal = analyticNormal(p);
+        normal = analyticSmoothNormal(p);
     }else{
       normal = evalNormal(p);
     }
