@@ -4,6 +4,8 @@
 #include "common.slang"         // Shared definitions with shaders
 #include "descriptors.slang"    // External memory definitions
 
+#include "palettes.slang"
+
 // Samples a 2x2x2 voxel (voxel2) and outputs values into two float4 vectors:
 // sBottom: r=s000 g=100 b=101 a=001
 // sTop:    r=s010 g=110 b=111 a=011
@@ -292,17 +294,19 @@ float3 analyticNormal(float3 p){
 }
 
 float3 analyticSmoothNormal(float3 p) {
-
     int level = getLevelOfPoint(p);
+
     float voxel_size = VOXEL_SIZES[level];
+    if (getLevelOfPoint(p + voxel_size) != level) {
+        return analyticNormal(p);
+    }
     // Scale normalization
     float3 pVoxelNorm = p / voxel_size;
 
-/*
     float3 voxelCoor = frac(pVoxelNorm);
-    int3 sign = sign(voxelCoor - float(0.5));
-    int3 voxelId = int3(floor(pVoxelNorm));
-    float3 dualVoxelCoor = sign * (voxelCoor - sign * float3(0.5)) -(sign-1)/2;
+    int3 coor_sign = sign(voxelCoor - float(0.5));
+    int3 voxelId = int3(floor(pVoxelNorm)) + min(int3(0), coor_sign);
+    float3 dualVoxelCoor = voxelCoor - coor_sign * float3(0.5);
 
     float3[8] normals;
 
@@ -310,40 +314,15 @@ float3 analyticSmoothNormal(float3 p) {
         for (int x = 0; x < 2; x++)
             for (int z = 0; z < 2; z++) {
                 float4 sBottom, sTop;
-                int3 step = int3(x, y, z) * sign;
-                int3 id = voxelId + step;
+                int3 axis = int3(x, y, z);
+                int3 id = voxelId + axis;
                 int3 index = id2voxelIdx(id);
                 sampleVoxel2(index, level, sBottom, sTop);
-                float3 coor = voxelCoor - step;
-                normals[y * 4 + x * 2 + z] = calcNormalAnalytic(coor, sBottom, sTop);
+                float3 coor = dualVoxelCoor + float3(0.5) * (1 - 2 * axis);
+                normals[y * 4 + x * 2 + z] = calcNormalAnalytic2(coor, sBottom, sTop);
             }
 
     return normalize(interpolNormals(dualVoxelCoor, normals));
-*/
-  
-  
-  float3 voxelCoor = frac(pVoxelNorm);
-  int3 sign = sign(voxelCoor - float(0.5));
-  int3 voxelId = int3(floor(pVoxelNorm)) + min(int3(0), sign);
-  float3 dualVoxelCoor = voxelCoor - sign * float3(0.5);
-  
-  float3[8] normals;
-
-  for (int y = 0; y < 2; y++)
-    for (int x = 0; x < 2; x++)
-        for (int z = 0; z < 2; z++) {
-            float4 sBottom, sTop;
-            int3 axis = int3(x, y, z);
-            int3 id = voxelId + axis;
-            int3 index = id2voxelIdx(id);
-            sampleVoxel2(index, level, sBottom, sTop);
-            float3 coor = dualVoxelCoor + float3(0.5) * (1 - 2 * axis);
-            normals[y * 4 + x * 2 + z] = calcNormalAnalytic2(coor, sBottom, sTop);
-  }
-
-  return normalize(interpolNormals(dualVoxelCoor, normals));
-
-
 }
 
 // Returns the coefficients for: f(t) = c_0 + c_1·t + c_2·t² + c_3·t³

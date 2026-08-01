@@ -141,8 +141,8 @@ void rintMain(){
 
     if(sphereTraceBrick(brickRay,instanceID,pos,level,payload.depth)){
       payload.depth += depthToBbox; 
-      payload.debug = scalarToColor(float(instanceID)/float(NUM_BRICKS_IN_ATLAS));
-      //payload.debug = scalarToColor(float(level)/float(CLIPMAP_LEVELS-1));
+      //payload.debug = scalarToColor(float(instanceID)/float(NUM_BRICKS_IN_ATLAS));
+      payload.debug = scalarToColor(float(level)/float(CLIPMAP_LEVELS-1));
 
       //int flevel = getLevelOfPoint(nearP);
       //if(level != flevel) payload.debug = float3(0,0,1);
