@@ -2214,7 +2214,7 @@ private:
   bool m_refreshShadowKernels = false;
   bool m_updateTlas = false;
   bool m_firstFrame = true;
-  std::string m_saveFilePath = "strand.json";
+  std::string m_saveFilePath = "vtrees.json";
 
   // Startup managers for profiler and paramter registry
   Info m_info;

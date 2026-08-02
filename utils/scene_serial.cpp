@@ -148,6 +148,8 @@ bool Scene::loadFromFile(const std::string &path) {
   uint max_id = 0;
   for(auto& n:m_root){
     markRefresh(&n);
+    generateMatrix(&n);
+    generateBBox(&n);
     max_id = glm::max(max_id,n.id);
   }
   m_nextID = max_id + 1;

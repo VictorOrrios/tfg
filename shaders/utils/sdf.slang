@@ -87,13 +87,26 @@ float3 nSphere(float3 p){
   return normalize(p);
 }
 
-float sdBox(float3 p, float4 params) {
-  float3 b = params.xyz;
-  float bevel = params.w;
-  float3 q = abs(p) - b;
-  return length(max(q, float3(0.0f))) +
-          min(max(q.x, max(q.y, q.z)), 0.0f) - bevel;
+float sdRoundBox2D(float2 p, float2 b, float r){
+  float2 q = abs(p) - b + r;
+  return length(max(q, 0)) + min(max(q.x, q.y), 0) - r;
 }
+
+float sdExtrude(float d, float y, float h, float r){
+  float2 q = float2(d + r, abs(y) - h);
+  return length(max(q, 0)) + min(max(q.x, q.y), 0) - r;
+}
+
+float sdBox(float3 p, float4 params){
+  float3 half = params.xyz;
+
+  float r = params.w;
+
+  float d2 = sdRoundBox2D(p.xz, half.xz, r);
+
+  return sdExtrude(d2, p.y, half.y - r, r);
+}
+
 float sdBox(float3 p) {
   return sdBox(p,float4(0.5,0.5,0.5,0.0));
 }
