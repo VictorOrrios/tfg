@@ -188,6 +188,17 @@ void Scene::drawNodeParams(){
                                 &selectedNode.gp.rotation.x);
     dirty |= ImGui::InputFloat(("Scale" + id).c_str(), &selectedNode.gp.scale);
 
+    if(selectedNode.gp.type == shaderio::PrimType::Sphere){
+      dirty |= ImGui::InputFloat(("Radius" + id).c_str(), &selectedNode.sdp.primMod.x);
+    }else if(selectedNode.gp.type == shaderio::PrimType::Box){
+      dirty |= ImGui::InputFloat3(("Size" + id).c_str(),&selectedNode.sdp.primMod.x);
+      dirty |= ImGui::InputFloat(("Bevel" + id).c_str(), &selectedNode.sdp.primMod.w);
+    }else if(selectedNode.gp.type == shaderio::PrimType::Cylinder ||
+             selectedNode.gp.type == shaderio::PrimType::Cone){
+      dirty |= ImGui::InputFloat(("Radius" + id).c_str(), &selectedNode.sdp.primMod.x);
+      dirty |= ImGui::InputFloat(("Height" + id).c_str(), &selectedNode.sdp.primMod.y);
+    }
+
     ImGui::Separator();
     dirty |= ImGui::Checkbox("Physics active", &selectedNode.pyp.physicsActive);
     dirty |= ImGui::SliderFloat("Density", &selectedNode.pyp.density, 0.01f, 50.0f);
@@ -413,6 +424,7 @@ Scene::Node *Scene::createNode(shaderio::PrimType t) {
       },
       .sdp={
         .terrain = glm::vec4(1.0,0.5,0.1,0.3),
+        .primMod = glm::vec4(0.5,0.5,0.5,0.0)
       },
       .pyp={
         .density = 1.0,
@@ -518,7 +530,19 @@ void Scene::generateBBox(Node *n) {
   const glm::vec3 worldMax(1000.0);
 
   glm::vec3 min, max;
-  if(n->gp.type == shaderio::PrimType::Plane){
+  if(n->gp.type == shaderio::PrimType::Sphere){
+    min = glm::vec3(-n->sdp.primMod.x);
+    max = glm::vec3(n->sdp.primMod.x);
+  }else if(n->gp.type == shaderio::PrimType::Box){
+    min = glm::vec3(-n->sdp.primMod)-n->sdp.primMod.w;
+    max = glm::vec3(n->sdp.primMod)+n->sdp.primMod.w;
+  }else if(n->gp.type == shaderio::PrimType::Cylinder || n->gp.type == shaderio::PrimType::Cone){
+    float r = n->sdp.primMod.x;
+    float h = n->sdp.primMod.y;
+
+    min = glm::vec3(-r, -h, -r);
+    max = glm::vec3( r,  h,  r);
+  }else if(n->gp.type == shaderio::PrimType::Plane){
     min = worldMin;
     max = worldMax;
     max.y = 0.1;
@@ -605,6 +629,7 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
       .spacing=glm::vec4(sdp.spacing,0),
       .defP=glm::vec4(sdp.defP,0),
       .terrain=glm::vec4(sdp.terrain),
+      .primMod=sdp.primMod,
       .limit_octaves=glm::ivec4(sdp.limit,sdp.octaves),
       .type=int(p.type),
       .combOp=sdp.combOp,

@@ -90,6 +90,14 @@ template <class Archive> void serialize(Archive &ar, Scene::PhysicsParams &p) {
 template <class Archive> void serialize(Archive &ar, Scene::SDFParams &s) {
   ar(s.roundness, s.combOp, s.smoothness, s.repOp, s.spacing, s.limit, s.defOp,
      s.defP, s.octaves, s.terrain, s.morphPrim, s.morph);
+  
+  // TODO: This is bad
+  try {
+      ar(s.primMod);
+  }
+  catch(cereal::Exception&) {
+    s.primMod = glm::vec4(0.5f,0.5f,0.5f,0.0f);
+  }
 }
 
 //------------------------------

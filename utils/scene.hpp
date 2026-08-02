@@ -13,7 +13,7 @@
 #include "ImGuizmo.h"
 
 static constexpr const char * PrimTypeNames[] = {
-    "Empty", "Box", "Sphere", "Torus", "Snowman", "Plane"
+    "Empty", "Box", "Sphere", "Torus", "Snowman", "Plane", "Cylinder", "Cone"
 };
 
 static constexpr const char *CombinationOpNames[] = {
@@ -92,6 +92,7 @@ public:
     glm::vec4 terrain;
     int morphPrim;
     float morph;
+    glm::vec4 primMod;
   };
 
   struct Node {

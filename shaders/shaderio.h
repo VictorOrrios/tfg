@@ -246,7 +246,7 @@ enum TracingModes{
   compute=0, rtx, sphere
 };
   
-enum class PrimType { Empty=0, Box, Sphere, Torus, Snowman, Plane };
+enum class PrimType { Empty=0, Box, Sphere, Torus, Snowman, Plane, Cylinder, Cone };
 enum class MaterialType { Normal=0, Debug, Terrain };
 
 struct LightinParams{
@@ -312,6 +312,7 @@ struct SceneObject{
   float4 spacing;
   float4 defP;
   float4 terrain;
+  float4 primMod;
   int4 limit_octaves;
   int type;
   int combOp;
