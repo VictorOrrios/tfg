@@ -16,7 +16,7 @@ float map(float3 p){
 // Evaluates a dynamic node in world spcace
 float evalDynamic(float3 point, DynamicObject dyn){
   float3 p = world2Local(dyn,point)/dyn.scale;
-  return evalPrimitive(dyn.type, p, float4(0.5,0.5,0.5,0.0))*dyn.scale;
+  return evalPrimitive(dyn.type, p)*dyn.scale;
 }
 
 // True numerical

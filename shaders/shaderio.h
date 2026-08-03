@@ -41,7 +41,7 @@ NAMESPACE_SHADERIO_BEGIN()
 #define WORKGROUP_SIZE_3D 8
 
 // Buffers static max limit
-#define MAX_SCENE_OBJECTS 1024
+#define MAX_SCENE_OBJECTS 1024*4
 #define MAX_SCENE_DYNAMIC_OBJECTS 512
 #define MAX_MATERIALS 32
 #define BRICK_PER_ATLAS_AXIS 512
@@ -314,6 +314,8 @@ struct SceneObject{
   float4 terrain;
   float4 primMod;
   int4 limit_octaves;
+  float4 bevel;
+  float2 round;
   int type;
   int combOp;
   int repOp;

@@ -192,7 +192,8 @@ void Scene::drawNodeParams(){
       dirty |= ImGui::InputFloat(("Radius" + id).c_str(), &selectedNode.sdp.primMod.x);
     }else if(selectedNode.gp.type == shaderio::PrimType::Box){
       dirty |= ImGui::InputFloat3(("Size" + id).c_str(),&selectedNode.sdp.primMod.x);
-      dirty |= ImGui::InputFloat(("Bevel" + id).c_str(), &selectedNode.sdp.primMod.w);
+      dirty |= ImGui::InputFloat4(("Bevel" + id).c_str(), &selectedNode.sdp.bevel.x);
+      dirty |= ImGui::InputFloat2(("Round" + id).c_str(), &selectedNode.sdp.round.x);
     }else if(selectedNode.gp.type == shaderio::PrimType::Cylinder ||
              selectedNode.gp.type == shaderio::PrimType::Cone){
       dirty |= ImGui::InputFloat(("Radius" + id).c_str(), &selectedNode.sdp.primMod.x);
@@ -631,6 +632,8 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
       .terrain=glm::vec4(sdp.terrain),
       .primMod=sdp.primMod,
       .limit_octaves=glm::ivec4(sdp.limit,sdp.octaves),
+      .bevel=sdp.bevel,
+      .round=sdp.round,
       .type=int(p.type),
       .combOp=sdp.combOp,
       .repOp=sdp.repOp,

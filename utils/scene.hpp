@@ -93,6 +93,8 @@ public:
     int morphPrim;
     float morph;
     glm::vec4 primMod;
+    glm::vec4 bevel;
+    glm::vec2 round;
   };
 
   struct Node {

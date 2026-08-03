@@ -17,6 +17,10 @@ template <class Archive> void serialize(Archive &ar, glm::vec4 &v) {
   ar(v.x, v.y, v.z, v.w);
 }
 
+template <class Archive> void serialize(Archive &ar, glm::vec2 &v) {
+  ar(v.x, v.y);
+}
+
 template <class Archive> void serialize(Archive &ar, glm::quat &q) {
   ar(q.x, q.y, q.z, q.w);
 }
@@ -94,9 +98,13 @@ template <class Archive> void serialize(Archive &ar, Scene::SDFParams &s) {
   // TODO: This is bad
   try {
       ar(s.primMod);
+      ar(s.bevel);
+      ar(s.round);
   }
   catch(cereal::Exception&) {
     s.primMod = glm::vec4(0.5f,0.5f,0.5f,0.0f);
+    s.bevel = glm::vec4(0.0f);
+    s.round = glm::vec2(0.0f);
   }
 }
 

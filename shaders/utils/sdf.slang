@@ -87,28 +87,44 @@ float3 nSphere(float3 p){
   return normalize(p);
 }
 
-float sdRoundBox2D(float2 p, float2 b, float r){
-  float2 q = abs(p) - b + r;
-  return length(max(q, 0)) + min(max(q.x, q.y), 0) - r;
+float sdRoundBox2D(float2 p, float2 b, float4 r){
+  r.xy = (p.x > 0.0) ? r.xy : r.zw;
+  r.x = (p.y > 0.0) ? r.x : r.y;
+
+  float2 q = abs(p) - b + r.x;
+
+  return min(max(q.x, q.y), 0.0)
+    + length(max(q, 0.0))
+    - r.x;
 }
 
-float sdExtrude(float d, float y, float h, float r){
-  float2 q = float2(d + r, abs(y) - h);
-  return length(max(q, 0)) + min(max(q.x, q.y), 0) - r;
+float sdExtrude(float d, float z, float h, float r){
+  float2 q = float2(d + r, abs(z) - h);
+
+  return min(max(q.x, q.y), 0.0)
+    + length(max(q, 0.0))
+    - r;
 }
 
-float sdBox(float3 p, float4 params){
-  float3 half = params.xyz;
+float sdBox(float3 p, float4 halfSides, float4 bevel, float2 rounding){
+  float d2 = sdRoundBox2D(
+    p.xz,
+    halfSides.xz,
+    bevel
+  );
 
-  float r = params.w;
+  float er = (p.y > 0.0) ? rounding.x : rounding.y;
 
-  float d2 = sdRoundBox2D(p.xz, half.xz, r);
-
-  return sdExtrude(d2, p.y, half.y - r, r);
+  return sdExtrude(
+    d2,
+    p.y,
+    halfSides.y - er,
+    er
+  );
 }
 
 float sdBox(float3 p) {
-  return sdBox(p,float4(0.5,0.5,0.5,0.0));
+  return sdBox(p,float4(0.5,0.5,0.5,0.0),float4(0.0),float2(0.0));
 }
 
 float3 nBox(float3 p, float3 b) {
@@ -263,12 +279,12 @@ float sdBaseOctahedron(float3 p){
 // Int to sdf op/primitive
 //---------------------------------------
 
-float evalPrimitive(int primType, float3 p, float4 primMod){
+float evalPrimitive(int primType, float3 p, float4 primMod = float4(0.5,0.5,0.5,0.0), float4 bevel = float4(0.0), float2 round=float2(0.0)){
   switch(primType)
   {
     default:
     case PrimType::Empty: return sdEmpty(p);
-    case PrimType::Box: return sdBox(p, primMod);
+    case PrimType::Box: return sdBox(p, primMod, bevel, round);
     case PrimType::Sphere: return sdSphere(p, primMod.x);
     case PrimType::Torus: return sdTorus(p);
     case PrimType::Snowman: return sdSnowMan(p);
@@ -327,8 +343,8 @@ float3 applyDefOp(int opIndex, float3 p, float4 defP){
   }
 }
 
-float applyMorphOp(float3 p, float prevPrim, int morphPrim, float morph, float roundness, float4 primMod) {
-    float mD = evalPrimitive(morphPrim, p, primMod) - roundness;
+float applyMorphOp(float3 p, float prevPrim, int morphPrim, float morph, float roundness) {
+  float mD = evalPrimitive(morphPrim, p) - roundness;
   return lerp(prevPrim,mD,morph);
 }
 
@@ -389,11 +405,11 @@ float map(float3 point, int level){
 
     p /= params.scale;
 
-    float d = evalPrimitive(params.type, p, params.primMod) - params.roundness;
+    float d = evalPrimitive(params.type, p, params.primMod, params.bevel, params.round) - params.roundness;
 
     d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
 
-    d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness,params.primMod) : d;
+    d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
 
     d *= params.scale;
 
@@ -430,11 +446,11 @@ float mapStatic(float3 point, float nearRange){
 
     p /= params.scale;
 
-    float d = evalPrimitive(params.type, p, params.primMod) - params.roundness;
+    float d = evalPrimitive(params.type, p, params.primMod, params.bevel, params.round) - params.roundness;
 
     d = d>0.0 ? applyTerrainOp(p, d, min(params.limit_octaves.w,4), params.terrain, VOXEL_SIZES[0]/10.0): d;
 
-    d = params.morph > 0.0 ? applyMorphOp(p, d, params.morphPrim, params.morph, params.roundness, params.primMod) : d;
+    d = params.morph > 0.0 ? applyMorphOp(p, d, params.morphPrim, params.morph, params.roundness) : d;
 
     d *= params.scale;
 
@@ -445,7 +461,9 @@ float mapStatic(float3 point, float nearRange){
 }
 
 // Map function for getting the material at point
-float map(float3 point, out Material matResult){
+float map(float3 point, out Material matResult) {
+    matResult = materials[0];
+    return 0.0;
   const float iniD = 1e5;
   float result = iniD;
 
@@ -487,9 +505,9 @@ float map(float3 point, out Material matResult){
 
       p /= params.scale;
 
-      float d = evalPrimitive(params.type, p, params.primMod) - params.roundness;
+      float d = evalPrimitive(params.type, p, params.primMod, params.bevel, params.round) - params.roundness;
 
-      d = params.morph > 0.0 ? applyMorphOp(p, d, params.morphPrim, params.morph, params.roundness, params.primMod) : d;
+      d = params.morph > 0.0 ? applyMorphOp(p, d, params.morphPrim, params.morph, params.roundness) : d;
 
       d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
 
@@ -531,11 +549,11 @@ float mapDebugColor(float3 point, float nearRange){
 
     p /= params.scale;
 
-    float d = evalPrimitive(params.type, p, params.primMod) - params.roundness;
+    float d = evalPrimitive(params.type, p, params.primMod, params.bevel, params.round) - params.roundness;
 
     d = d>0.0 ? applyTerrainOp(p, d, min(params.limit_octaves.w,4), params.terrain, VOXEL_SIZES[0]/10.0): d;
 
-    d = params.morph > 0.0 ? applyMorphOp(p, d, params.morphPrim, params.morph, params.roundness, params.primMod) : d;
+    d = params.morph > 0.0 ? applyMorphOp(p, d, params.morphPrim, params.morph, params.roundness) : d;
 
     d *= params.scale;
 

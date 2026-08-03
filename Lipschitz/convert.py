@@ -87,43 +87,6 @@ def matrix_to_quaternion(R):
     return [qx,qy,qz,qw]
 
 
-#------------------------------------------------------------
-# AABB local
-#------------------------------------------------------------
-
-def primitive_bbox(typ, prim):
-
-    if typ=="sphere":
-
-        r=prim["radius"]
-        return [-r,-r,-r],[r,r,r]
-
-    elif typ=="box":
-
-        sx,sy,sz=prim["sides"]
-
-        b=np.array([sx,sy,sz])*0.5
-
-        bevel=max(prim["bevel"])
-
-        return (b*(-1)-bevel).tolist(),(b+bevel).tolist()
-
-    elif typ=="cylinder":
-
-        r=prim["radius"]
-        h=prim["height"]*0.5
-
-        return [-r,-h,-r],[r,h,r]
-
-    elif typ=="cone":
-
-        r=prim["radius"]
-        h=prim["height"]*0.5
-
-        return [-r,-h,-r],[r,h,r]
-
-    return [-.5,-.5,-.5],[.5,.5,.5]
-
 
 #------------------------------------------------------------
 # Nodo intermedio
@@ -197,9 +160,18 @@ def convert_primitive(j,M,comb,smooth):
     node["scale"]    = scale
     node["tInv"]     = tInv
 
-    mn,mx=primitive_bbox(typ,j)
+    mn,mx=[-.5,-.5,-.5],[.5,.5,.5]
 
     node["bbox"]=[mn,mx]
+
+    # Default values
+    node["primMod"]=[
+        0.5,0.5,0.5,0
+    ]
+
+    node["bevel"] = [0.0,0.0,0.0,0.0]
+
+    node["round"] = [0.0,0.0]
 
     if typ=="sphere":
 
@@ -218,8 +190,23 @@ def convert_primitive(j,M,comb,smooth):
             sx*0.5,
             sy*0.5,
             sz*0.5,
-            max(j["bevel"]) * 0.25
+            0.0
         ]
+
+        # Opcional
+        bevel = j.get("bevel", [0.0, 0.0, 0.0, 0.0])
+
+        node["bevel"] = [
+            bevel[0] * 0.5,
+            bevel[1] * 0.5,
+            bevel[2] * 0.5,
+            bevel[3] * 0.5
+        ]
+
+        node["round"] = [
+            j.get("round_x", 0.0),
+            j.get("round_y", 0.0)
+    ]
 
     elif typ=="cylinder":
 
@@ -321,6 +308,12 @@ def vec4(v):
         "value3": float(v[3]),
     }
 
+def vec2(v):
+    return {
+        "value0": float(v[0]),
+        "value1": float(v[1])
+    }
+
 
 def mat4(M):
 
@@ -411,7 +404,9 @@ def sdf(node):
         "value10":0,
         "value11":0.0,
 
-        "value12":vec4(node["primMod"])
+        "value12":vec4(node["primMod"]),
+        "value13":vec4(node["bevel"]),
+        "value14":vec2(node["round"])
     }
 
 def general(node):
