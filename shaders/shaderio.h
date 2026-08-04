@@ -41,7 +41,7 @@ NAMESPACE_SHADERIO_BEGIN()
 #define WORKGROUP_SIZE_3D 8
 
 // Buffers static max limit
-#define MAX_SCENE_OBJECTS 1024*4
+#define MAX_SCENE_OBJECTS 1024*8
 #define MAX_SCENE_DYNAMIC_OBJECTS 512
 #define MAX_MATERIALS 32
 #define BRICK_PER_ATLAS_AXIS 512
@@ -270,7 +270,7 @@ struct LightinParams{
   int    shadowSamples    = 2;
   int    shadowTexelSize  = 4;
   float  shadowSharpness  = 50.0f;
-  int    tracingMode      = 0;
+  int    tracingMode      = 1;
 };
 
 struct DebugParams{

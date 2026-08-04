@@ -15,3 +15,7 @@ vk_new_latest.txt
 
 # Don't ignore zstd's build folder, which includes its CMake files.
 !/third_party/zstd/build
+
+# Scenes
+vtrees*.json
+Lipschitz/*.json

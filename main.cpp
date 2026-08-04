@@ -398,6 +398,7 @@ public:
       if(ImGui::Button("Reset TLas")){
         m_rebuildTlas = true;
       }
+      ImGui::Text("Loaded objets %i",m_pushConst.numObjects);
     }
 
     ImGui::End();
