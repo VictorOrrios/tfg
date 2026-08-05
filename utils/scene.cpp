@@ -1088,6 +1088,7 @@ std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 currCamId0, 
 // Constructor
 //------------------
 Scene::Scene() {
+  return;
   Material mat = createMaterial();
   mat.name = "Default";
   mat.shininess = 1.0;

@@ -111,6 +111,111 @@ def convert_primitive(j, M, comb, smooth):
 
     return node
 
+def collect_subtraction_objects(scene):
+    """
+    Collect all primitives used as subtraction (right child of a sub operation).
+    Groups them by their geometric parameters (ignoring transform matrix).
+    Returns a dict with counts of each unique shape.
+    """
+    negative_objects = {}
+    
+    def traverse(node, parentMatrix=np.identity(4), is_subtraction=False):
+        if node["nodeType"] == "primitive":
+            if is_subtraction:
+                # Create a signature based on primitive type and parameters
+                M = parentMatrix @ load_matrix(node["matrix"])
+                
+                typ = node["primitiveType"]
+                sig = {"type": typ}
+                
+                if typ == "sphere":
+                    sig["radius"] = node.get("radius", 0)
+                elif typ == "box":
+                    sig["sides"] = tuple(node.get("sides", [0,0,0]))
+                    sig["bevel"] = tuple(node.get("bevel", [0,0,0,0]))
+                    sig["round_x"] = node.get("round_x", 0)
+                    sig["round_y"] = node.get("round_y", 0)
+                elif typ == "cylinder":
+                    sig["radius"] = node.get("radius", 0)
+                    sig["height"] = node.get("height", 0)
+                elif typ == "cone":
+                    sig["radius"] = node.get("radius", 0)
+                    sig["height"] = node.get("height", 0)
+                elif typ == "torus":
+                    sig["torus_radius"] = node.get("torus_radius", 0)
+                    sig["tube_radius"] = node.get("tube_radius", 0)
+                
+                # Create a hashable key from the signature
+                key = str(sig)
+                
+                if key not in negative_objects:
+                    negative_objects[key] = {
+                        "signature": sig,
+                        "count": 0,
+                        "examples": []
+                    }
+                
+                negative_objects[key]["count"] += 1
+                # Store first 3 examples
+                if len(negative_objects[key]["examples"]) < 3:
+                    negative_objects[key]["examples"].append({
+                        "position": M[:3, 3].tolist(),
+                        "scale": np.linalg.norm(M[:3, 0])
+                    })
+            return
+        
+        mode = node["blendMode"]
+        childMatrix = parentMatrix @ load_matrix(node["matrix"])
+        
+        if mode == "sub":
+            # Left child: not subtraction (what we subtract FROM)
+            traverse(node["leftChild"], childMatrix, False)
+            # Right child: IS subtraction (what we subtract WITH)
+            traverse(node["rightChild"], childMatrix, True)
+        else:
+            traverse(node["leftChild"], childMatrix, is_subtraction)
+            traverse(node["rightChild"], childMatrix, is_subtraction)
+    
+    traverse(scene)
+    return negative_objects
+
+def print_subtraction_analysis(scene):
+    """Print analysis of subtraction objects."""
+    neg_objs = collect_subtraction_objects(scene)
+    
+    print(f"\n=== SUBTRACTION OBJECTS ANALYSIS ===")
+    print(f"Total unique subtraction shapes: {len(neg_objs)}")
+    print(f"Total subtraction primitives: {sum(v['count'] for v in neg_objs.values())}")
+    
+    # Sort by count (most frequent first)
+    sorted_objs = sorted(neg_objs.values(), key=lambda x: x['count'], reverse=True)
+    
+    print("\nSubtraction shapes by frequency:")
+    for i, obj in enumerate(sorted_objs):
+        sig = obj["signature"]
+        count = obj["count"]
+        
+        print(f"\n  Shape #{i+1}: {sig['type']} (used {count} times)")
+        
+        if sig['type'] == "box":
+            print(f"    sides: {sig['sides']}")
+            print(f"    bevel: {sig['bevel']}")
+            print(f"    round_x: {sig['round_x']}")
+            print(f"    round_y: {sig['round_y']}")
+        elif sig['type'] in ("sphere", "cylinder", "cone"):
+            for k, v in sig.items():
+                if k != 'type':
+                    print(f"    {k}: {v}")
+        
+        # Show first example position
+        if obj["examples"]:
+            ex = obj["examples"][0]
+            print(f"    example position: {ex['position']}")
+            if len(obj["examples"]) > 1:
+                print(f"    ({len(obj['examples'])} examples stored)")
+    
+    return neg_objs
+
 nodes = []
 
 def visit(node, parentMatrix=np.identity(4), comb=0, smooth=0.0):
@@ -221,8 +326,7 @@ if __name__ == "__main__":
 
     scene = json.load(open(sys.argv[1]))
     
-    print("\n=== REORDERING ===")
-    #scene = reorder_scene_for_flat_list(scene)
+    print_subtraction_analysis(scene)
 
     visit(scene)
     print(len(nodes), "nodes")
