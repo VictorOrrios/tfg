@@ -234,11 +234,11 @@ def visit(node, parentMatrix=np.identity(4), comb=0, smooth=0.0):
 
     if mode == "sub":
         # Left child: always union (it's what we're subtracting FROM)
-        visit(node["leftChild"], childMatrix, 0, blend)
+        visit(node["leftChild"], childMatrix, comb, smooth)
         # Right child: always sub (it's what we're subtracting WITH)
         visit(node["rightChild"], childMatrix, 1, blend)
     else:  # union
-        visit(node["leftChild"], childMatrix, 0, blend)
+        visit(node["leftChild"], childMatrix, comb, smooth)
         visit(node["rightChild"], childMatrix, 0, blend)
 
 def vec3(v):

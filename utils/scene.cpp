@@ -1088,6 +1088,24 @@ std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 currCamId0, 
 // Constructor
 //------------------
 Scene::Scene() {
+  Material defaultMat = createMaterial();
+  defaultMat.name = "Default";
+  defaultMat.shininess = 1.0;
+  int dMat = addMaterial(defaultMat);
+
+  const int NUM_OF_PARTICLES = 50;
+  for(int i = 0; i<NUM_OF_PARTICLES; i++){
+    Node *particle = createNode(shaderio::PrimType::Box);
+    particle->gp.scale = 0.2;
+    particle->gp.position = glm::vec3(0.0);
+    particle->gp.rotation = glm::vec3(0.0);
+    particle->sdp.combOp = (int)CombinationOp::Union + 2;
+    particle->sdp.smoothness = 0.02;
+    particle->gp.mat = dMat;
+    updateNodeData(particle);
+    addNode(particle);
+  }
+
   return;
   Material mat = createMaterial();
   mat.name = "Default";

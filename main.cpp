@@ -616,10 +616,12 @@ public:
     NVVK_DBG_SCOPE(cmd);
 
     {
+      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "CPU Action");
       // User espcial action
       glm::vec3 eye = m_cameraManip->getEye();
       glm::vec3 center = m_cameraManip->getCenter();
       //m_scene.simulate(deltaT);
+      m_scene.animateParticles(m_pushConst.time);
       m_scene.userAction(eye, glm::normalize(center-eye), m_pushConst.pyp.dts);
     }
 
