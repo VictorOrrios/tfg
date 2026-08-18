@@ -45,6 +45,19 @@ float3 applyFog(in float3  col,   // color of pixel
   return lerp( col, fogColor, fogAmount );
 }
 
+float validSaturate(float value, float fallback){
+  return value == value ? saturate(value) : fallback;
+}
+
+float3 validSaturate(float3 value, float3 fallback){
+  return all(value == value) ? saturate(value) : fallback;
+}
+
+float3 safeNormal(float3 n){
+  float len2 = dot(n, n);
+  return len2 > 1e-8 && len2 < 1e8 ? n * rsqrt(len2) : float3(0.0, 1.0, 0.0);
+}
+
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE_2D, WORKGROUP_SIZE_2D, 1)]
 void computeMain(uint3 threadIdx : SV_DispatchThreadID)
@@ -69,6 +82,15 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
   float metalness = N_met.w;
   //float shininess = albedo_sh.w*MAX_SHININESS;
 
+  // Sanitise the G-buffer inputs. A NaN or an unnormalised normal anywhere here
+  // propagates through the BRDF and blacks out the pixel.
+  N = safeNormal(N);
+  albedo = validSaturate(albedo, float3(1.0));
+  alpha = max(validSaturate(alpha, 0.64), 0.02);
+  metalness = validSaturate(metalness, 0.0);
+  shadow = validSaturate(shadow, 1.0);
+  occlussion = validSaturate(occlussion, 1.0);
+
   float3 finalColor = float3(0.0);
 
   if(depth >= 0.0){
@@ -78,11 +100,12 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 
     float3 F0 = lerp(float3(0.04),albedo,metalness);
     float alpha2 = alpha*alpha;
-    float NoV = dot(N, V);
-    float NoH = dot(N, H);
-    float NoVabs = abs(NoV);
-    float VoH = dot(V, H);
-    float LoN = dot(L, N);
+    // Clamp the cosines: negative values here feed pow() and divisions below and
+    // produce NaNs or negative radiance on back facing or grazing pixels.
+    float NoV = max(dot(N, V), 1e-4);
+    float NoH = saturate(dot(N, H));
+    float VoH = saturate(dot(V, H));
+    float LoN = saturate(dot(L, N));
 
     float3 F = reflectance(VoH, F0);
     float  D = ggx_distribution(NoH,alpha2);
@@ -123,7 +146,7 @@ void computeMain(uint3 threadIdx : SV_DispatchThreadID)
 
     // Color calculation
     //float3 direct = (diffuse + specular) * shadow;
-    float3 direct = radiance * fr * max(LoN,1e-5) * shadow;
+    float3 direct = radiance * fr * LoN * shadow;
     float3 indirect = (ambient + rimLight) * occlussion;
 
     float3 color = (direct + indirect);

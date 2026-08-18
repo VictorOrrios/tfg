@@ -24,8 +24,10 @@ float3 getTerrainColor(float3 p, float slope) {
   const float3 foam   = float3(1.0, 1.0, 1.0);
 
   float height = p.y;
-  float3 random = noiseImage.Sample(gSampler,p.xz/1000.0).xyz;
-  float3 random2 = noiseImage.Sample(gSampler,p.xz/10000.0).xyz;
+  // SampleLevel, not Sample: implicit-LOD sampling requires derivatives, which do
+  // not exist in ray tracing stages and make the RT shader module invalid.
+  float3 random = noiseImage.SampleLevel(gSampler,p.xz/1000.0,0.0).xyz;
+  float3 random2 = noiseImage.SampleLevel(gSampler,p.xz/10000.0,0.0).xyz;
   float breakup01 = abs(length(random)/1.73);
   float breakup11 = breakup01*2.0-1.0;
   float breakupbig = abs(length(random2)/1.73);

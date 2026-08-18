@@ -44,8 +44,10 @@ bool sphereTraceBrick(Ray r, int pointer, float3 brickPos, int level, out float 
       break;
     
     float3 diffNorm = diff/voxel_size;
-    int3 voxel_offset = int3(floor(diffNorm));
-    float3 voxel_coor = frac(diffNorm);
+    // Clamp: at the far face of the brick this reaches BRICK_SIZE-1 and
+    // fetchBrickValue then reads offset+1, one texel into the next brick.
+    int3 voxel_offset = clamp(int3(floor(diffNorm)), int3(0), int3(BRICK_SIZE - 2));
+    float3 voxel_coor = saturate(diffNorm - float3(voxel_offset));
 
     if(step == 0 || any(prev_voxel_offset != voxel_offset)){
       fetchBrickValue(pointer,voxel_offset,max_voxel_value,sBottom,sTop);
@@ -83,8 +85,10 @@ bool sphereTraceBrickShadow(Ray r, int pointer, float3 brickPos, int level){
       break;
     
     float3 diffNorm = diff/voxel_size;
-    int3 voxel_offset = int3(floor(diffNorm));
-    float3 voxel_coor = frac(diffNorm);
+    // Clamp: at the far face of the brick this reaches BRICK_SIZE-1 and
+    // fetchBrickValue then reads offset+1, one texel into the next brick.
+    int3 voxel_offset = clamp(int3(floor(diffNorm)), int3(0), int3(BRICK_SIZE - 2));
+    float3 voxel_coor = saturate(diffNorm - float3(voxel_offset));
 
     if(step == 0 || any(prev_voxel_offset != voxel_offset)){
       fetchBrickValue(pointer,voxel_offset,max_voxel_value,sBottom,sTop);
@@ -136,8 +140,8 @@ float sphereTraceBbox(Ray r, Bbox bbox, out float3 debug){
 
     // Get de voxel params
     float3 relVoxelCoor = brickCoor * (BRICK_SIZE-1);
-    int3 voxelOffset = int3(relVoxelCoor); // No floor needed, brickCoor ∈ [0,1]
-    float3 voxelCoor = fract(relVoxelCoor);
+    int3 voxelOffset = clamp(int3(floor(relVoxelCoor)), int3(0), int3(BRICK_SIZE - 2));
+    float3 voxelCoor = saturate(relVoxelCoor - float3(voxelOffset));
 
     // Get pointer of allocated brick
     int3 brickIndex = id2index(brickId);
@@ -220,8 +224,8 @@ void sphereTraceShadowBbox(Ray r, Bbox bbox, float k, float depthOffset, float m
 
     // Get de voxel params
     float3 relVoxelCoor = brickCoor * (BRICK_SIZE-1);
-    int3 voxelOffset = int3(relVoxelCoor); // No floor needed, brickCoor ∈ [0,1]
-    float3 voxelCoor = fract(relVoxelCoor);
+    int3 voxelOffset = clamp(int3(floor(relVoxelCoor)), int3(0), int3(BRICK_SIZE - 2));
+    float3 voxelCoor = saturate(relVoxelCoor - float3(voxelOffset));
 
     // Get pointer of allocated brick
     int3 brickIndex = id2index(brickId);
@@ -346,7 +350,7 @@ float traceScene(Ray r, out float3 normal, out Material mat, out float3 debug){
 
     if(pushConst.lp.tracingMode == TracingModes::compute){
         //normal = analyticNormal(p);
-        normal = analyticSmoothNormal(p);
+        normal = pushConst.lp.smoothNormals != 0 ? analyticSmoothNormal(p) : evalNormal(p);
     }else{
       normal = evalNormal(p);
     }

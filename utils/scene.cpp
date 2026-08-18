@@ -139,12 +139,11 @@ void Scene::drawPrimitives() {
 
 template<typename T>
 bool ComboVector(const char* label, int* current_item, std::vector<T>& vec){
-  auto getter = [](void* data, int idx, const char** out_text) -> bool
+  auto getter = [](void* data, int idx) -> const char*
   {
     auto& v = *static_cast<std::vector<T>*>(data);
-    if (idx < 0 || idx >= (int)v.size()) return false;
-    *out_text = v[idx].name.c_str();
-    return true;
+    if (idx < 0 || idx >= (int)v.size()) return "";
+    return v[idx].name.c_str();
   };
 
   return ImGui::Combo(label, current_item, getter, &vec, (int)vec.size());
@@ -643,7 +642,7 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
       .roundness=sdp.roundness,
       .smoothness=sdp.smoothness,
       .morph=sdp.morph,
-      .mat=uint(p.mat),
+      .mat=uint32_t(p.mat),
       .physicsActive=node.pyp.physicsActive
     });
   }

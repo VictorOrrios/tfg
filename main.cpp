@@ -141,6 +141,7 @@ class AppElement : public nvapp::IAppElement
     eImgPosition,
     eImgAO,
     eImgAOScratch,
+    eImgDepth,        // Ray depth, written as a storage image by the tracing passes
   };
 
 public:
@@ -158,7 +159,7 @@ public:
   struct RWBuffer{
     nvvk::Buffer  nvbuffer{};
     void*         mappedData = nullptr;
-    uint          count = 0;
+    uint32_t      count = 0;
   };
 
   AppElement(const Info& info)
@@ -369,6 +370,10 @@ public:
       ImGui::SliderFloat("Fog Density", &m_pushConst.lp.fogDensity, 0.0f, 0.2f);
       ImGui::ColorEdit3("Fog Color", &m_pushConst.lp.fogColor.x);
      
+      ImGui::Separator();
+      ImGui::Text("Normals");
+      ImGui::CheckboxFlags("Smooth normals (WIP)", &m_pushConst.lp.smoothNormals, 1);
+
       ImGui::Separator();
       ImGui::Text("Ambient occlussion");
       m_refreshAOkernels |= ImGui::SliderFloat("Radius", &m_pushConst.lp.aoRadius, 0.0f, 5.0f);
@@ -591,15 +596,11 @@ public:
       m_descPack.makeWrite(shaderio::BindingPoints::gSampler), 
       samplerInfo);
 
-    // Needs to create a descriptor image info because the GBuffer object doesn't expose a function
-    VkDescriptorImageInfo depthImageInfo{
-        .sampler = VK_NULL_HANDLE,
-        .imageView = m_gBuffers.getDepthImageView(),
-        .imageLayout = VK_IMAGE_LAYOUT_GENERAL
-    };
+    // Ray depth is a dedicated colour attachment: the GBuffer's depth-stencil
+    // image cannot be used as a storage image (depth formats do not support it).
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::depthBuffer), 
-      depthImageInfo);
+      m_descPack.makeWrite(shaderio::BindingPoints::depthBuffer),
+      m_gBuffers.getDescriptorImageInfo(eImgDepth));
     
     
     vkUpdateDescriptorSets(m_app->getDevice(),  
@@ -687,8 +688,11 @@ public:
       bindComputePipeline(cmd,&m_aoPipeline);
       // Dispatch
       VkExtent2D viewportSize = m_gBuffers.getSize();
-      viewportSize.width = viewportSize.width/m_pushConst.lp.aoTexelSize;
-      viewportSize.height = viewportSize.height/m_pushConst.lp.aoTexelSize;
+      // Round up: with a truncating division the right and bottom edges of the
+      // AO image are never dispatched when the viewport is not a multiple.
+      const uint32_t aoTexelSize = static_cast<uint32_t>(m_pushConst.lp.aoTexelSize > 0 ? m_pushConst.lp.aoTexelSize : 1);
+      viewportSize.width = (viewportSize.width + aoTexelSize - 1) / aoTexelSize;
+      viewportSize.height = (viewportSize.height + aoTexelSize - 1) / aoTexelSize;
       VkExtent2D group_counts = nvvk::getGroupCounts(viewportSize, WORKGROUP_SIZE_2D);
       vkCmdDispatch(cmd, group_counts.width, group_counts.height, 1);
       // Wait for AO to be done
@@ -824,9 +828,17 @@ public:
     // Dispatch
     vkCmdDispatch(cmd, 1, 1, buildJobs.size());
   
-    nvvk::cmdBufferMemoryBarrier(cmd, {m_brickJobQueue.buffer, 
-                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
+    // The brick pass reads all three of these: the queue and the counters from
+    // the shader, and the indirect command through vkCmdDispatchIndirect. The
+    // last one needs DRAW_INDIRECT/INDIRECT_COMMAND_READ, which a plain
+    // compute->compute barrier does not cover.
+    nvvk::cmdMemoryBarrier(cmd,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+                               | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+                           VK_ACCESS_2_SHADER_WRITE_BIT,
+                           VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT
+                               | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
   }
 
   void generationPass(VkCommandBuffer cmd){
@@ -844,6 +856,19 @@ public:
     
     bool rtxON = m_pushConst.lp.tracingMode == int(shaderio::TracingModes::rtx);
     if(rtxON && (m_updateTlas || sceneRefresh)){
+      // The build compute shader writes the TLAS instance records
+      // (updateInstance/maskInstance). Nothing else orders those writes against
+      // the acceleration structure build that reads them, so the builder can
+      // see a mix of fresh and stale instances: bricks whose mask has not
+      // landed yet are simply absent from the TLAS.
+      nvvk::cmdBufferMemoryBarrier(cmd, {m_instancesB.buffer,
+                                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                         VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                                         0,
+                                         VK_WHOLE_SIZE,
+                                         VK_ACCESS_2_SHADER_WRITE_BIT,
+                                         VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR
+                                             | VK_ACCESS_2_SHADER_READ_BIT});
       updateTopLevelAS(cmd,m_rebuildTlas);
       m_rebuildTlas = false;
     }else{
@@ -1029,9 +1054,9 @@ public:
           VK_FORMAT_R32G32B32A32_SFLOAT,      // Position buffer
           VK_FORMAT_R8_UNORM,                 // AO buffer
           VK_FORMAT_R8_UNORM,                 // AO Scratch buffer
+          VK_FORMAT_R32_SFLOAT,               // Ray depth buffer
         },          
-        //.depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
-        .depthFormat    = VK_FORMAT_R32_SFLOAT,
+        .depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
         .imageSampler   = m_gBuffersSampler,
         .descriptorPool = m_app->getTextureDescriptorPool(),
     };
@@ -1047,7 +1072,9 @@ public:
     ci.format = format;
     ci.extent = extent;
     ci.mipLevels = 1;
-    ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+    // TRANSFER_DST is required: these textures are uploaded through the staging
+    // uploader, which also performs the transition to the advertised layout.
+    ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
     VkImageViewCreateInfo vi = DEFAULT_VkImageViewCreateInfo;
     vi.image = image.image;
@@ -1087,9 +1114,22 @@ public:
       for(int i = 0; i < size; i++){
         noise.push_back(randomFloat2());
       }
-      NVVK_CHECK(m_stagingUploader.appendImage(m_noiseTex,std::span(noise)));
-      
+      // create2DTexture already advertises GENERAL in the descriptor, so the
+      // staging uploader will not transition the image itself. Do it explicitly,
+      // otherwise the image is still UNDEFINED when the shaders sample it.
+      nvvk::cmdImageMemoryBarrier(cmd, {m_noiseTex.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL});
+      // The uploader copies into the layout advertised by the descriptor, so it
+      // has to describe the image as it actually is during the copy.
+      m_noiseTex.descriptor.imageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+
+      NVVK_CHECK(m_stagingUploader.appendImage(m_noiseTex,std::span(noise),VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL));
+
       m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
+
+      nvvk::cmdImageMemoryBarrier(cmd, {m_noiseTex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_GENERAL});
+      m_noiseTex.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
     m_app->submitAndWaitTempCmdBuffer(cmd); 
   }
@@ -1185,16 +1225,19 @@ public:
     NVVK_CHECK(m_samplerPool.acquireSampler(image.descriptor.sampler, si));
 
     image.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-/* 
-    VkCommandBuffer cmd = m_app->createTempCmdBuffer();
 
-    nvvk::cmdImageMemoryBarrier(cmd, {image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL});
-    VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdClearColorImage(cmd, image.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
+    // The descriptor above advertises GENERAL, so the image really has to be
+    // transitioned out of UNDEFINED here or every shader access is invalid.
+    {
+      VkCommandBuffer cmd = m_app->createTempCmdBuffer();
 
-    m_app->submitAndWaitTempCmdBuffer(cmd);
-    m_stagingUploader.releaseStaging();
- */
+      nvvk::cmdImageMemoryBarrier(cmd, {image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL});
+      VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      vkCmdClearColorImage(cmd, image.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
+
+      m_app->submitAndWaitTempCmdBuffer(cmd);
+      m_stagingUploader.releaseStaging();
+    }
     // Debugging information
     NVVK_DBG_NAME(image.image);
     NVVK_DBG_NAME(image.descriptor.sampler);
@@ -1404,8 +1447,8 @@ public:
 
     vkCmdPipelineBarrier(
       cmd,
-      VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+      VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
       0,
       1, &barrier,
       0, nullptr,
@@ -1495,6 +1538,8 @@ public:
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneAabbB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneObjectsB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneMaterialsB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
 
@@ -1774,14 +1819,14 @@ public:
     bindings.addBinding(shaderio::BindingPoints::albedoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::depthBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::shadowBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
-    bindings.addBinding(shaderio::BindingPoints::shadowSampler, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::shadowSampler, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::shadowScratchBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
-    bindings.addBinding(shaderio::BindingPoints::shadowScratchSampler, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::shadowScratchSampler, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::positionBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::aoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::aoScratchBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
-    bindings.addBinding(shaderio::BindingPoints::aoSample, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
-    bindings.addBinding(shaderio::BindingPoints::aoScratchSample, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::aoSample, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::aoScratchSample, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_ALL);
     
     bindings.addBinding(shaderio::BindingPoints::gSampler, VK_DESCRIPTOR_TYPE_SAMPLER, 1, VK_SHADER_STAGE_ALL);
     
@@ -1983,7 +2028,7 @@ public:
     stages[eClosestHit].pName           = "rchitMain";
     stages[eClosestHit].stage           = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
     stages[eClosestHitShadow].module    = pl->shader;
-    stages[eClosestHitShadow].pName     = "rchitMain";
+    stages[eClosestHitShadow].pName     = "rchitShadow";
     stages[eClosestHitShadow].stage     = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
     stages[eIntersection].module        = pl->shader;
     stages[eIntersection].pName         = "rintMain";
@@ -2106,7 +2151,7 @@ public:
     shaderio::DynamicObject* rdata = reinterpret_cast<shaderio::DynamicObject*>(m_sceneDynamicObjects.mappedData);
     std::vector<shaderio::DynamicObject> data;
     data.reserve(m_sceneDynamicObjects.count);
-    for(uint i = 0; i < m_sceneDynamicObjects.count; i++){
+    for(uint32_t i = 0; i < m_sceneDynamicObjects.count; i++){
       data.push_back(rdata[i]);
     }
     m_scene.processDynamicObjects(data);

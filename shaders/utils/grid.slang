@@ -413,8 +413,8 @@ Material sampleInterpolatedMat(float3 p){
 
   // Get de mat voxel params
   float3 relMatVoxelCoor = brickCoor * (MAT_PER_BRICK_AXIS-1);
-  int3 matVoxelOffset = int3(relMatVoxelCoor); // No floor needed, brickCoor ∈ [0,1]
-  float3 matVoxelCoor = fract(relMatVoxelCoor);
+  int3 matVoxelOffset = clamp(int3(floor(relMatVoxelCoor)), int3(0), int3(MAT_PER_BRICK_AXIS - 2));
+  float3 matVoxelCoor = saturate(relMatVoxelCoor - float3(matVoxelOffset));
 
   // Get pointer of allocated brick
   int3 brickIndex = id2index(brickId);
@@ -439,8 +439,8 @@ float sampleInterpolatedPoint(float3 p){
 
   // Get de voxel params
   float3 relVoxelCoor = brickCoor * (BRICK_SIZE-1);
-  int3 voxelOffset = int3(relVoxelCoor); // No floor needed, brickCoor ∈ [0,1]
-  float3 voxelCoor = fract(relVoxelCoor);
+  int3 voxelOffset = clamp(int3(floor(relVoxelCoor)), int3(0), int3(BRICK_SIZE - 2));
+  float3 voxelCoor = saturate(relVoxelCoor - float3(voxelOffset));
 
   // Get pointer of allocated brick
   int3 brickIndex = id2index(brickId);
