@@ -5,27 +5,37 @@
 #include "utils/descriptors.slang"  // External memory definitions
 
 
+groupshared int4 g_brickIdLevel;
+groupshared int  g_clipPointer;
+
 [shader("compute")]
 [numthreads(BRICK_SIZE, BRICK_SIZE, BRICK_SIZE)]
-void computeMain(uint3 tId : SV_DispatchThreadID){
-  const int brickJobIdx = tId.x/BRICK_SIZE + (tId.y/BRICK_SIZE)*BRICK_JOB_GROUP_X_DISPATCH_SIZE;
+void computeMain(uint3 groupId : SV_GroupID, uint3 groupThreadId : SV_GroupThreadID){
+  const uint brickJobIdx = groupId.x + groupId.y*BRICK_JOB_GROUP_X_DISPATCH_SIZE;
 
   // Outside dispatch range check
   if(brickJobIdx >= counters[int(Counters::nextBrickJob)])
     return;
 
-  const BrickJob brickJob = brick_job_queue[brickJobIdx];
+  // Read the job and clear the dirty bit once per brick. Doing it from every
+  // thread of the group is a non atomic read-modify-write of the same clipMap
+  // entry by BRICK_SIZE^3 threads, which races.
+  if(groupThreadId.x == 0 && groupThreadId.y == 0 && groupThreadId.z == 0){
+    const BrickJob brickJob = brick_job_queue[brickJobIdx];
+    g_brickIdLevel = brickJob.id_level;
 
-  const int3 brickId = brickJob.id_level.xyz;
-  const int level = brickJob.id_level.w;
+    int3 brickIndex = id2index(g_brickIdLevel.xyz);
+    int3 clipIndex = brickIdx2clipIdx(brickIndex,g_brickIdLevel.w);
 
-  int3 brickIndex = id2index(brickId);
-  int3 clipIndex = brickIdx2clipIdx(brickIndex,level);
+    g_clipPointer = clipMap[clipIndex] & NOT_DIRTY_BIT;
+    clipMap[clipIndex] = g_clipPointer;
+  }
 
-  // Clean dirty bit from pointer. This executes BRICK_SIZE³ times per brick, not optimal
-  int clipPointer = clipMap[clipIndex];
-  clipPointer = clipPointer & NOT_DIRTY_BIT;
-  clipMap[clipIndex] = clipPointer;
+  GroupMemoryBarrierWithGroupSync();
+
+  const int3 brickId = g_brickIdLevel.xyz;
+  const int level = g_brickIdLevel.w;
+  const int clipPointer = g_clipPointer;
 
   // If not a uniform value brick
   if(clipPointer < NUM_BRICKS_IN_ATLAS){
@@ -33,7 +43,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     const float voxel_size = VOXEL_SIZES[level];
     const float max_voxel_value = MAX_VOXEL_VALUES[level];
 
-    int3 brixelOffset = tId % BRICK_SIZE;
+    int3 brixelOffset = int3(groupThreadId);
     int3 brickPointer = pointer2atlasIdx(clipPointer);
     int3 atlasIndex = brickPointer + brixelOffset;
 

@@ -107,19 +107,27 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
       
       // Uniform value brick check
       if(outside_max){
-        if(brick_allocated) freePointer(prevClipPointer);
+        if(brick_allocated){
+          freePointer(prevClipPointer);
+          // The brick is gone, so its instance has to leave the TLAS too.
+          // Without this the freed brick keeps being intersected and masks
+          // whatever is really there.
+          maskInstance(prevClipPointer);
+        }
         int newPointer = centerSDF<0 ? UNIFORM_NEGATIVE_BRICK_POINTER : UNIFORM_POSITIVE_BRICK_POINTER;
         clipMap[clipIndex] = newPointer | DIRTY_BIT;
-      }else if(!brick_allocated){
-        int newPointer = allocPointer();
-        instance_ptr = newPointer;
-        clipMap[clipIndex] = newPointer | DIRTY_BIT;
-      }
+      }else{
+        if(!brick_allocated){
+          int newPointer = allocPointer();
+          instance_ptr = newPointer;
+          clipMap[clipIndex] = newPointer | DIRTY_BIT;
+        }
 
-      if(has_surface){
-        updateInstance(instance_ptr,brickId,level);
-      }else if(brick_allocated){
-        maskInstance(instance_ptr);
+        if(has_surface){
+          updateInstance(instance_ptr,brickId,level);
+        }else if(brick_allocated){
+          maskInstance(instance_ptr);
+        }
       }
     }
 

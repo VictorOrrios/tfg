@@ -3,6 +3,7 @@
 #include "nvutils/logger.hpp"
 #include "scene.hpp"
 #include <cmath>
+#include <numbers>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
@@ -15,7 +16,7 @@ static glm::vec3 particle_freqs(int i, float speed) {
 }
 
 static glm::vec3 particle_phases(int i) {
-  return 2.0f * float(M_PI) *
+  return 2.0f * std::numbers::pi_v<float> *
          glm::vec3(frac(i * 0.3819660113f), frac(i * 0.2451223338f),
                    frac(i * 0.4301597090f));
 }

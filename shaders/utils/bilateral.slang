@@ -3,7 +3,7 @@
 #include "../shaderio.h"      // Shared definitions with CPU
 #include "descriptors.slang"  // External memory definitions
 
-const static int KERNEL_RADIUS = 4;
+const static int KERNEL_RADIUS = 2;
 const static float kernel[5] = float[](
   0.227027,
   0.1945946,
@@ -33,45 +33,83 @@ float gaussian(float x, float sigma){
 
 float depthWeight(float depth_center, float depth_sample){
   float dz = abs(depth_center - depth_sample);
-  return depthKernel[int(dz*1.0)];
+  if(!(dz == dz))
+    return 0.0;
+  int index = clamp(int(dz * 4.0), 0, 10);
+  return depthKernel[index];
 }
 
 float applyBilateralBlurPass(
   int2 center_coor, bool horizontal, uint2 iResolution, int texelSize,
   Texture2D<float> horizImage, Texture2D<float> vertImage
 ){
-  float2 uv_scale = horizontal? float2(1.0/texelSize) : float2(1.0,1.0);
+  int safeTexelSize = max(texelSize, 1);
+  int2 fullRes = int2(iResolution);
 
-  float2 center_uv = (float2(center_coor)/iResolution) * uv_scale;
+  if(any(fullRes <= 0))
+    return 1.0;
 
-  int2 coor_step = horizontal? int2(texelSize,0) : int2(0,texelSize);
-  float2 uv_step = (horizontal? float2(1.0/float(iResolution.x),0.0) : float2(0.0,1.0/float(iResolution.y))) * uv_scale * texelSize;
-  
-  float sample_center = horizontal? horizImage.Sample(gSampler,center_uv) : vertImage.Sample(gSampler,center_uv);
-  float depth_center = depthImage[center_coor];
+  int2 centerFull = clamp(center_coor, int2(0), fullRes - int2(1));
+  if(safeTexelSize <= 1){
+    float sample = horizontal ? horizImage.Load(int3(centerFull.x, centerFull.y, 0))
+                              : vertImage.Load(int3(centerFull.x, centerFull.y, 0));
+    return sample == sample ? saturate(sample) : 1.0;
+  }
 
-  float result = sample_center * kernel[0];
-  float weightSum = kernel[0];
+  float sample_center;
+  float depth_center;
+  float result;
+  float weightSum;
 
-  for (int i = 1; i <= KERNEL_RADIUS; i++) {
-    for (int s = -1; s <= 1; s += 2) {
+  if(horizontal){
+    int2 lowRes = max((fullRes + safeTexelSize - 1) / safeTexelSize, int2(1));
+    int2 centerLow = clamp(center_coor / safeTexelSize, int2(0), lowRes - int2(1));
+    int2 centerDepth = min(centerLow * safeTexelSize + safeTexelSize / 2, fullRes - int2(1));
 
-      int2 coor = center_coor + coor_step*i*s;
+    sample_center = horizImage.Load(int3(centerLow.x, centerLow.y, 0));
+    depth_center = depthImage[centerDepth];
+    result = sample_center * kernel[0];
+    weightSum = kernel[0];
 
-      if(any(coor < 0) || any(coor >= iResolution))
-        continue;
+    for(int i = 1; i <= KERNEL_RADIUS; i++){
+      for(int s = -1; s <= 1; s += 2){
+        int2 sampleLow = centerLow + int2(i * s, 0);
 
-      float2 uv = center_uv + uv_step*i*s;
+        if(any(sampleLow < 0) || any(sampleLow >= lowRes))
+          continue;
 
-      float sample = horizontal? horizImage.Sample(gSampler,uv) : vertImage.Sample(gSampler,uv);
-      float depth = depthImage[coor];
+        int2 depthCoor = min(sampleLow * safeTexelSize + safeTexelSize / 2, fullRes - int2(1));
+        float sample = horizImage.Load(int3(sampleLow.x, sampleLow.y, 0));
+        float depth = depthImage[depthCoor];
+        float w = kernel[i] * depthWeight(depth_center, depth);
 
-      float w = kernel[i] * depthWeight(depth_center, depth);
+        result += sample * w;
+        weightSum += w;
+      }
+    }
+  }else{
+    sample_center = vertImage.Load(int3(centerFull.x, centerFull.y, 0));
+    depth_center = depthImage[centerFull];
+    result = sample_center * kernel[0];
+    weightSum = kernel[0];
 
-      result += sample * w;
-      weightSum += w;
+    for(int i = 1; i <= KERNEL_RADIUS; i++){
+      for(int s = -1; s <= 1; s += 2){
+        int2 coor = centerFull + int2(0, safeTexelSize * i * s);
+
+        if(any(coor < 0) || any(coor >= fullRes))
+          continue;
+
+        float sample = vertImage.Load(int3(coor.x, coor.y, 0));
+        float depth = depthImage[coor];
+        float w = kernel[i] * depthWeight(depth_center, depth);
+
+        result += sample * w;
+        weightSum += w;
+      }
     }
   }
 
-  return result / weightSum;
+  float blurred = weightSum > 1e-8 ? result / weightSum : sample_center;
+  return blurred == blurred ? saturate(blurred) : saturate(sample_center);
 }

@@ -153,7 +153,7 @@ bool Scene::loadFromFile(const std::string &path) {
   ar(m_root);
   ar(m_mat);
 
-  uint max_id = 0;
+  uint32_t max_id = 0;
   for(auto& n:m_root){
     markRefresh(&n);
     generateMatrix(&n);

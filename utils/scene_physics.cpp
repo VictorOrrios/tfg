@@ -223,7 +223,7 @@ void Scene::updateNodePysicsData(Node *n) {
 
   if(pyp.physicsActive){
     if(n->gp.type == shaderio::PrimType::Sphere){
-      float mass = 4.0 / 3.0 * std::numbers::pi * gp.scale * gp.scale * gp.scale * pyp.density;
+      float mass = 4.0 / 3.0 * std::numbers::pi_v<float> * gp.scale * gp.scale * gp.scale * pyp.density;
       pyp.inv_mass = 1.0f/mass;
       float I = 2.0 / 5.0 * mass * gp.scale * gp.scale;
       float I_inv = 1.0/I;

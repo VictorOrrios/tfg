@@ -14,6 +14,23 @@ find_package(NvproCore2 REQUIRED)
 
 
 #####################################################################################
+# cereal (header-only serialization, used by utils/scene_serial.cpp)
+# Fetched so the project builds without a system-wide install.
+include(FetchContent)
+FetchContent_Declare(
+    cereal
+    GIT_REPOSITORY https://github.com/USCiLab/cereal.git
+    GIT_TAG        v1.3.2
+    GIT_SHALLOW    TRUE
+)
+set(BUILD_DOC OFF CACHE BOOL "" FORCE)
+set(BUILD_SANDBOX OFF CACHE BOOL "" FORCE)
+set(SKIP_PERFORMANCE_COMPARISON ON CACHE BOOL "" FORCE)
+set(JUST_INSTALL_CEREAL ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(cereal)
+
+
+#####################################################################################
 # Compile shaders
 set(SHADER_OUTPUT_DIR "${CMAKE_CURRENT_LIST_DIR}/_autogen")
 file(GLOB SHADER_SLANG_FILES "shaders/*.slang")
@@ -76,6 +93,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   nvpro2::nvslang
   nvpro2::nvvk
   nvpro2::nvshaders_host
+  cereal::cereal
 )
 
 add_project_definitions(${PROJECT_NAME})

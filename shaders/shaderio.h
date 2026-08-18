@@ -266,11 +266,14 @@ struct LightinParams{
   float  aoRadius         = 0.5f;
   float  aoBias           = 0.001f;
   int    aoSamples        = 80;
-  int    aoTexelSize      = 2;
+  int    aoTexelSize      = 1;
   int    shadowSamples    = 2;
-  int    shadowTexelSize  = 4;
+  int    shadowTexelSize  = 1;
   float  shadowSharpness  = 50.0f;
   int    tracingMode      = 1;
+  // analyticSmoothNormal (Smooth normals WIP) returns a near constant normal on
+  // NVIDIA, which flattens all shading. Off by default until that is fixed.
+  int    smoothNormals    = 0;
 };
 
 struct DebugParams{
