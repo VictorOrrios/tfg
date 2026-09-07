@@ -622,7 +622,7 @@ public:
       glm::vec3 eye = m_cameraManip->getEye();
       glm::vec3 center = m_cameraManip->getCenter();
       //m_scene.simulate(deltaT);
-      m_scene.animateParticles(m_pushConst.time);
+      m_scene.dynamicTestUpdate(m_pushConst.time);
       m_scene.userAction(eye, glm::normalize(center-eye), m_pushConst.pyp.dts);
     }
 
@@ -2385,12 +2385,14 @@ int main(int argc, char** argv)
   app.addElement(std::make_shared<nvapp::ElementProfiler>(&profilerManager));
   // add logger element
   app.addElement(elementLogger);
+  // Setup to false for tests
+  app.setVsync(false);
   
   // Initial camera params
   // Set camera to start at position (0,0,0) looking along -Z axis with Y up  
   nvutils::CameraManipulator::Camera camera;  
-  camera.eye = glm::vec3(0.0f, 0.0f, 0.0f);  // Camera position  
-  camera.ctr = glm::vec3(0.0f, 0.0f, -1.0f); // Look at point (forward)  
+  camera.eye = glm::vec3(0.5f, 0.5f, 3.0f);  // Camera position  
+  camera.ctr = glm::vec3(0.0f, 0.0f, 0.0f); // Look at point (forward)  
   camera.up  = glm::vec3(0.0f, 1.0f, 0.0f);  // Up vector  
   camera.fov = 60.0f;                         // Field of view in degrees  
     
