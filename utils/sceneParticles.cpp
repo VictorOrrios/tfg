@@ -75,7 +75,7 @@ void Scene::dynamicTestUpdate(float time) {
   static int iniPower = 4;
   static int maxPower = 11;
   static int currPower = maxPower;
-  static int maxSamples = 300;
+  static int maxSamples = 140;
   static int currSamples = maxSamples+1;
 
   const std::string phases []= {

@@ -1,4 +1,37 @@
+#!/usr/bin/env python3
+
+"""
+Compare a simple benchmark file against a particle benchmark CSV.
+
+Input 1 format:
+    <test_name> <N> <total_time>
+
+Example:
+    boxes 16 5.13658
+    boxes 32 10.5499
+    ...
+    spheres 16 715.715
+
+Input 2 format:
+    CSV produced by LipschitzBenchmark.
+
+Only tests/variants that exist in BOTH files are plotted.
+
+For the CSV, the total time used is:
+    render_ms_median
+
+Usage:
+    python plot_benchmark.py benchmark.txt particle_benchmark.csv
+
+    python plot_benchmark.py benchmark.txt particle_benchmark.csv \
+        -o comparison.png
+
+    python plot_benchmark.py benchmark.txt particle_benchmark.csv \
+        --logy
+"""
+
 import argparse
+import csv
 from collections import defaultdict
 
 import matplotlib
@@ -7,14 +40,20 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-def load_data(path):
+# ---------------------------------------------------------------------------
+# Load simple benchmark
+# ---------------------------------------------------------------------------
+
+def load_simple_benchmark(path):
     """
-    Read the benchmark file and group values by variant.
+    Load benchmark with format:
+
+        <variant> <num_objects> <time>
 
     Returns:
         {
             "boxes": [(16, 5.13658), (32, 10.5499), ...],
-            "cylinders": [(16, 91.3088), ...],
+            "spheres": [(16, 715.715), ...],
             ...
         }
     """
@@ -25,7 +64,6 @@ def load_data(path):
         for line_number, line in enumerate(f, start=1):
             line = line.strip()
 
-            # Ignore empty lines
             if not line:
                 continue
 
@@ -33,53 +71,159 @@ def load_data(path):
 
             if len(parts) != 3:
                 raise ValueError(
-                    f"Invalid line {line_number}: {line!r}\n"
-                    "Expected: <variant> <num_objects> <value>"
+                    f"Invalid line {line_number} in {path!r}: {line!r}\n"
+                    "Expected: <variant> <N> <time>"
                 )
 
             variant = parts[0]
 
             try:
-                num_objects = int(parts[1])
-                value = float(parts[2])
+                n = int(parts[1])
+                time = float(parts[2])
             except ValueError:
                 raise ValueError(
-                    f"Invalid numeric value on line {line_number}: {line!r}"
+                    f"Invalid numeric value on line {line_number} "
+                    f"in {path!r}: {line!r}"
                 )
 
-            data[variant].append((num_objects, value))
+            data[variant].append((n, time))
 
-    # Sort by number of objects
     for values in data.values():
         values.sort(key=lambda x: x[0])
 
     return data
 
 
-def plot_data(data, output, logy=False):
-    fig, ax = plt.subplots(figsize=(8, 5))
+# ---------------------------------------------------------------------------
+# Load particle benchmark CSV
+# ---------------------------------------------------------------------------
 
-    for variant, values in sorted(data.items()):
-        xs = [x for x, _ in values]
-        ys = [y for _, y in values]
+def load_particle_csv(path):
+    """
+    Load LipschitzBenchmark CSV.
 
-        ax.plot(
-            xs,
-            ys,
-            marker="o",
-            label=variant
+    Uses ONLY:
+        variant
+        num_particles
+        render_ms_median
+
+    Returns:
+        {
+            "spheres": [(16, 1.213160), (32, 1.497440), ...],
+            ...
+        }
+    """
+
+    data = defaultdict(list)
+
+    with open(path, "r", newline="") as f:
+        reader = csv.DictReader(f)
+
+        required_columns = {
+            "variant",
+            "num_particles",
+            "render_ms_median",
+        }
+
+        if reader.fieldnames is None:
+            raise ValueError(f"CSV {path!r} has no header")
+
+        missing = required_columns - set(reader.fieldnames)
+
+        if missing:
+            raise ValueError(
+                f"CSV {path!r} is missing columns: "
+                + ", ".join(sorted(missing))
+            )
+
+        for line_number, row in enumerate(reader, start=2):
+            variant = row["variant"]
+
+            try:
+                n = int(row["num_particles"])
+                total_time = float(row["render_ms_median"])
+            except (ValueError, TypeError):
+                raise ValueError(
+                    f"Invalid data on line {line_number} in {path!r}"
+                )
+
+            data[variant].append((n, total_time))
+
+    for values in data.values():
+        values.sort(key=lambda x: x[0])
+
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Plot
+# ---------------------------------------------------------------------------
+
+def plot_comparison(simple_data, csv_data, output, logy=False):
+    """
+    Plot only variants present in both datasets.
+    """
+
+    common_variants = sorted(
+        set(simple_data.keys()) & set(csv_data.keys())
+    )
+
+    if not common_variants:
+        raise ValueError(
+            "No common variants found between the two input files."
         )
 
-    # Number of objects doubles: 16, 32, 64, ...
+    fig, ax = plt.subplots(figsize=(9, 6))
+
+    for variant in common_variants:
+
+        # ---------------------------------------------------------------
+        # Data from simple benchmark
+        # ---------------------------------------------------------------
+
+        simple_values = simple_data[variant]
+
+        simple_x = [n for n, _ in simple_values]
+        simple_y = [time for _, time in simple_values]
+
+        # ---------------------------------------------------------------
+        # Data from CSV
+        # ---------------------------------------------------------------
+
+        csv_values = csv_data[variant]
+
+        csv_x = [n for n, _ in csv_values]
+        csv_y = [time for _, time in csv_values]
+
+        # ---------------------------------------------------------------
+        # Plot both
+        # ---------------------------------------------------------------
+
+        ax.plot(
+            simple_x,
+            simple_y,
+            marker="o",
+            linestyle="-",
+            label=f"{variant} - Ours"
+        )
+
+        ax.plot(
+            csv_x,
+            csv_y,
+            marker="x",
+            linestyle="--",
+            label=f"{variant} - Lipschitz"
+        )
+
     ax.set_xscale("log", base=2)
 
     if logy:
         ax.set_yscale("log")
 
-    ax.set_xlabel("Number of objects (N)")
-    ax.set_ylabel("Time (ms)")
+    ax.set_xlabel("Number of particles N")
+    ax.set_ylabel("Total time [ms]")
 
-    ax.set_title("Benchmark")
+    ax.set_title("Benchmark comparison")
 
     ax.grid(
         True,
@@ -87,7 +231,7 @@ def plot_data(data, output, logy=False):
         alpha=0.3
     )
 
-    ax.legend()
+    ax.legend(fontsize=8)
 
     fig.tight_layout()
 
@@ -97,22 +241,37 @@ def plot_data(data, output, logy=False):
 
     print(f"Wrote {output}")
 
+    print()
+    print("Common variants:")
+    for variant in common_variants:
+        print(f"  {variant}")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Plot benchmark results"
+        description="Compare two benchmark files"
     )
 
     parser.add_argument(
-        "input",
-        help="Benchmark input file"
+        "benchmark",
+        help="Simple benchmark file"
+    )
+
+    parser.add_argument(
+        "csv",
+        help="Particle benchmark CSV"
     )
 
     parser.add_argument(
         "-o",
         "--output",
-        default="benchmark.png",
-        help="Output PNG file (default: benchmark.png)"
+        default="benchmark_comparison.png",
+        help="Output PNG file "
+             "(default: benchmark_comparison.png)"
     )
 
     parser.add_argument(
@@ -123,13 +282,12 @@ def main():
 
     args = parser.parse_args()
 
-    data = load_data(args.input)
+    simple_data = load_simple_benchmark(args.benchmark)
+    csv_data = load_particle_csv(args.csv)
 
-    if not data:
-        raise ValueError("Input file contains no data")
-
-    plot_data(
-        data,
+    plot_comparison(
+        simple_data,
+        csv_data,
         args.output,
         logy=args.logy
     )

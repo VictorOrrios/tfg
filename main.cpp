@@ -2391,7 +2391,7 @@ int main(int argc, char** argv)
   // Initial camera params
   // Set camera to start at position (0,0,0) looking along -Z axis with Y up  
   nvutils::CameraManipulator::Camera camera;  
-  camera.eye = glm::vec3(0.5f, 0.5f, 3.0f);  // Camera position  
+  camera.eye = glm::vec3(0.1f, 0.1f, 3.0f);  // Camera position  
   camera.ctr = glm::vec3(0.0f, 0.0f, 0.0f); // Look at point (forward)  
   camera.up  = glm::vec3(0.0f, 1.0f, 0.0f);  // Up vector  
   camera.fov = 60.0f;                         // Field of view in degrees  

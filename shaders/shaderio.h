@@ -267,7 +267,7 @@ struct LightinParams{
   float  aoBias           = 0.001f;
   int    aoSamples        = 80;
   int    aoTexelSize      = 1;
-  int    shadowSamples    = 2;
+  int    shadowSamples    = 0;
   int    shadowTexelSize  = 1;
   float  shadowSharpness  = 50.0f;
   int    tracingMode      = 1;
