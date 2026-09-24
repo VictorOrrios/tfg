@@ -67,7 +67,7 @@ void Scene::draw() {
 
     ImGui::EndTabBar();
   }
-  
+
   ImGui::End();
 }
 
@@ -151,7 +151,7 @@ bool ComboVector(const char* label, int* current_item, std::vector<T>& vec){
 
 
 void Scene::drawNodeParams(){
-  
+
 
   if (m_selected != -1) {
     ImGui::Begin("Object");
@@ -179,7 +179,7 @@ void Scene::drawNodeParams(){
     ImGui::SameLine();
     if (ImGui::RadioButton("Scale", selectedNode.gzp.guizmoOp == ImGuizmo::SCALE))
         selectedNode.gzp.guizmoOp = ImGuizmo::SCALE;
- 
+
 
     dirty |= ImGui::InputFloat3(("Position" + id).c_str(),
                                 &selectedNode.gp.position.x);
@@ -284,7 +284,7 @@ void Scene::drawNodeParams(){
 void Scene::drawMaterials(){
   if(ImGui::Button("Add material"))
     addMaterial(createMaterial());
-  
+
   ImGuiSelectableFlags selectableFlags = 0;
 
   bool clickedOnItem = false;
@@ -336,7 +336,7 @@ void Scene::drawMaterialParams(){
 
     dirty |= ImGui::Combo(("Type" + id).c_str(),
                           &mat.type, MaterialTypeNames,
-                          IM_ARRAYSIZE(MaterialTypeNames));                   
+                          IM_ARRAYSIZE(MaterialTypeNames));
 
     if (dirty) {
       m_needsRefresh = true;
@@ -347,7 +347,7 @@ void Scene::drawMaterialParams(){
 }
 
 void Scene::drawGuizmo(ImVec2 viewportPos, ImVec2 viewportSize, glm::mat4 cameraView, glm::mat4 cameraProjection){
-  if(m_selected != -1){ 
+  if(m_selected != -1){
     ImGuizmo::BeginFrame();
 
     ImGuizmo::SetDrawlist();
@@ -364,10 +364,10 @@ void Scene::drawGuizmo(ImVec2 viewportPos, ImVec2 viewportSize, glm::mat4 camera
 
     cameraProjection[1][1] *= -1.0f;
     ImGuizmo::Manipulate(
-      glm::value_ptr(cameraView), 
-      glm::value_ptr(cameraProjection), 
-      gzP.guizmoOp, 
-      gzP.guizmoMode, 
+      glm::value_ptr(cameraView),
+      glm::value_ptr(cameraProjection),
+      gzP.guizmoOp,
+      gzP.guizmoMode,
       glm::value_ptr(gzP.matrix),
       NULL, NULL);
 
@@ -436,7 +436,7 @@ Scene::Node *Scene::createNode(shaderio::PrimType t) {
       },
   });
 
-  
+
 
   if (m_selected != -1) {
     Node selectedNode = m_root[m_selected];
@@ -517,7 +517,7 @@ void Scene::generateMatrix(Node *n) {
   glm::vec3 scale_vec(n->gp.scale);
   glm::vec3 rot_deg(glm::degrees(glm::eulerAngles(n->gp.rotation)));
   ImGuizmo::RecomposeMatrixFromComponents(
-    glm::value_ptr(n->gp.position), 
+    glm::value_ptr(n->gp.position),
     glm::value_ptr(rot_deg),
     glm::value_ptr(scale_vec),
     glm::value_ptr(n->gzp.matrix));
@@ -583,7 +583,15 @@ void Scene::generateBBox(Node *n) {
   max += repOffset;
 
   nvutils::Bbox bboxt(min, max);
-  bboxt = bboxt.transform(glm::inverse(n->gp.tInv));
+  if(n->gp.type == shaderio::PrimType::Sphere){
+      // No need to rotate spheres
+      bboxt = nvutils::Bbox(
+          min+n->gp.position,
+          max+n->gp.position
+      );
+  }else{
+      bboxt = bboxt.transform(glm::inverse(n->gp.tInv));
+  }
 
   min = glm::max(bboxt.min(), worldMin);
   max = glm::min(bboxt.max(), worldMax);
@@ -619,11 +627,11 @@ std::vector<shaderio::SceneObject> Scene::getObjects(){
   std::vector<shaderio::SceneObject> out;
 
   for (auto &node : m_root) {
-    GeneralParams& p = node.gp; 
-    SDFParams& sdp = node.sdp; 
+    GeneralParams& p = node.gp;
+    SDFParams& sdp = node.sdp;
 
     int morphPrim = sdp.morphPrim+1;
-    
+
     out.push_back({
       .tInv=glm::transpose(p.tInv),
       .spacing=glm::vec4(sdp.spacing,0),
@@ -668,9 +676,9 @@ std::vector<shaderio::DynamicObject> Scene::getDynamicObjects(){
   std::vector<shaderio::DynamicObject> out;
   int idx = 0;
   for (auto &node : m_root) {
-    GeneralParams& gp = node.gp; 
-    PhysicsParams& pyp = node.pyp; 
-    
+    GeneralParams& gp = node.gp;
+    PhysicsParams& pyp = node.pyp;
+
     if(pyp.physicsActive){
       out.push_back({
         .tInv=glm::transpose(gp.tInv),
@@ -694,7 +702,7 @@ std::vector<shaderio::DynamicObject> Scene::getDynamicObjects(){
 
     idx++;
   }
-  
+
   return out;
 }
 
@@ -709,8 +717,8 @@ void Scene::processDynamicObjects(std::vector<shaderio::DynamicObject> data){
     for(auto& node: m_root){
       if(node.id != dnode.id || node.needsRemoval) continue;
 
-      GeneralParams& gp = node.gp; 
-      PhysicsParams& pyp = node.pyp; 
+      GeneralParams& gp = node.gp;
+      PhysicsParams& pyp = node.pyp;
 
       gp.tInv = glm::transpose(dnode.tInv);
       gp.position = dnode.position;
@@ -719,11 +727,11 @@ void Scene::processDynamicObjects(std::vector<shaderio::DynamicObject> data){
       pyp.inv_rotation = vec42quat(dnode.inv_rotation);
       pyp.prev_rotation = vec42quat(dnode.prev_rotation);
       pyp.vel = dnode.vel;
-      pyp.omega = dnode.omega;    
+      pyp.omega = dnode.omega;
       pyp.pos_diff = dnode.pos_diff;
       pyp.pos_delta = dnode.pos_delta;
       pyp.omega_delta = dnode.omega_delta;
-      
+
       updateNodeData(&node);
 
       const bool LOG_Y_POS = false;
@@ -756,7 +764,7 @@ float Scene::map(glm::vec3 point, int objIdxExcluded) {
   for(int obIdx = 0; obIdx < m_root.size(); obIdx++) {
     if(obIdx == objIdxExcluded)
       continue;
-    
+
     glm::vec3 p = glm::vec3(point);
     Node& n = m_root[obIdx];
     nvutils::Bbox& bbox = n.gp.bbox;
@@ -794,7 +802,7 @@ float Scene::mapTerrain(glm::vec3 point) {
 
     if(n.sdp.octaves <= 0)
       continue;
-    
+
     glm::vec3 p = glm::vec3(point);
     nvutils::Bbox& bbox = n.gp.bbox;
     Scene::GeneralParams& gp = n.gp;
@@ -825,7 +833,7 @@ float Scene::mapTerrain(glm::vec3 point) {
 glm::vec3 Scene::evalNormal(glm::vec3 p, int objIdxExcluded) {
   const float h = 0.0001f;
   const glm::vec2 k = glm::vec2(1.0f, -1.0f);
-  
+
   return glm::normalize(
       glm::vec3(k.x, k.y, k.y) * map(p + glm::vec3(k.x, k.y, k.y) * h, objIdxExcluded) +
       glm::vec3(k.y, k.y, k.x) * map(p + glm::vec3(k.y, k.y, k.x) * h, objIdxExcluded) +
@@ -873,9 +881,9 @@ std::vector<shaderio::BuildJob> Scene::createBaseBuildJobs(nvutils::Bbox bbox, g
   const glm::ivec3 max_index(NUM_BRICKS_PER_AXIS-1);
   const glm::ivec3 hole_min(NUM_BRICKS_PER_AXIS/4+1);
   const glm::ivec3 hole_max(NUM_BRICKS_PER_AXIS*3/4);
-  
+
   std::vector<shaderio::BuildJob> jobs;
-  
+
   //for(int level=CLIPMAP_LEVELS-1 ; level>=0; level--){
   for(int level=0 ; level<CLIPMAP_LEVELS; level++){
     glm::ivec3 camId = camId0>>level;
@@ -1040,7 +1048,7 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(glm::ivec3 currCamId0, glm::
 
   out.reserve(aabbs.size()*4+3);
   baseJobs = createCamBuildJobs(currCamId0,prevCamId0);
-  
+
   for(auto& bbox: aabbs){
     // Negative volume build job check
     if(glm::any(glm::lessThan(bbox.max(),bbox.min())))
@@ -1092,9 +1100,9 @@ Scene::Scene() {
   defaultMat.shininess = 1.0;
   int dMat = addMaterial(defaultMat);
 
-  const int NUM_OF_PARTICLES = 50;
+  const int NUM_OF_PARTICLES = 2048;
   for(int i = 0; i<NUM_OF_PARTICLES; i++){
-    Node *particle = createNode(shaderio::PrimType::Box);
+    Node *particle = createNode(shaderio::PrimType::Sphere);
     particle->gp.scale = 0.2;
     particle->gp.position = glm::vec3(0.0);
     particle->gp.rotation = glm::vec3(0.0);
@@ -1214,15 +1222,15 @@ Scene::Scene() {
 
   for(int i = 0; i<0; i++){
     Node *body;
-    
+
     if(randomFloat1()>=0.5 && false){
       body = createNode(shaderio::PrimType::Box);
     }else{
       body = createNode(shaderio::PrimType::Sphere);
     }
- 
+
     //body = createNode(shaderio::PrimType::Sphere);
-    
+
     body->gp.scale = 0.2;
     body->gp.position = glm::vec3(1.0+randomFloat1()*2.0,randomFloat1()*1.0,1.0+randomFloat1()*2.0);
     body->gp.rotation = glm::vec3(0);
@@ -1235,7 +1243,7 @@ Scene::Scene() {
     updateNodeData(body);
     addNode(body);
   }
- 
+
   for(int i = 0; i<0; i++){
     Node *body = createNode(shaderio::PrimType::Box);
     body->gp.scale = 0.2;

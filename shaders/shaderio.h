@@ -51,15 +51,20 @@ const static int NUM_BRICKS_IN_ATLAS = BRICK_PER_ATLAS_AXIS*BRICK_PER_ATLAS_AXIS
 #define NUM_BRICKS_PER_AXIS 64  // How many bricks per axis per level in clip map
 #define L0_AXIS_WORLD_SIZE  2.0 // Axis size of the first clip map level
 #define CLIPMAP_LEVELS      8   // How many levels are in the clip map | WARNING: If updated then all sizes MUST BE UPDATED TO
-#define BRICK_SIZE          8   // How many values per axis does a brick store  
-#define MAT_PER_BRICK_AXIS  0   // How many materials are stored per brick axis. Needs to be >= 2 to work, if not it deactivates
+#define BRICK_SIZE          8   // How many values per axis does a brick store
 CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS) // Power of two needed for faster calculations
+
+// Material atlas
+#define MAT_PER_BRICK_AXIS  0   // How many materials are stored per brick axis. Needs to be >= 2 to work, if not it deactivates
+
+// Near objects list atlas
+#define NEAR_OBJECT_LIST_SIZE 256
 
 // Extent calculations
 const static int NUM_VOXELS_PER_AXIS = NUM_BRICKS_PER_AXIS*(BRICK_SIZE-1);
 const static int NUM_VALUES_PER_AXIS = NUM_BRICKS_PER_AXIS*BRICK_SIZE;
 
-    
+
 // Sizes definition
 #define S_AXIS(level) (L0_AXIS_WORLD_SIZE * (1<<level))
 #define S_BRICK(level) (S_AXIS(level) / NUM_BRICKS_PER_AXIS)
@@ -68,7 +73,7 @@ const static int NUM_VALUES_PER_AXIS = NUM_BRICKS_PER_AXIS*BRICK_SIZE;
 #define BRICK_R(level) (float(sqrt(3.0)/2.0 * S_BRICK(level)))
 #define MAX_BRICK_V(level) (BRICK_R(level) + MAX_VOXEL_V(level))
 #define MAX_BRICK_I_V(level) (BRICK_R(level) + float(S_VOXEL(level))/10.0f)
-/* 
+/*
 const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
   S_AXIS(0),S_AXIS(1),S_AXIS(2),S_AXIS(3),S_AXIS(4),S_AXIS(5),S_AXIS(6),S_AXIS(7),S_AXIS(8),S_AXIS(9)};
 const static float BRICK_SIZES[CLIPMAP_LEVELS] = {
@@ -93,8 +98,8 @@ const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
   MAX_BRICK_V(0),MAX_BRICK_V(1),MAX_BRICK_V(2),MAX_BRICK_V(3),MAX_BRICK_V(4),MAX_BRICK_V(5),MAX_BRICK_V(6),MAX_BRICK_V(7)};
 const static float MAX_BRICK_INSTANCE_VALUES[CLIPMAP_LEVELS] = {
   MAX_BRICK_I_V(0),MAX_BRICK_I_V(1),MAX_BRICK_I_V(2),MAX_BRICK_I_V(3),MAX_BRICK_I_V(4),MAX_BRICK_I_V(5),MAX_BRICK_I_V(6),MAX_BRICK_I_V(7)};
- 
-/* 
+
+/*
 const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
   S_AXIS(0),S_AXIS(1)};
 const static float BRICK_SIZES[CLIPMAP_LEVELS] = {
@@ -106,7 +111,7 @@ const static float MAX_VOXEL_VALUES[CLIPMAP_LEVELS] = {
 const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
   MAX_BRICK_V(0),MAX_BRICK_V(1)};
  */
-/*    
+/*
    const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
   S_AXIS(0)};
 const static float BRICK_SIZES[CLIPMAP_LEVELS] = {
@@ -118,7 +123,7 @@ const static float MAX_VOXEL_VALUES[CLIPMAP_LEVELS] = {
 const static float MAX_BRICK_VALUES[CLIPMAP_LEVELS] = {
   MAX_BRICK_V(0)};
  */
-/* 
+/*
 const static float AXIS_SIZES[CLIPMAP_LEVELS] = {
     S_AXIS(0),  S_AXIS(1),  S_AXIS(2),  S_AXIS(3),  S_AXIS(4),
     S_AXIS(5),  S_AXIS(6),  S_AXIS(7),  S_AXIS(8),  S_AXIS(9),
@@ -173,7 +178,7 @@ const static uint MAX_NUM_BRICK_JOBS = MAX_NUM_BUILD_JOBS*MAX_BUILD_JOB_SIZE*MAX
 
 // Dirty bit definitions for mutual exclusion
 #define DIRTY_BIT 0x80000000        // Most significant bit of a 32 bit variable
-#define NOT_DIRTY_BIT (~DIRTY_BIT) 
+#define NOT_DIRTY_BIT (~DIRTY_BIT)
 
 // Magic pointer indicating unirform values in brick (not stored in atlas)
 const static uint UNIFORM_POSITIVE_BRICK_POINTER = NUM_BRICKS_IN_ATLAS+1;
@@ -214,6 +219,7 @@ enum BindingPoints{
   clipMap,
   brickAtlas,
   matAtlas,
+  nearObjectList,
   buildJobQ,
   brickJobQ,
   counters,
@@ -245,7 +251,7 @@ enum DebugModes{
 enum TracingModes{
   compute=0, rtx, sphere
 };
-  
+
 enum class PrimType { Empty=0, Box, Sphere, Torus, Snowman, Plane, Cylinder, Cone };
 enum class MaterialType { Normal=0, Debug, Terrain };
 
@@ -370,7 +376,7 @@ struct DynamicObject{
   float scale;
   float inv_mass;
   int id;
-};  
+};
 CHECK_STRUCT_ALIGNMENT(DynamicObject)
 
 struct DispatchIndirectCommand {

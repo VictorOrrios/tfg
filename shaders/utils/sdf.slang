@@ -210,9 +210,9 @@ float sdOctahedron(float3 p, float s){
   else if( 3.0*p.y < m ) q = p.yzx;
   else if( 3.0*p.z < m ) q = p.zxy;
   else return m*0.57735027;
-    
-  float k = clamp(0.5*(q.z-q.y+s),0.0,s); 
-  return length(float3(q.x,q.y-s+k,q.z-k)); 
+
+  float k = clamp(0.5*(q.z-q.y+s),0.0,s);
+  return length(float3(q.x,q.y-s+k,q.z-k));
 }
 
 float sdEmpty(float3 p) { return 1000000.0f; }
@@ -238,7 +238,7 @@ float sphSphere(float3 i,float3 f,float3 c){
   float3 p = 17.0*fract(hash3(i+c)+float3(0.11,0.17,0.13));
   float w = fract( p.x*p.y*p.z*(p.x+p.y+p.z) );
   float r = 0.7*w*w;
-  return length(f-c) - r; 
+  return length(f-c) - r;
 }
 
 float sphOctahedron(float3 i,float3 f,float3 c){
@@ -380,8 +380,32 @@ float applyTerrainOp(float3 p, float d, int octaves, float4 terrain, float minD)
 
 
 //---------------------------------------
-// Scene evaluation function
+// Scene evaluation functions
 //---------------------------------------
+
+float mapSceneObject(float3 p, SceneObject params, float prevResult){
+    p = mul(params.tInv, float4(p, 1.0)).xyz;
+
+    //p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit_octaves.xyz);
+
+    //p = applyDefOp(params.defOp, p, params.defP);
+
+    p /= params.scale;
+
+    //float d = evalPrimitive(params.type, p, params.primMod, params.bevel, params.round) - params.roundness;
+    float d = sdSphere(p, params.primMod.x);
+
+    //d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
+
+    //d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
+
+    d *= params.scale;
+
+    //return evalCombOp(params.combOp, d, prevResult, params.smoothness);
+    return opSmoothUnion(d,prevResult,params.smoothness);
+}
+
+// General map function
 float map(float3 point, int level){
   const float iniD = 10000.0f;
   const float nearRange = MAX_BRICK_VALUES[level];
@@ -391,29 +415,13 @@ float map(float3 point, int level){
     float3 p = float3(point);
     Bbox bbox = aabbs[obIdx];
 
-    // If not inside bbox primitive continue with next 
-    if(!nearBbox(p,bbox,nearRange))
+    // If not inside bbox primitive continue with next
+    if(!nearBbox(p,bbox,nearRange) && false)
       continue;
 
     SceneObject params = objects[obIdx];
 
-    p = mul(params.tInv, float4(p, 1.0)).xyz;
-
-    p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit_octaves.xyz);
-
-    p = applyDefOp(params.defOp, p, params.defP);
-
-    p /= params.scale;
-
-    float d = evalPrimitive(params.type, p, params.primMod, params.bevel, params.round) - params.roundness;
-
-    d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
-
-    d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
-
-    d *= params.scale;
-
-    result = evalCombOp(params.combOp, d, result, params.smoothness);
+    result = mapSceneObject(p,params,result);
   }
 
   return result;
@@ -434,27 +442,38 @@ float mapStatic(float3 point, float nearRange){
 
     Bbox bbox = aabbs[obIdx];
 
-    // If not inside bbox primitive continue with next 
+    // If not inside bbox primitive continue with next
     if(!nearBbox(p,bbox,nearRange))
       continue;
 
-    p = mul(params.tInv, float4(p, 1.0)).xyz;
+    result = mapSceneObject(p,params,result);
+  }
 
-    p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit_octaves.xyz);
+  return result;
+}
 
-    p = applyDefOp(params.defOp, p, params.defP);
+// Evaluates the whole sdf scene in a point in space without the objects that have debug materials
+float mapDebugColor(float3 point, float nearRange){
+  const float iniD = 10000.0f;
+  float result = iniD;
 
-    p /= params.scale;
+  for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
+    float3 p = float3(point);
+    SceneObject params = objects[obIdx];
 
-    float d = evalPrimitive(params.type, p, params.primMod, params.bevel, params.round) - params.roundness;
+    if(materials[params.mat].type == MaterialType::Debug) continue;
 
-    d = d>0.0 ? applyTerrainOp(p, d, min(params.limit_octaves.w,4), params.terrain, VOXEL_SIZES[0]/10.0): d;
+    // Skip dynamic objects
+    if(params.physicsActive)
+      continue;
 
-    d = params.morph > 0.0 ? applyMorphOp(p, d, params.morphPrim, params.morph, params.roundness) : d;
+    Bbox bbox = aabbs[obIdx];
 
-    d *= params.scale;
+    // If not inside bbox primitive continue with next
+    if(!nearBbox(p,bbox,nearRange))
+      continue;
 
-    result = evalCombOp(params.combOp, d, result, params.smoothness);
+    result = mapSceneObject(p,params,result);
   }
 
   return result;
@@ -462,8 +481,11 @@ float mapStatic(float3 point, float nearRange){
 
 // Map function for getting the material at point
 float map(float3 point, out Material matResult) {
-    matResult = materials[0];
-    return 0.0;
+  // Debug
+  matResult = materials[0];
+  return 0.0;
+  //------------------
+
   const float iniD = 1e5;
   float result = iniD;
 
@@ -491,7 +513,7 @@ float map(float3 point, out Material matResult) {
       float3 p = float3(point);
       Bbox bbox = aabbs[obIdx];
 
-      // If not inside bbox primitive continue with next 
+      // If not inside bbox primitive continue with next
       if(!insideBbox(p,bbox))
         continue;
 
@@ -515,49 +537,6 @@ float map(float3 point, out Material matResult) {
 
       result = evalCombOpMat(params.combOp, d, result, params.smoothness,materials[params.mat],matResult);
     }
-  }
-
-  return result;
-}
-
-// Evaluates the whole sdf scene in a point in space without the objects that have debug materials
-float mapDebugColor(float3 point, float nearRange){
-  const float iniD = 10000.0f;
-  float result = iniD;
-
-  for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
-    float3 p = float3(point);
-    SceneObject params = objects[obIdx];
-    
-    if(materials[params.mat].type == MaterialType::Debug) continue;
-
-    // Skip dynamic objects
-    if(params.physicsActive)
-      continue;
-
-    Bbox bbox = aabbs[obIdx];
-
-    // If not inside bbox primitive continue with next 
-    if(!nearBbox(p,bbox,nearRange))
-      continue;
-
-    p = mul(params.tInv, float4(p, 1.0)).xyz;
-
-    p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit_octaves.xyz);
-
-    p = applyDefOp(params.defOp, p, params.defP);
-
-    p /= params.scale;
-
-    float d = evalPrimitive(params.type, p, params.primMod, params.bevel, params.round) - params.roundness;
-
-    d = d>0.0 ? applyTerrainOp(p, d, min(params.limit_octaves.w,4), params.terrain, VOXEL_SIZES[0]/10.0): d;
-
-    d = params.morph > 0.0 ? applyMorphOp(p, d, params.morphPrim, params.morph, params.roundness) : d;
-
-    d *= params.scale;
-
-    result = evalCombOp(params.combOp, d, result, params.smoothness);
   }
 
   return result;

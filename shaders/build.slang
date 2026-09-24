@@ -9,11 +9,11 @@ int allocPointer(){
   int index;
   InterlockedAdd(counters[int(Counters::allocCounter)],1,index);
   index = index%NUM_BRICKS_IN_ATLAS;
-  
+
   // Out of space in atlas warning
   //if(counters[int(Counters::allocCounter)] - counters[int(Counters::freeCounter)] > NUM_BRICKS_IN_ATLAS)
   //  printf("WARN: ATLAS IS FULL\n");
-  
+
   return free_list[index];
 }
 
@@ -49,6 +49,39 @@ void maskInstance(int instIdx){
   instances[instIdx].mask = 0x00;
 }
 
+float buildJobMap(float3 point, int level, out uint16_t nearObjectList[NEAR_OBJECT_LIST_SIZE]){
+  const float iniD = 10000.0f;
+  const float nearRange = MAX_BRICK_VALUES[level];
+  float result = iniD;
+  int nearObejctListIdx = 0;
+
+  for(int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
+    // If near list full early exit
+    if(nearObejctListIdx>=NEAR_OBJECT_LIST_SIZE)
+      break;
+
+    float3 p = float3(point);
+    Bbox bbox = aabbs[obIdx];
+
+    // If not inside bbox primitive continue with next
+    if(!nearBbox(p,bbox,nearRange))
+      continue;
+
+    // Compute map value
+    SceneObject params = objects[obIdx];
+    result = mapSceneObject(p,params,result);
+
+    // Add object to near list
+    nearObjectList[nearObejctListIdx] = uint16_t(obIdx);
+    nearObejctListIdx++;
+  }
+
+  if(nearObejctListIdx<NEAR_OBJECT_LIST_SIZE-1)
+    nearObjectList[nearObejctListIdx+1] = MAX_SCENE_OBJECTS+1;
+
+  return result;
+}
+
 [shader("compute")]
 [numthreads(MAX_BUILD_JOB_SIZE, MAX_BUILD_JOB_SIZE, MAX_BUILD_JOB_SIZE)]
 void computeMain(uint3 tId : SV_DispatchThreadID){
@@ -64,15 +97,15 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     return;
 
   const int level = job.min_id_level.w;
-  const int3 brickId = job.min_id_level.xyz + brickOffset;  
+  const int3 brickId = job.min_id_level.xyz + brickOffset;
 
   // Transform global id to a relative id to the camera id
   const int3 camId = sceneInfo.cameraId0.xyz>>level;
   const int3 relBrickId = brickId - camId + (NUM_BRICKS_PER_AXIS/2);
-  
+
   int3 brickIndex = id2index(brickId);
   int3 clipIndex = brickIdx2clipIdx(brickIndex,level);
-  
+
   // Atomic OR of dirty bit into clip pointer. To prevent repeted brick jobs
   int prevClipPointer;
   InterlockedOr(clipMap[clipIndex],DIRTY_BIT,prevClipPointer);
@@ -98,13 +131,16 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
 
       // Evaluate scene at brick center
       float3 p = (float3(brickId)+0.5)*brick_size;
-      float centerSDF = map(p,level);
+      //float centerSDF = map(p,level);
+
+      uint16_t nearObjectList[NEAR_OBJECT_LIST_SIZE];
+      float centerSDF = buildJobMap(p,level,nearObjectList);
 
       bool outside_max = abs(centerSDF) > max_brick_value;            // Atlas cull
       bool has_surface = abs(centerSDF) <= max_brick_instance_value;  // RTX Instance cull
 
       int instance_ptr = prevClipPointer; // Pointer to update/mask
-      
+
       // Uniform value brick check
       if(outside_max){
         if(brick_allocated){
@@ -123,6 +159,13 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
           clipMap[clipIndex] = newPointer | DIRTY_BIT;
         }
 
+        // Write near object list
+        int3 nolIdx = pointer2nearObejctListIdx(instance_ptr);
+        for(int i = 0; i<NEAR_OBJECT_LIST_SIZE; i++){
+          int3 idx = int3(nolIdx.x,nolIdx.y,i);
+          nearObjectListAtlas[idx] = nearObjectList[i];
+        }
+
         if(has_surface){
           updateInstance(instance_ptr,brickId,level);
         }else if(brick_allocated){
@@ -135,7 +178,7 @@ void computeMain(uint3 tId : SV_DispatchThreadID){
     uint brickJobIndex;
     InterlockedAdd(counters[int(Counters::nextBrickJob)],1,brickJobIndex);
     brick_job_queue[brickJobIndex] = brickJob;
-    
+
     // Out of space in brick job queue warning
     //if(brickJobIndex >= MAX_NUM_BRICK_JOBS)
     //  printf("Out off space for brick job\n");

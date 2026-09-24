@@ -21,7 +21,7 @@ struct Ray {
   float3 dir;
 };
 
-// Axis aligned Bounding Box 
+// Axis aligned Bounding Box
 struct Bbox{
   float3 bMin;
   float3 bMax;
@@ -53,4 +53,8 @@ inline int3 pointer2atlasIdx(int pointer){
 
 inline int3 pointer2matAtlasIdx(int pointer){
   return int3(pointer % BRICK_PER_ATLAS_AXIS, pointer / BRICK_PER_ATLAS_AXIS, 0) * MAT_PER_BRICK_AXIS;
+}
+
+inline int3 pointer2nearObejctListIdx(int pointer){
+  return int3(pointer % BRICK_PER_ATLAS_AXIS, pointer / BRICK_PER_ATLAS_AXIS, 0);
 }

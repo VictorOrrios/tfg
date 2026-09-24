@@ -95,7 +95,7 @@
 #include <nvvk/compute_pipeline.hpp>
 #include <nvvk/barriers.hpp>
 #include <nvvk/resources.hpp>
-#include <nvvk/validation_settings.hpp>  
+#include <nvvk/validation_settings.hpp>
 
 const char* DebugModes[] = {
     "Debug color",
@@ -189,7 +189,7 @@ public:
         .physicalDevice   = app->getPhysicalDevice(),
         .device           = app->getDevice(),
         .instance         = app->getInstance(),
-        .vulkanApiVersion = VK_API_VERSION_1_4, 
+        .vulkanApiVersion = VK_API_VERSION_1_4,
     };
     NVVK_CHECK(m_alloc.init(allocatorInfo));
 
@@ -207,7 +207,7 @@ public:
     setupGBuffers();                // Set up the GBuffers to render to
     createRNGTextures();            // Creates the different rng and noise textures used in the shaders
     create3DTextures();             // Creates the different 3d textures used to store voxel grid data
-    createAccelerationStructures(); // Creates the bLas and tLas needed for the rt pipeline 
+    createAccelerationStructures(); // Creates the bLas and tLas needed for the rt pipeline
     createDescriptorSetLayout();    // Create the descriptor set layout for the pipelines
     compileShaders();               // Creates and compiles the shaders modules
     createPipelines();              // Create the pipelines
@@ -276,10 +276,10 @@ public:
     m_alloc.destroyBuffer(m_sceneObjectsB);
     m_alloc.destroyBuffer(m_sceneMaterialsB);
     m_alloc.destroyBuffer(m_sceneDynamicObjects.nvbuffer);
-    
+
     m_alloc.destroyBuffer(m_buildJobQueue);
     m_alloc.destroyBuffer(m_brickJobQueue);
-   
+
     m_alloc.destroyBuffer(m_countersB);
     m_alloc.destroyBuffer(m_indirectB);
     m_alloc.destroyBuffer(m_freeListB);
@@ -291,7 +291,8 @@ public:
     m_alloc.destroyImage(m_clipMap);
     m_alloc.destroyImage(m_brickAtlas);
     m_alloc.destroyImage(m_matAtlas);
-    
+    m_alloc.destroyImage(m_nearObjectsAtlas);
+
     m_alloc.destroyBuffer(m_tLasB);
     m_alloc.destroyBuffer(m_bLasB);
     m_alloc.destroyBuffer(m_instancesB);
@@ -311,7 +312,7 @@ public:
   // Rendering all UI elements, this includes the image of the GBuffer, the camera controls, and the sky parameters.
   // - Called every frame
   void onUIRender() override
-  { 
+  {
     ImGui::Begin("Settings");
     ImGui::TextDisabled("%d FPS / %.3fms", static_cast<int>(ImGui::GetIO().Framerate), 1000.F / ImGui::GetIO().Framerate);
 
@@ -328,7 +329,7 @@ public:
     if(!ImGui::CollapsingHeader("Tracing")){
       ImGui::Combo("Tracing Mode", &m_pushConst.lp.tracingMode, TracingModes, IM_ARRAYSIZE(TracingModes));
     }
-    
+
     if(!ImGui::CollapsingHeader("Simulation")){
       if(ImGui::Button("Stop")) m_pushConst.pyp.time_dilation = 0.0;
       ImGui::SameLine();
@@ -369,7 +370,7 @@ public:
       ImGui::Text("Fog");
       ImGui::SliderFloat("Fog Density", &m_pushConst.lp.fogDensity, 0.0f, 0.2f);
       ImGui::ColorEdit3("Fog Color", &m_pushConst.lp.fogColor.x);
-     
+
       ImGui::Separator();
       ImGui::Text("Normals");
       ImGui::CheckboxFlags("Smooth normals (WIP)", &m_pushConst.lp.smoothNormals, 1);
@@ -387,7 +388,7 @@ public:
       ImGui::SliderInt("Samples##Shadow", &m_pushConst.lp.shadowSamples, 0, MAX_NUM_SHADOW_KERNELS);
       ImGui::SliderInt("Texel size##Shadow", &m_pushConst.lp.shadowTexelSize, 1, 20);
     }
-    
+
     if(!ImGui::CollapsingHeader("Debug colors")){
       ImGui::Checkbox("Atlas%", &m_pushConst.debug.brickPercent);
       ImGui::Checkbox("Active", &m_debugActive);
@@ -432,7 +433,7 @@ public:
       const glm::mat4& projMatrix = m_cameraManip->getPerspectiveMatrix();
       static glm::vec3 prevCamCenter = m_cameraManip->getCenter();
       static glm::vec3 prevCamEye = m_cameraManip->getEye();
-      
+
       if(m_scene.m_usingGuizmo){
         m_cameraManip->setCenter(prevCamCenter);
         m_cameraManip->setEye(prevCamEye);
@@ -440,10 +441,10 @@ public:
         prevCamCenter = m_cameraManip->getCenter();
         prevCamEye = m_cameraManip->getEye();
       }
-      
+
       m_scene.drawGuizmo(viewportPos, viewportSize, viewMatrix, projMatrix);
 
-      
+
     ImGui::End();
   }
 
@@ -462,7 +463,7 @@ public:
     {
       if(ImGui::MenuItem("Exit", "Ctrl+Q"))
         m_app->close();
-      
+
       save = ImGui::MenuItem("Save scene", "F5");
       if(ImGui::MenuItem("Save scene to ...")){
         file = true;
@@ -489,10 +490,10 @@ public:
     }
 
     if(file){
-      auto dialog = pfd::open_file("Select a JSON scene file", ".", 
+      auto dialog = pfd::open_file("Select a JSON scene file", ".",
                                     {"JSON Files", "*.json"});
-      
-      std::vector<std::string> selection = dialog.result();      
+
+      std::vector<std::string> selection = dialog.result();
       if (!selection.empty())
         m_saveFilePath = selection[0];
     }
@@ -532,59 +533,59 @@ public:
   //---------------------------------------------------------------------------------------------------------------
   // When the viewport is resized, the GBuffer must be resized
   // - Called when the Window "viewport is resized
-  void onResize(VkCommandBuffer cmd, const VkExtent2D& size) override { 
-    NVVK_CHECK(m_gBuffers.update(cmd, size)); 
+  void onResize(VkCommandBuffer cmd, const VkExtent2D& size) override {
+    NVVK_CHECK(m_gBuffers.update(cmd, size));
     const auto profiledSection = m_profilerGpuTimer.cmdAsyncSection(cmd, "Viewport resize");
 
     // CRITICAL: Needs to update the descriptor set if it resizes the gbuffers
     nvvk::WriteSetContainer writeContainer;
 
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::renderTarget), 
+      m_descPack.makeWrite(shaderio::BindingPoints::renderTarget),
       m_gBuffers.getDescriptorImageInfo(eImgRendered));
 
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::normalBuffer), 
+      m_descPack.makeWrite(shaderio::BindingPoints::normalBuffer),
       m_gBuffers.getDescriptorImageInfo(eImgNormal));
 
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::albedoBuffer), 
+      m_descPack.makeWrite(shaderio::BindingPoints::albedoBuffer),
       m_gBuffers.getDescriptorImageInfo(eImgAlbedo));
-    
+
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::shadowBuffer), 
+      m_descPack.makeWrite(shaderio::BindingPoints::shadowBuffer),
       m_gBuffers.getDescriptorImageInfo(eImgShadow));
 
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::shadowSampler), 
+      m_descPack.makeWrite(shaderio::BindingPoints::shadowSampler),
       m_gBuffers.getDescriptorImageInfo(eImgShadow));
 
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::shadowScratchBuffer), 
+      m_descPack.makeWrite(shaderio::BindingPoints::shadowScratchBuffer),
       m_gBuffers.getDescriptorImageInfo(eImgShadowScratch));
 
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::shadowScratchSampler), 
+      m_descPack.makeWrite(shaderio::BindingPoints::shadowScratchSampler),
       m_gBuffers.getDescriptorImageInfo(eImgShadowScratch));
 
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::positionBuffer), 
+      m_descPack.makeWrite(shaderio::BindingPoints::positionBuffer),
       m_gBuffers.getDescriptorImageInfo(eImgPosition));
 
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::aoBuffer), 
+      m_descPack.makeWrite(shaderio::BindingPoints::aoBuffer),
       m_gBuffers.getDescriptorImageInfo(eImgAO));
 
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::aoScratchBuffer), 
+      m_descPack.makeWrite(shaderio::BindingPoints::aoScratchBuffer),
       m_gBuffers.getDescriptorImageInfo(eImgAOScratch));
 
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::aoSample), 
+      m_descPack.makeWrite(shaderio::BindingPoints::aoSample),
       m_gBuffers.getDescriptorImageInfo(eImgAO));
 
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::aoScratchSample), 
+      m_descPack.makeWrite(shaderio::BindingPoints::aoScratchSample),
       m_gBuffers.getDescriptorImageInfo(eImgAOScratch));
 
     VkDescriptorImageInfo samplerInfo{};
@@ -593,7 +594,7 @@ public:
     samplerInfo.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     writeContainer.append(
-      m_descPack.makeWrite(shaderio::BindingPoints::gSampler), 
+      m_descPack.makeWrite(shaderio::BindingPoints::gSampler),
       samplerInfo);
 
     // Ray depth is a dedicated colour attachment: the GBuffer's depth-stencil
@@ -601,10 +602,10 @@ public:
     writeContainer.append(
       m_descPack.makeWrite(shaderio::BindingPoints::depthBuffer),
       m_gBuffers.getDescriptorImageInfo(eImgDepth));
-    
-    
-    vkUpdateDescriptorSets(m_app->getDevice(),  
-                        static_cast<uint32_t>(writeContainer.size()),  
+
+
+    vkUpdateDescriptorSets(m_app->getDevice(),
+                        static_cast<uint32_t>(writeContainer.size()),
                         writeContainer.data(), 0, nullptr);
   }
 
@@ -622,7 +623,8 @@ public:
       glm::vec3 eye = m_cameraManip->getEye();
       glm::vec3 center = m_cameraManip->getCenter();
       //m_scene.simulate(deltaT);
-      m_scene.dynamicTestUpdate(m_pushConst.time);
+      //m_scene.dynamicTestUpdate(m_pushConst.time);
+      m_scene.animateParticles(m_pushConst.time);
       m_scene.userAction(eye, glm::normalize(center-eye), m_pushConst.pyp.dts);
     }
 
@@ -630,9 +632,9 @@ public:
     waitForAuxFences();
 
     VkCommandBuffer auxCmd = getAuxCmd();
-    
+
       bufferUpdates(auxCmd);
-      
+
       simulationPass(auxCmd);
 
     submitAuxCmd(auxCmd);
@@ -646,7 +648,7 @@ public:
     }
 
     lightingPass(cmd);
-    
+
     postProcess(cmd);
 
     m_firstFrame = false;
@@ -655,10 +657,10 @@ public:
 
   void bindComputePipeline(VkCommandBuffer cmd, Pipeline* pl){
     // Bind pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pl->pipeline);  
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pl->pipeline);
     // Bind descriptor sets
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pl->layout,
-                            0, 1, m_descPack.getSetPtr(), 0, nullptr);  
+                            0, 1, m_descPack.getSetPtr(), 0, nullptr);
     // Push constants
     vkCmdPushConstants(cmd, pl->layout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
   }
@@ -742,10 +744,10 @@ public:
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Tracing");
 
     // Bind pipeline
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline.pipeline);  
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline.pipeline);
     // Bind descriptor sets
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline.layout,
-                            0, 1, m_descPack.getSetPtr(), 0, nullptr);  
+                            0, 1, m_descPack.getSetPtr(), 0, nullptr);
     // Push constants
     vkCmdPushConstants(cmd, m_rtPipeline.layout, VK_SHADER_STAGE_ALL, 0, sizeof(shaderio::PushConstant), &m_pushConst);
     // Dispatch
@@ -756,7 +758,7 @@ public:
       &sbt.miss,
       &sbt.hit,
       &sbt.callable,
-      group_counts.width, 
+      group_counts.width,
       group_counts.height,
       1
     );
@@ -777,7 +779,7 @@ public:
       m_indirectB.buffer,
       0
     );
-  
+
     nvvk::cmdImageMemoryBarrier(cmd, {m_brickAtlas.image, VK_IMAGE_LAYOUT_GENERAL,
                                     VK_IMAGE_LAYOUT_GENERAL});
   }
@@ -810,7 +812,7 @@ public:
 
     if(buildJobs.size() > shaderio::MAX_NUM_BUILD_JOBS)
       LOGE("Not enough space in build job queue to allocale %zu jobs\n",buildJobs.size());
-    
+
     if(buildJobs.size() <= 0){
       //LOGW("Build job queue update size is 0, skipping generation pass\n");
       return;
@@ -827,7 +829,7 @@ public:
     bindComputePipeline(cmd,&m_buildJobPipeline);
     // Dispatch
     vkCmdDispatch(cmd, 1, 1, buildJobs.size());
-  
+
     // The brick pass reads all three of these: the queue and the counters from
     // the shader, and the indirect command through vkCmdDispatchIndirect. The
     // last one needs DRAW_INDIRECT/INDIRECT_COMMAND_READ, which a plain
@@ -844,7 +846,7 @@ public:
   void generationPass(VkCommandBuffer cmd){
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Generation");
     const bool sceneRefresh = m_scene.m_needsRefresh || m_currCamId0 != m_prevCamId0 || m_firstFrame;
-    
+
     if(sceneRefresh){
       genJobsPass(cmd);
       m_scene.m_needsRefresh = false;
@@ -853,7 +855,7 @@ public:
       { const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Build jobs"); }
       { const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Brick jobs"); }
     }
-    
+
     bool rtxON = m_pushConst.lp.tracingMode == int(shaderio::TracingModes::rtx);
     if(rtxON && (m_updateTlas || sceneRefresh)){
       // The build compute shader writes the TLAS instance records
@@ -982,17 +984,17 @@ public:
       // Dispatch
       vkCmdDispatch(cmd, int(trunc(m_pushConst.numDynamicObjects/WORKGROUP_SIZE_1D))+1, 1, 1);
       // Barrier
-      nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer, 
-                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 
+      nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer,
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
-      
+
       // Bind pipeline
       bindComputePipeline(cmd,&m_simConstraintPipeline);
       // Dispatch
       vkCmdDispatch(cmd, int(trunc(m_pushConst.numDynamicObjects/WORKGROUP_SIZE_1D))+1, 1, 1);
       // Barrier
-      nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer, 
-                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 
+      nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneDynamicObjects.nvbuffer.buffer,
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT});
     }
   }
@@ -1055,7 +1057,7 @@ public:
           VK_FORMAT_R8_UNORM,                 // AO buffer
           VK_FORMAT_R8_UNORM,                 // AO Scratch buffer
           VK_FORMAT_R32_SFLOAT,               // Ray depth buffer
-        },          
+        },
         .depthFormat    = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
         .imageSampler   = m_gBuffersSampler,
         .descriptorPool = m_app->getTextureDescriptorPool(),
@@ -1099,7 +1101,7 @@ public:
 
   void createRNGTextures(){
     SCOPED_TIMER(__FUNCTION__);
-    
+
     VkCommandBuffer cmd = m_app->createTempCmdBuffer();
 
       // Noise tex
@@ -1107,7 +1109,7 @@ public:
       VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;  // Texel format
       create2DTexture(m_noiseTex, extent, format);
       NVVK_DBG_NAME(m_noiseTex.image);
-      
+
       int size = NOISE_TEX_SIZE*NOISE_TEX_SIZE*4;
       std::vector<float> noise;
       noise.reserve(size);
@@ -1131,7 +1133,7 @@ public:
                                         VK_IMAGE_LAYOUT_GENERAL});
       m_noiseTex.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-    m_app->submitAndWaitTempCmdBuffer(cmd); 
+    m_app->submitAndWaitTempCmdBuffer(cmd);
   }
 
   void create3DStorageTexture(nvvk::Image& image, VkExtent3D extent, VkFormat format, VkClearColorValue clearColor){
@@ -1205,8 +1207,8 @@ public:
     vi.viewType = VK_IMAGE_VIEW_TYPE_3D;
     vi.format = format;
 
-    VmaAllocationCreateInfo allocInfo{};  
-    allocInfo.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;  
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
     allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
     NVVK_CHECK(m_alloc.createImage(image, ci, vi, allocInfo));
@@ -1280,6 +1282,16 @@ public:
       create3DStorageTexture(m_matAtlas, extent, format, clearColor);
       NVVK_DBG_NAME(m_matAtlas.image);
     }
+
+    // Near object list atlas
+    if(NEAR_OBJECT_LIST_SIZE > 0){
+      extent = {BRICK_PER_ATLAS_AXIS,BRICK_PER_ATLAS_AXIS,NEAR_OBJECT_LIST_SIZE};  // XYZ size
+      format = VK_FORMAT_R16_UINT;  // Texel format
+      clearValueF = -1.0f;
+      clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
+      create3DStorageTexture(m_nearObjectsAtlas, extent, format, clearColor);
+      NVVK_DBG_NAME(m_nearObjectsAtlas.image);
+    }
   }
 
   nvvk::AccelerationStructureGeometryInfo primitiveToGeometry(const uint32_t aabbCount){
@@ -1325,7 +1337,7 @@ public:
         .mode          = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,  // Build mode vs update
         .geometryCount = 1,     // Deal with one geometry at a time
         .pGeometries   = &geoInfo.geometry,  // The geometry to build the acceleration structure from
-        
+
     };
 
     // One geometry at a time (could be multiple)
@@ -1373,8 +1385,8 @@ public:
     //SCOPED_TIMER(__FUNCTION__);
 
     nvvk::Buffer scratch;
-    createAccelerationStructure(VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR, m_bLas, geoInfo, 
-      VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | 
+    createAccelerationStructure(VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR, m_bLas, geoInfo,
+      VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
         VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR,
       scratch);
     m_alloc.destroyBuffer(scratch);
@@ -1396,12 +1408,12 @@ public:
                         .geometry     = {.instances = geometryInstances}};
     geoInfo.rangeInfo = {.primitiveCount = static_cast<uint32_t>(shaderio::NUM_BRICKS_IN_ATLAS)};
 
-      
+
     createAccelerationStructure(
-      VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR, 
-      m_tLas, 
+      VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
+      m_tLas,
       geoInfo,
-      VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | 
+      VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
       VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR,
       m_tLasB
     );
@@ -1427,8 +1439,8 @@ public:
     VkAccelerationStructureBuildGeometryInfoKHR asBuildInfo{
         .sType         = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
         .type          = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
-        .flags         = 
-          VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | 
+        .flags         =
+          VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
           VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR,
         .mode          = rebuild ?
           VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR: VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR,
@@ -1456,7 +1468,7 @@ public:
 
     VkAccelerationStructureBuildRangeInfoKHR* pBuildRangeInfo = &geoInfo.rangeInfo;
     vkCmdBuildAccelerationStructuresKHR(cmd, 1, &asBuildInfo, &pBuildRangeInfo);
-  
+
     barrier = {
       .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
       .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
@@ -1485,7 +1497,7 @@ public:
         ray_inst.instanceShaderBindingTableRecordOffset = 0;
         ray_inst.flags = 0;
         tlasInstances.push_back(ray_inst);
-    }    
+    }
 
     VkCommandBuffer cmd = m_app->createTempCmdBuffer();
       m_stagingUploader.appendBuffer(m_instancesB, 0, std::span(tlasInstances));
@@ -1497,9 +1509,9 @@ public:
     SCOPED_TIMER(__FUNCTION__);
 
     createBottomLevelAS(primitiveToGeometry(1));
-    
+
     createInstanceBuffer();
-    
+
     createTopLevelAS();
   }
 
@@ -1531,7 +1543,7 @@ public:
 
     size = objectsVector.size() * sizeof(shaderio::SceneObject);
     vkCmdUpdateBuffer(cmd, m_sceneObjectsB.buffer, 0, size, objectsVector.data());
-    
+
     size = materialsVector.size() * sizeof(shaderio::Material);
     vkCmdUpdateBuffer(cmd, m_sceneMaterialsB.buffer, 0, size, materialsVector.data());
 
@@ -1550,7 +1562,7 @@ public:
     for(int i = 0; i < size; i++){
       glm::vec3 sample;
       bool degenerate = true;
-      
+
       while(degenerate) {
         sample = glm::vec3(
             randomFloat2(),
@@ -1561,7 +1573,7 @@ public:
         if(abs(sample.x) < 0.01f || abs(sample.y) < 0.01f || abs(sample.z) < 0.1f) degenerate = true;
         else degenerate = false;
       }
-      
+
       sample = glm::normalize(sample);
       float scale = float(i) / size;
       scale = glm::mix(0.1f, 1.0f, scale * scale);
@@ -1572,11 +1584,11 @@ public:
       kernels.push_back(sample);
     }
     vkCmdUpdateBuffer(cmd, m_aoKernelsB.buffer, 0, size*sizeof(glm::vec3), kernels.data());
-  
+
     nvvk::cmdBufferMemoryBarrier(cmd, {m_aoKernelsB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
-  
+
   void updateShadowKernels(VkCommandBuffer cmd){
     glm::vec3 lightDir = m_pushConst.lp.lightDir;
     glm::vec3 aux = glm::vec3(0,0,1);
@@ -1604,7 +1616,7 @@ public:
         glm::sin(alpha)*distance,
         m_pushConst.lp.shadowSharpness
       );
-        
+
       sample = glm::normalize(sample);
 
       sample = TBN*sample;
@@ -1612,7 +1624,7 @@ public:
       kernels.push_back(sample);
     }
     vkCmdUpdateBuffer(cmd, m_shadowKernelsB.buffer, 0, size*sizeof(glm::vec3), kernels.data());
-  
+
     nvvk::cmdBufferMemoryBarrier(cmd, {m_shadowKernelsB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
   }
@@ -1650,7 +1662,7 @@ public:
   void createScene(){
     SCOPED_TIMER(__FUNCTION__);
     nvvk::ResourceAllocator* allocator = m_stagingUploader.getResourceAllocator();
-    
+
     VkCommandBuffer cmd = m_app->createTempCmdBuffer();
       // ------------------
       // Scene info buffer
@@ -1665,28 +1677,28 @@ public:
       // ------------------
       NVVK_CHECK(allocator->createBuffer(m_sceneAabbB,
                                      MAX_SCENE_OBJECTS*sizeof(nvutils::Bbox),
-                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                         ));
       NVVK_DBG_NAME(m_sceneAabbB.buffer);
-      
+
       NVVK_CHECK(allocator->createBuffer(m_sceneObjectsB,
                                      MAX_SCENE_OBJECTS*sizeof(shaderio::SceneObject),
-                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                         ));
       NVVK_DBG_NAME(m_sceneObjectsB.buffer);
 
       NVVK_CHECK(allocator->createBuffer(m_sceneMaterialsB,
                                      MAX_MATERIALS*sizeof(shaderio::Material),
-                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                         ));
       NVVK_DBG_NAME(m_sceneMaterialsB.buffer);
 
       NVVK_CHECK(allocator->createBuffer(m_sceneDynamicObjects.nvbuffer,
                                     MAX_SCENE_DYNAMIC_OBJECTS*sizeof(shaderio::DynamicObject),
-                                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                                         | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                       VMA_MEMORY_USAGE_AUTO,
                                       VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT
@@ -1701,18 +1713,18 @@ public:
         nvutils::Bbox(glm::vec3(0.0),glm::vec3(1)));
       NVVK_CHECK(allocator->createBuffer(m_bLasB,
                                      aabbVector.size()*sizeof(nvutils::Bbox),
-                                     VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                     VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                           | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                                           | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
                                         ));
       NVVK_DBG_NAME(m_bLasB.buffer);
-      NVVK_CHECK(m_stagingUploader.appendBuffer(m_bLasB, 0,std::span(aabbVector)));  
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_bLasB, 0,std::span(aabbVector)));
 
       const int instanceCount = shaderio::NUM_BRICKS_IN_ATLAS;
       NVVK_CHECK(m_alloc.createBuffer(m_instancesB,
                                     instanceCount*sizeof(VkAccelerationStructureInstanceKHR),
                                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-                                        | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                        | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                                         | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
                                         | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                       ));
@@ -1724,8 +1736,8 @@ public:
       VkDeviceSize b_size = shaderio::MAX_NUM_BUILD_JOBS*sizeof(shaderio::BuildJob);
       NVVK_CHECK(allocator->createBuffer(m_buildJobQueue,
                                      b_size,
-                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                         ));
       NVVK_DBG_NAME(m_buildJobQueue.buffer);
 
@@ -1733,10 +1745,10 @@ public:
       std::vector<uint8_t> zeros2(b_size, 0);
       NVVK_CHECK(allocator->createBuffer(m_brickJobQueue,
                                      b_size,
-                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                                         ));
       NVVK_DBG_NAME(m_brickJobQueue.buffer);
-      NVVK_CHECK(m_stagingUploader.appendBuffer(m_brickJobQueue, 0,std::span(zeros2)));  
+      NVVK_CHECK(m_stagingUploader.appendBuffer(m_brickJobQueue, 0,std::span(zeros2)));
 
       // ------------------
       // Counters
@@ -1744,8 +1756,8 @@ public:
       std::vector<glm::uint32_t> zeros3(3, 0);
       NVVK_CHECK(allocator->createBuffer(m_countersB,
                                      zeros3.size()*sizeof(glm::uint32_t),
-                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                         ));
       NVVK_DBG_NAME(m_countersB.buffer);
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_countersB, 0,std::span(zeros3)));
@@ -1756,9 +1768,9 @@ public:
       std::vector<shaderio::DispatchIndirectCommand> zerosIndirect(1);
       NVVK_CHECK(allocator->createBuffer(m_indirectB,
                                      zerosIndirect.size()*sizeof(shaderio::DispatchIndirectCommand),
-                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                          | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                         ));
       NVVK_DBG_NAME(m_indirectB.buffer);
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_indirectB, 0,std::span(zerosIndirect)));
@@ -1770,8 +1782,8 @@ public:
       std::iota(freeList.begin(), freeList.end(), 0);
       NVVK_CHECK(allocator->createBuffer(m_freeListB,
                                      freeList.size()*sizeof(uint32_t),
-                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                         ));
       NVVK_DBG_NAME(m_freeListB.buffer);
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_freeListB, 0,std::span(freeList)));
@@ -1781,22 +1793,22 @@ public:
       // ------------------
       NVVK_CHECK(m_alloc.createBuffer(m_aoKernelsB,
                                       MAX_NUM_AO_KERNELS*sizeof(glm::vec3),
-                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                       ));
       NVVK_DBG_NAME(m_aoKernelsB.buffer);
 
       NVVK_CHECK(m_alloc.createBuffer(m_shadowKernelsB,
                                       MAX_NUM_SHADOW_KERNELS*sizeof(glm::vec3),
-                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
-                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT 
+                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                       ));
       NVVK_DBG_NAME(m_shadowKernelsB.buffer);
 
 
       m_stagingUploader.cmdUploadAppended(cmd);  // Upload the scene information to the GPU
 
-    m_app->submitAndWaitTempCmdBuffer(cmd); 
+    m_app->submitAndWaitTempCmdBuffer(cmd);
 
 
     // Camera setup
@@ -1813,7 +1825,7 @@ public:
     // TODO: OH GOD, clean this mess!!!!!1!1!!
     nvvk::DescriptorBindings bindings;
     bindings.addBinding(shaderio::BindingPoints::sceneInfo, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_ALL);
-    
+
     bindings.addBinding(shaderio::BindingPoints::renderTarget, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::normalBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::albedoBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
@@ -1827,22 +1839,23 @@ public:
     bindings.addBinding(shaderio::BindingPoints::aoScratchBuffer, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::aoSample, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::aoScratchSample, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_ALL);
-    
+
     bindings.addBinding(shaderio::BindingPoints::gSampler, VK_DESCRIPTOR_TYPE_SAMPLER, 1, VK_SHADER_STAGE_ALL);
-    
+
     bindings.addBinding(shaderio::BindingPoints::aabbs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::objects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::materials, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::dynamicObjects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
-    
+
     bindings.addBinding(shaderio::BindingPoints::tLas, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::bLas, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::instances, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
-    
+
     bindings.addBinding(shaderio::BindingPoints::clipMap, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::brickAtlas, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::matAtlas, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
-    
+    bindings.addBinding(shaderio::BindingPoints::nearObjectList, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+
     bindings.addBinding(shaderio::BindingPoints::buildJobQ, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::brickJobQ, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::counters, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
@@ -1862,40 +1875,41 @@ public:
 
     nvvk::WriteSetContainer writeContainer;
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::sceneInfo), m_sceneInfoB.buffer);
-    
+
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::aabbs), m_sceneAabbB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::objects), m_sceneObjectsB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::materials), m_sceneMaterialsB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::dynamicObjects), m_sceneDynamicObjects.nvbuffer.buffer);
-    
+
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLas), m_tLas);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::bLas), m_bLasB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::instances), m_instancesB.buffer);
-    
+
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::clipMap), m_clipMap.descriptor);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::brickAtlas), m_brickAtlas.descriptor);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::matAtlas), m_matAtlas.descriptor);
-    
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::nearObjectList), m_nearObjectsAtlas.descriptor);
+
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::buildJobQ), m_buildJobQueue.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::brickJobQ), m_brickJobQueue.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::counters), m_countersB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::indirectCommands), m_indirectB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::freeList), m_freeListB.buffer);
-    
+
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::noise), m_noiseTex.descriptor);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::aoKernels), m_aoKernelsB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::shadowKernels), m_shadowKernelsB.buffer);
-    
-    vkUpdateDescriptorSets(m_app->getDevice(),  
-                        static_cast<uint32_t>(writeContainer.size()),  
+
+    vkUpdateDescriptorSets(m_app->getDevice(),
+                        static_cast<uint32_t>(writeContainer.size()),
                         writeContainer.data(), 0, nullptr);
   }
 
   void createPipelineLayout(VkPipelineLayout* pipelineLayout){
     // Push constant is used to pass data to the shader at each frame
     const VkPushConstantRange pushConstantsRange{
-      .stageFlags = VK_SHADER_STAGE_ALL, 
-      .offset = 0, 
+      .stageFlags = VK_SHADER_STAGE_ALL,
+      .offset = 0,
       .size = sizeof(shaderio::PushConstant)
     };
 
@@ -1932,7 +1946,7 @@ public:
     const uint32_t* spirvPtr = reinterpret_cast<const uint32_t*>(m_slangCompiler.getSpirv());
     size_t spirvWordCount = m_slangCompiler.getSpirvSize() / sizeof(uint32_t);
     //LOGI("Shader %s has %zu words\n",filename.c_str(),spirvWordCount);
-    NVVK_CHECK(nvvk::createShaderModule(*shaderModule, m_app->getDevice(), 
+    NVVK_CHECK(nvvk::createShaderModule(*shaderModule, m_app->getDevice(),
     std::span<const uint32_t>(spirvPtr, spirvWordCount)));
     NVVK_DBG_NAME(*shaderModule);
     return shaderCode;
@@ -2036,8 +2050,8 @@ public:
     stages[eIntersectionShadow].module  = pl->shader;
     stages[eIntersectionShadow].pName   = "rintShadow";
     stages[eIntersectionShadow].stage   = VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
-    
-    
+
+
     // Shader groups
     VkRayTracingShaderGroupCreateInfoKHR group{VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR};
     group.anyHitShader       = VK_SHADER_UNUSED_KHR;
@@ -2208,7 +2222,7 @@ private:
   VkPhysicalDeviceAccelerationStructurePropertiesKHR m_asProperties{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
 
-  // Push constants to send 
+  // Push constants to send
   shaderio::PushConstant m_pushConst = {.time = 0.0f};
 
   // Scene information
@@ -2225,7 +2239,7 @@ private:
   nvvk::Buffer                  m_tLasB{};      // Top-level acceleration structures scratch buffer
   nvvk::Buffer                  m_bLasB{};      // Bottom-level acceleration structures buffer
   nvvk::Buffer                  m_instancesB{}; // Instances buffer
-  
+
   // Job queues and utils
   nvvk::Buffer m_buildJobQueue{};   // Queue for the Build jobs
   nvvk::Buffer m_brickJobQueue{};   // Queue for the Brick jobs
@@ -2242,6 +2256,7 @@ private:
   nvvk::Image m_clipMap{};          // 3D map of pointers to the brick atlas
   nvvk::Image m_brickAtlas{};       // Atlas where all the bricks are stored
   nvvk::Image m_matAtlas{};         // Atlas where the materials indeces of the allocated bricks are stored
+  nvvk::Image m_nearObjectsAtlas{}; // Atlas where the list of near objects is stored
 
   // Pre-built components
   std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()}; // Camera manipulator
@@ -2300,8 +2315,8 @@ int main(int argc, char** argv)
   VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
 
-  nvvk::ValidationSettings validationSettings;  
-  validationSettings.setPreset(nvvk::ValidationSettings::LayerPresets::eDebugPrintf);  
+  nvvk::ValidationSettings validationSettings;
+  validationSettings.setPreset(nvvk::ValidationSettings::LayerPresets::eDebugPrintf);
 
   nvvk::ContextInitInfo vkSetup{
       .instanceExtensions = {VK_EXT_DEBUG_UTILS_EXTENSION_NAME},
@@ -2387,17 +2402,17 @@ int main(int argc, char** argv)
   app.addElement(elementLogger);
   // Setup to false for tests
   app.setVsync(false);
-  
+
   // Initial camera params
-  // Set camera to start at position (0,0,0) looking along -Z axis with Y up  
-  nvutils::CameraManipulator::Camera camera;  
-  camera.eye = glm::vec3(0.1f, 0.1f, 3.0f);  // Camera position  
-  camera.ctr = glm::vec3(0.0f, 0.0f, 0.0f); // Look at point (forward)  
-  camera.up  = glm::vec3(0.0f, 1.0f, 0.0f);  // Up vector  
-  camera.fov = 60.0f;                         // Field of view in degrees  
-    
-  // Set this as the home camera  
-  nvgui::SetHomeCamera(camera);  
+  // Set camera to start at position (0,0,0) looking along -Z axis with Y up
+  nvutils::CameraManipulator::Camera camera;
+  camera.eye = glm::vec3(0.1f, 0.1f, 3.0f);  // Camera position
+  camera.ctr = glm::vec3(0.0f, 0.0f, 0.0f); // Look at point (forward)
+  camera.up  = glm::vec3(0.0f, 1.0f, 0.0f);  // Up vector
+  camera.fov = 60.0f;                         // Field of view in degrees
+
+  // Set this as the home camera
+  nvgui::SetHomeCamera(camera);
   camManip->setCamera(camera, true);  // Apply immediately
   camManip->setMode(nvutils::CameraManipulator::Modes::Fly);
 

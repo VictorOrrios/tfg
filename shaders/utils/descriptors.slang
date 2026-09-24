@@ -37,6 +37,7 @@
 [[vk::binding(BindingPoints::clipMap)]] RWTexture3D<uint32_t> clipMap;
 [[vk::binding(BindingPoints::brickAtlas)]] RWTexture3D<float> brickAtlas;
 [[vk::binding(BindingPoints::matAtlas)]] RWTexture3D<float4> matAtlas;
+[[vk::binding(BindingPoints::nearObjectList)]] RWTexture3D<uint16_t> nearObjectListAtlas;
 
 // Generation
 [[vk::binding(BindingPoints::buildJobQ)]] StructuredBuffer<BuildJob> build_job_queue;
