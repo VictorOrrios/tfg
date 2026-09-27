@@ -386,23 +386,23 @@ float applyTerrainOp(float3 p, float d, int octaves, float4 terrain, float minD)
 float mapSceneObject(float3 p, SceneObject params, float prevResult){
     p = mul(params.tInv, float4(p, 1.0)).xyz;
 
-    //p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit_octaves.xyz);
+    p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit_octaves.xyz);
 
-    //p = applyDefOp(params.defOp, p, params.defP);
+    p = applyDefOp(params.defOp, p, params.defP);
 
     p /= params.scale;
 
-    //float d = evalPrimitive(params.type, p, params.primMod, params.bevel, params.round) - params.roundness;
-    float d = sdSphere(p, params.primMod.x);
+    float d = evalPrimitive(params.type, p, params.primMod, params.bevel, params.round) - params.roundness;
+    //float d = sdSphere(p, params.primMod.x);
 
-    //d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
+    d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
 
-    //d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
+    d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
 
     d *= params.scale;
 
-    //return evalCombOp(params.combOp, d, prevResult, params.smoothness);
-    return opSmoothUnion(d,prevResult,params.smoothness);
+    return evalCombOp(params.combOp, d, prevResult, params.smoothness);
+    //return opSmoothUnion(d,prevResult,params.smoothness);
 }
 
 // General map function

@@ -623,8 +623,8 @@ public:
       glm::vec3 eye = m_cameraManip->getEye();
       glm::vec3 center = m_cameraManip->getCenter();
       //m_scene.simulate(deltaT);
-      //m_scene.dynamicTestUpdate(m_pushConst.time);
-      m_scene.animateParticles(m_pushConst.time);
+      m_scene.dynamicTestUpdate(m_pushConst.time);
+      //m_scene.animateParticles(m_pushConst.time);
       m_scene.userAction(eye, glm::normalize(center-eye), m_pushConst.pyp.dts);
     }
 
