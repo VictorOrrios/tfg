@@ -87,8 +87,11 @@ void computeMain(uint3 groupId: SV_GroupID,
     float3 brickPos = float3(brickId) * brick_size;
     float3 p = brickPos + float3(brixelOffset) * voxel_size;
 
+    bool map_using_nol = USE_NEAR_OBJECT_LIST &&
+                         !(nearObjectListAtlas[nolIndex] > MAX_SCENE_OBJECTS);
+
     float sdfValue;
-    if (USE_NEAR_OBJECT_LIST) {
+    if (map_using_nol) {
       sdfValue = brickJobMap(p, nolIndex);
     } else {
       sdfValue = map(p, level);

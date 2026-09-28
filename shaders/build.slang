@@ -53,10 +53,6 @@ float buildJobMap(float3 point, int level,
   int nearObejctListIdx = 0;
 
   for (int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
-    // If near list full early exit
-    if (nearObejctListIdx >= NEAR_OBJECT_LIST_SIZE)
-      break;
-
     float3 p = float3(point);
     Bbox bbox = aabbs[obIdx];
 
@@ -69,12 +65,16 @@ float buildJobMap(float3 point, int level,
     result = mapSceneObject(p, params, result);
 
     // Add object to near list
-    nearObjectList[nearObejctListIdx] = uint16_t(obIdx);
+    if (nearObejctListIdx < NEAR_OBJECT_LIST_SIZE)
+      nearObjectList[nearObejctListIdx] = uint16_t(obIdx);
     nearObejctListIdx++;
   }
 
-  if (nearObejctListIdx < NEAR_OBJECT_LIST_SIZE - 1)
-    nearObjectList[nearObejctListIdx + 1] = MAX_SCENE_OBJECTS + 1;
+  if (nearObejctListIdx < NEAR_OBJECT_LIST_SIZE) {
+    nearObjectList[nearObejctListIdx] = MAX_SCENE_OBJECTS + 1;
+  } else {
+    nearObjectList[0] = MAX_SCENE_OBJECTS + 1;
+  }
 
   return result;
 }
@@ -170,8 +170,7 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
           for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
             int3 idx = int3(nolIdx.x, nolIdx.y, i);
             nearObjectListAtlas[idx] = nearObjectList[i];
-            if (nearObjectList[i] > pushConst.numObjects)
-              break;
+            if (nearObjectList[i] > MAX_SCENE_OBJECTS) break;
           }
         }
 

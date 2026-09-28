@@ -58,7 +58,7 @@ CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS) // Power of two needed for faster calc
 #define MAT_PER_BRICK_AXIS  0   // How many materials are stored per brick axis. Needs to be >= 2 to work, if not it deactivates
 
 // Near objects list atlas
-#define NEAR_OBJECT_LIST_SIZE 256
+#define NEAR_OBJECT_LIST_SIZE 256 // How big is the near object list that the brick jobs use. Needs to be >= 1 to work, if not it deactivates
 
 // Extent calculations
 const static int NUM_VOXELS_PER_AXIS = NUM_BRICKS_PER_AXIS*(BRICK_SIZE-1);
