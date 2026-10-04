@@ -41,7 +41,7 @@ NAMESPACE_SHADERIO_BEGIN()
 #define WORKGROUP_SIZE_3D 8
 
 // Buffers static max limit
-#define MAX_SCENE_OBJECTS 1024*8
+#define MAX_SCENE_OBJECTS 2048*8
 #define MAX_SCENE_DYNAMIC_OBJECTS 512
 #define MAX_MATERIALS 32
 #define BRICK_PER_ATLAS_AXIS 512
@@ -58,7 +58,7 @@ CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS) // Power of two needed for faster calc
 #define MAT_PER_BRICK_AXIS  0   // How many materials are stored per brick axis. Needs to be >= 2 to work, if not it deactivates
 
 // Near objects list atlas
-#define NEAR_OBJECT_LIST_SIZE 256 // How big is the near object list that the brick jobs use. Needs to be >= 1 to work, if not it deactivates
+#define NEAR_OBJECT_LIST_SIZE 512 // How big is the near object list that the brick jobs use. Needs to be >= 1 to work, if not it deactivates
 
 // Extent calculations
 const static int NUM_VOXELS_PER_AXIS = NUM_BRICKS_PER_AXIS*(BRICK_SIZE-1);

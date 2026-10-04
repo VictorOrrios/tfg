@@ -1006,9 +1006,6 @@ std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0,
 
 // Splits BuildJobs into chunks that have a max size of MAX_BUILD_JOB_SIZE³
 std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
-  const glm::ivec3 hole_min(NUM_BRICKS_PER_AXIS/4+1);
-  const glm::ivec3 hole_max(NUM_BRICKS_PER_AXIS*3/4);
-
   const glm::ivec3 base_min_id(buildJ.min_id_level.x,buildJ.min_id_level.y,buildJ.min_id_level.z);
   const glm::ivec3 base_num_b(buildJ.num_b.x,buildJ.num_b.y,buildJ.num_b.z);
   const glm::ivec3 max_chunk(MAX_BUILD_JOB_SIZE);
@@ -1029,6 +1026,68 @@ std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
         .num_b = glm::ivec4(num_b,0)
       });
   };
+
+  return out;
+}
+
+void Scene::markDirtyChunks(shaderio::BuildJob job, glm::ivec3 camId0){
+  const int dirtyAxisSize = NUM_BRICKS_PER_AXIS/MAX_BUILD_JOB_SIZE;
+  const glm::ivec3 zeros(0);
+  const glm::ivec3 max_index(NUM_BRICKS_PER_AXIS-1);
+  const glm::ivec3 hole_min(NUM_BRICKS_PER_AXIS/4+1);
+  const glm::ivec3 hole_max(NUM_BRICKS_PER_AXIS*3/4);
+  const glm::ivec3 max_chunk(MAX_BUILD_JOB_SIZE);
+
+
+  glm::ivec3 min_id(job.min_id_level.x,job.min_id_level.y,job.min_id_level.z);
+  glm::ivec3 num_b(job.num_b.x,job.num_b.y,job.num_b.z);
+  glm::ivec3 max_id = min_id+num_b;
+  int level = job.min_id_level.w;
+
+  glm::ivec3 camId = camId0>>level;
+  glm::ivec3 min_rel_id = min_id - camId + (NUM_BRICKS_PER_AXIS/2);
+  glm::ivec3 max_rel_id = max_id - camId + (NUM_BRICKS_PER_AXIS/2);
+
+  glm::ivec3 min_rel_Cid = min_rel_id/max_chunk;
+  glm::ivec3 max_rel_Cid = max_rel_id/max_chunk;
+
+  for(int z = min_rel_Cid.z; z<=max_rel_Cid.z; z++)
+  for(int y = min_rel_Cid.y; z<=max_rel_Cid.y; y++)
+  for(int x = min_rel_Cid.x; z<=max_rel_Cid.x; x++)
+  {
+    int chunkIdx = x + y*dirtyAxisSize + z*(dirtyAxisSize*dirtyAxisSize);
+    m_dirtyChunks[level][chunkIdx] = true;
+  }
+}
+
+std::vector<shaderio::BuildJob> Scene::dirtyChunksToBuildJobs(glm::ivec3 camId0){
+  const int dirtyAxisSize = NUM_BRICKS_PER_AXIS/MAX_BUILD_JOB_SIZE;
+  const int dirtyLevelSize = dirtyAxisSize*dirtyAxisSize*dirtyAxisSize;
+  const glm::ivec3 max_chunk(MAX_BUILD_JOB_SIZE);
+  std::vector<shaderio::BuildJob> out;
+
+  for(int level = 0; level<CLIPMAP_LEVELS; level++){
+    glm::ivec3 camIdOffset = (camId0>>level) - (NUM_BRICKS_PER_AXIS/2);
+
+    for(int chunkIdx = 0; chunkIdx<dirtyLevelSize; chunkIdx++){
+      if(m_dirtyChunks[level][chunkIdx]){
+
+        glm::ivec4 chunkIdLevel = glm::ivec4(
+          (chunkIdx % dirtyAxisSize)*MAX_BUILD_JOB_SIZE-camIdOffset.x,
+          ((chunkIdx/dirtyAxisSize) % dirtyAxisSize)*MAX_BUILD_JOB_SIZE-camIdOffset.y,
+          (chunkIdx / (dirtyAxisSize*dirtyAxisSize))*MAX_BUILD_JOB_SIZE-camIdOffset.z,
+          level
+        );
+
+        out.push_back({
+          .min_id_level=chunkIdLevel,
+          .num_b=glm::ivec4(MAX_BUILD_JOB_SIZE,MAX_BUILD_JOB_SIZE,MAX_BUILD_JOB_SIZE,0)
+        });
+
+        m_dirtyChunks[level][chunkIdx] = false;
+      }
+    }
+  }
 
   return out;
 }
@@ -1073,19 +1132,85 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(glm::ivec3 currCamId0, glm::
     out.insert(out.end(),splited.begin(),splited.end());
   }
 
+  int bricks = 0;
+  for(auto& job: out){
+    bricks += job.num_b.x+job.num_b.y+job.num_b.z;
+  }
+  LOGI("Num brick in build jobs: %i \n",bricks);
+
+  return out;
+}
+
+std::vector<shaderio::BuildJob> Scene::getBuildJobs2(glm::ivec3 currCamId0, glm::ivec3 prevCamId0){
+  std::vector<nvutils::Bbox> aabbs;
+  std::vector<shaderio::BuildJob> out, baseJobs, levelSplitted;
+
+  for (auto &node : m_root) {
+    if(node.needsRefresh){
+      aabbs.push_back(node.gp.bbox);
+      aabbs.push_back(node.gp.prevBbox);
+      node.gp.prevBbox = nvutils::Bbox(node.gp.bbox);
+      node.needsRefresh = false;
+    }
+  }
+
+  out.reserve(aabbs.size()*4+3);
+  baseJobs = createCamBuildJobs(currCamId0,prevCamId0);
+
+  for(auto& bbox: aabbs){
+    // Negative volume build job check
+    if(glm::any(glm::lessThan(bbox.max(),bbox.min())))
+      continue;
+
+    levelSplitted = createBaseBuildJobs(bbox, currCamId0);
+    baseJobs.insert(baseJobs.end(),levelSplitted.begin(),levelSplitted.end());
+  }
+
+  for(auto& bbox: m_removeList){
+    // Negative volume build job check
+    if(glm::any(glm::lessThan(bbox.max(),bbox.min())))
+      continue;
+
+    levelSplitted = createBaseBuildJobs(bbox, currCamId0);
+    baseJobs.insert(baseJobs.end(),levelSplitted.begin(),levelSplitted.end());
+  }
+  m_removeList.clear();
+
+  LOGI("HASTA AQUI FUNCIONA\n");
+
+  for(auto& buildJob: baseJobs){
+    markDirtyChunks(buildJob,currCamId0);
+  }
+
+  out = dirtyChunksToBuildJobs(currCamId0);
+
+  LOGI("HASTA AQUI FUNCIONA 2\n");
+
+  int bricks = 0;
+  for(auto& job: out){
+    bricks += job.num_b.x+job.num_b.y+job.num_b.z;
+  }
+  LOGI("Num brick in build jobs: %i \n",bricks);
+
   return out;
 }
 
 std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0){
   std::vector<shaderio::BuildJob> out, baseJobs;
 
-  nvutils::Bbox bbox(glm::vec3(-100000.0),glm::vec3(100000.0));
+  nvutils::Bbox bbox(glm::vec3(-11.0),glm::vec3(11.0));
   baseJobs = createBaseBuildJobs(bbox,currCamId0);
 
   for(auto& buildJob: baseJobs){
     auto splited = splitBuildJob(buildJob);
     out.insert(out.end(),splited.begin(),splited.end());
   }
+
+  int bricks = 0;
+  for(auto& job: out){
+    bricks += job.num_b.x+job.num_b.y+job.num_b.z;
+  }
+  LOGI("Num brick in build jobs: %i \n",bricks);
 
   return out;
 }
@@ -1095,19 +1220,25 @@ std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 currCamId0, 
 // Constructor
 //------------------
 Scene::Scene() {
+  int dirtyAxisSize = NUM_BRICKS_PER_AXIS/MAX_BUILD_JOB_SIZE;
+  dirtyAxisSize = dirtyAxisSize*dirtyAxisSize*dirtyAxisSize;
+  for(int level = 0; level<CLIPMAP_LEVELS; level++){
+    m_dirtyChunks[level] = std::vector<bool>(dirtyAxisSize,false);
+  }
+
   Material defaultMat = createMaterial();
   defaultMat.name = "Default";
   defaultMat.shininess = 1.0;
   int dMat = addMaterial(defaultMat);
 
-  const int NUM_OF_PARTICLES = 2048;
+  const int NUM_OF_PARTICLES = 2048*2*2*2;
   for(int i = 0; i<NUM_OF_PARTICLES; i++){
-    Node *particle = createNode(shaderio::PrimType::Sphere);
+    Node *particle = createNode(shaderio::PrimType::Box);
     particle->gp.scale = 0.2;
     particle->gp.position = glm::vec3(0.0);
     particle->gp.rotation = glm::vec3(0.0);
-    particle->sdp.combOp = (int)CombinationOp::Union + 2;
-    particle->sdp.smoothness = 0.02;
+    particle->sdp.combOp = (int)CombinationOp::Union ;
+    particle->sdp.smoothness = 0.0;
     particle->gp.mat = dMat;
     updateNodeData(particle);
     addNode(particle);

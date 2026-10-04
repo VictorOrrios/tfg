@@ -68,19 +68,19 @@ void Scene::dynamicTestUpdate(float time) {
   static float result = 0.0;
 
   static ofstream output("output.txt");
-  
+
   static int phase = -1;
   static int maxPhase = 4;
-  
+
   static int iniPower = 4;
-  static int maxPower = 11;
+  static int maxPower = 14;
   static int currPower = maxPower;
   static int maxSamples = 140;
   static int currSamples = maxSamples+1;
 
   const std::string phases []= {
     "boxes","cylinders","mixed","spheres", "spheres_blobby"
-  };  
+  };
 
   // If ended
   if(phase>maxPhase) return;
@@ -127,7 +127,7 @@ void Scene::setSceneObjects(int preset, int numOfParticles) {
     case 0: type = shaderio::PrimType::Box; break;
     case 1: type = shaderio::PrimType::Cylinder; break;
     case 2: type = shaderio::PrimType::Box; break;
-    case 3: case 4: 
+    case 3: case 4:
       type = shaderio::PrimType::Sphere; break;
   }
 
@@ -166,8 +166,8 @@ void Scene::setSceneObjects(int preset, int numOfParticles) {
 
 void Scene::animateParticles(float time) {
   const float speed = 1.0;
-  const glm::vec3 domainMin = glm::vec3(-1.0);
-  const glm::vec3 domainMax = glm::vec3(1.0);
+  const glm::vec3 domainMin = glm::vec3(-10.0);
+  const glm::vec3 domainMax = glm::vec3(10.0);
 
 #pragma omp parallel for schedule(static)
   for (int i = 0; i < m_root.size(); i++) {

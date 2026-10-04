@@ -31,9 +31,8 @@ void freePointer(int pointer) {
 }
 
 inline float3x4 createTransform(int3 id, int level) {
-  const float brick_size = BRICK_SIZES[level];
-  float s = brick_size;
-  float3 pos = id * brick_size;
+  const float s = BRICK_SIZES[level];
+  float3 pos = id * s;
   return float3x4(s, 0, 0, pos.x, 0, s, 0, pos.y, 0, 0, s, pos.z);
 }
 
@@ -140,9 +139,6 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
       }
 
       bool outside_max = abs(centerSDF) > max_brick_value; // Atlas cull
-      bool has_surface =
-          abs(centerSDF) <= max_brick_instance_value; // RTX Instance cull
-
       int instance_ptr = prevClipPointer; // Pointer to update/mask
 
       // Uniform value brick check
@@ -170,11 +166,12 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
           for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
             int3 idx = int3(nolIdx.x, nolIdx.y, i);
             nearObjectListAtlas[idx] = nearObjectList[i];
-            if (nearObjectList[i] > MAX_SCENE_OBJECTS) break;
+            if (nearObjectList[i] > MAX_SCENE_OBJECTS)
+              break;
           }
         }
 
-        if (has_surface) {
+        if (abs(centerSDF) <= max_brick_instance_value) { // RTX Instance cull
           updateInstance(instance_ptr, brickId, level);
         } else if (brick_allocated) {
           maskInstance(instance_ptr);

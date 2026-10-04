@@ -618,13 +618,12 @@ public:
     NVVK_DBG_SCOPE(cmd);
 
     {
-      const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "CPU Action");
       // User espcial action
       glm::vec3 eye = m_cameraManip->getEye();
       glm::vec3 center = m_cameraManip->getCenter();
       //m_scene.simulate(deltaT);
-      m_scene.dynamicTestUpdate(m_pushConst.time);
-      //m_scene.animateParticles(m_pushConst.time);
+      //m_scene.dynamicTestUpdate(m_pushConst.time);
+      m_scene.animateParticles(m_pushConst.time+10.0f);
       m_scene.userAction(eye, glm::normalize(center-eye), m_pushConst.pyp.dts);
     }
 
@@ -807,7 +806,8 @@ public:
 
     int num_bricks;
     std::vector<shaderio::BuildJob> buildJobs;
-    buildJobs = m_scene.getBuildJobs(m_currCamId0,m_prevCamId0);
+    buildJobs = m_scene.getBuildJobs2(m_currCamId0,m_prevCamId0);
+    //buildJobs = m_scene.getBuildJobs(m_currCamId0,m_prevCamId0);
     //buildJobs = m_scene.getDenseBuildJobs(m_currCamId0,m_prevCamId0);
 
     if(buildJobs.size() > shaderio::MAX_NUM_BUILD_JOBS)
@@ -2406,7 +2406,7 @@ int main(int argc, char** argv)
   // Initial camera params
   // Set camera to start at position (0,0,0) looking along -Z axis with Y up
   nvutils::CameraManipulator::Camera camera;
-  camera.eye = glm::vec3(0.1f, 0.1f, 3.0f);  // Camera position
+  camera.eye = glm::vec3(0.1f, 0.1f, 30.0f);  // Camera position
   camera.ctr = glm::vec3(0.0f, 0.0f, 0.0f); // Look at point (forward)
   camera.up  = glm::vec3(0.0f, 1.0f, 0.0f);  // Up vector
   camera.fov = 60.0f;                         // Field of view in degrees

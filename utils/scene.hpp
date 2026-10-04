@@ -142,6 +142,7 @@ public:
   std::vector<shaderio::DynamicObject> getDynamicObjects();
   std::vector<shaderio::Material> getMaterials();
   std::vector<shaderio::BuildJob> getBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
+  std::vector<shaderio::BuildJob> getBuildJobs2(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
   std::vector<shaderio::BuildJob> getDenseBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
 
   bool m_needsRefresh = true;
@@ -184,10 +185,13 @@ private:
   std::vector<shaderio::BuildJob> createBaseBuildJobs(nvutils::Bbox aabb, glm::ivec3 camId0);
   std::vector<shaderio::BuildJob> createCamBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
   std::vector<shaderio::BuildJob> splitBuildJob(shaderio::BuildJob);
+  void markDirtyChunks(shaderio::BuildJob job, glm::ivec3 camId0);
+  std::vector<shaderio::BuildJob> dirtyChunksToBuildJobs(glm::ivec3 camId0);
 
   std::vector<Node> m_root;
   std::vector<Material> m_mat;
   std::vector<nvutils::Bbox> m_removeList;
+  std::array<std::vector<bool>, CLIPMAP_LEVELS> m_dirtyChunks;
   int m_selected = -1;
   int m_selectedMat = -1;
   uint32_t m_nextID = 1;
