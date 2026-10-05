@@ -184,7 +184,7 @@ private:
 
   std::vector<shaderio::BuildJob> createBaseBuildJobs(nvutils::Bbox aabb, glm::ivec3 camId0);
   std::vector<shaderio::BuildJob> createCamBuildJobs(glm::ivec3 currCamId0, glm::ivec3 prevCamId0);
-  std::vector<shaderio::BuildJob> splitBuildJob(shaderio::BuildJob);
+  std::vector<shaderio::BuildJob> splitBuildJob(shaderio::BuildJob buildJ, glm::ivec3 camId0);
   void markDirtyChunks(shaderio::BuildJob job, glm::ivec3 camId0);
   std::vector<shaderio::BuildJob> dirtyChunksToBuildJobs(glm::ivec3 camId0);
 

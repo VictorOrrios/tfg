@@ -3,6 +3,7 @@
 #include "rng.hpp"
 #include "sdf.hpp"
 
+#include <cassert>
 #include <omp.h>
 #include <string>
 #include <vector>
@@ -1005,12 +1006,19 @@ std::vector<shaderio::BuildJob> Scene::createCamBuildJobs(glm::ivec3 currCamId0,
 
 
 // Splits BuildJobs into chunks that have a max size of MAX_BUILD_JOB_SIZE³
-std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
+std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ, glm::ivec3 camId0){
+  const glm::ivec3 zeros(0);
+  const glm::ivec3 max_index(NUM_BRICKS_PER_AXIS-1);
+  const glm::ivec3 hole_min(NUM_BRICKS_PER_AXIS/4+1);
+  const glm::ivec3 hole_max(NUM_BRICKS_PER_AXIS*3/4);
+
   const glm::ivec3 base_min_id(buildJ.min_id_level.x,buildJ.min_id_level.y,buildJ.min_id_level.z);
   const glm::ivec3 base_num_b(buildJ.num_b.x,buildJ.num_b.y,buildJ.num_b.z);
   const glm::ivec3 max_chunk(MAX_BUILD_JOB_SIZE);
 
   int level = buildJ.min_id_level.w;
+  glm::ivec3 camId = camId0>>level;
+
   std::vector<shaderio::BuildJob> out;
 
   for(int z = 0; z<buildJ.num_b.z; z+= MAX_BUILD_JOB_SIZE)
@@ -1020,6 +1028,25 @@ std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
     glm::ivec3 offset = glm::ivec3(x,y,z);
     glm::ivec3 num_b = glm::min(base_num_b-offset,max_chunk);
     glm::ivec3 min_id = base_min_id+offset;
+
+    glm::ivec3 min_rel_id = min_id - camId + (NUM_BRICKS_PER_AXIS/2);
+    glm::ivec3 max_rel_id = min_id + num_b - camId + (NUM_BRICKS_PER_AXIS/2);
+
+    // Completly out of range check
+    if(glm::any(glm::lessThan(max_rel_id,zeros)) || glm::any(glm::greaterThan(min_rel_id,max_index)))
+      continue;
+
+    // Completly inside the hole in levels > 0
+    if(
+      level > 0 &&
+      glm::all(glm::greaterThanEqual(min_rel_id,hole_min)) &&
+      glm::all(glm::lessThan(max_rel_id,hole_max))
+    )
+      continue;
+
+    // Clamp to level bound limits
+    min_id -= glm::min(min_rel_id,zeros);
+    num_b  -= glm::max(max_rel_id,max_index)-max_index;
 
     out.push_back({
         .min_id_level = glm::ivec4(min_id,level),
@@ -1032,12 +1059,12 @@ std::vector<shaderio::BuildJob> Scene::splitBuildJob(shaderio::BuildJob buildJ){
 
 void Scene::markDirtyChunks(shaderio::BuildJob job, glm::ivec3 camId0){
   const int dirtyAxisSize = NUM_BRICKS_PER_AXIS/MAX_BUILD_JOB_SIZE;
+  const int dirtyLevelSize = dirtyAxisSize*dirtyAxisSize*dirtyAxisSize;
   const glm::ivec3 zeros(0);
   const glm::ivec3 max_index(NUM_BRICKS_PER_AXIS-1);
   const glm::ivec3 hole_min(NUM_BRICKS_PER_AXIS/4+1);
   const glm::ivec3 hole_max(NUM_BRICKS_PER_AXIS*3/4);
   const glm::ivec3 max_chunk(MAX_BUILD_JOB_SIZE);
-
 
   glm::ivec3 min_id(job.min_id_level.x,job.min_id_level.y,job.min_id_level.z);
   glm::ivec3 num_b(job.num_b.x,job.num_b.y,job.num_b.z);
@@ -1052,8 +1079,8 @@ void Scene::markDirtyChunks(shaderio::BuildJob job, glm::ivec3 camId0){
   glm::ivec3 max_rel_Cid = max_rel_id/max_chunk;
 
   for(int z = min_rel_Cid.z; z<=max_rel_Cid.z; z++)
-  for(int y = min_rel_Cid.y; z<=max_rel_Cid.y; y++)
-  for(int x = min_rel_Cid.x; z<=max_rel_Cid.x; x++)
+  for(int y = min_rel_Cid.y; y<=max_rel_Cid.y; y++)
+  for(int x = min_rel_Cid.x; x<=max_rel_Cid.x; x++)
   {
     int chunkIdx = x + y*dirtyAxisSize + z*(dirtyAxisSize*dirtyAxisSize);
     m_dirtyChunks[level][chunkIdx] = true;
@@ -1073,9 +1100,9 @@ std::vector<shaderio::BuildJob> Scene::dirtyChunksToBuildJobs(glm::ivec3 camId0)
       if(m_dirtyChunks[level][chunkIdx]){
 
         glm::ivec4 chunkIdLevel = glm::ivec4(
-          (chunkIdx % dirtyAxisSize)*MAX_BUILD_JOB_SIZE-camIdOffset.x,
-          ((chunkIdx/dirtyAxisSize) % dirtyAxisSize)*MAX_BUILD_JOB_SIZE-camIdOffset.y,
-          (chunkIdx / (dirtyAxisSize*dirtyAxisSize))*MAX_BUILD_JOB_SIZE-camIdOffset.z,
+          (chunkIdx % dirtyAxisSize)*MAX_BUILD_JOB_SIZE+camIdOffset.x,
+          ((chunkIdx/dirtyAxisSize) % dirtyAxisSize)*MAX_BUILD_JOB_SIZE+camIdOffset.y,
+          (chunkIdx / (dirtyAxisSize*dirtyAxisSize))*MAX_BUILD_JOB_SIZE+camIdOffset.z,
           level
         );
 
@@ -1128,69 +1155,38 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(glm::ivec3 currCamId0, glm::
   m_removeList.clear();
 
   for(auto& buildJob: baseJobs){
-    auto splited = splitBuildJob(buildJob);
+    auto splited = splitBuildJob(buildJob,currCamId0);
     out.insert(out.end(),splited.begin(),splited.end());
   }
 
+  /*
   int bricks = 0;
   for(auto& job: out){
     bricks += job.num_b.x+job.num_b.y+job.num_b.z;
   }
   LOGI("Num brick in build jobs: %i \n",bricks);
+  */
 
   return out;
 }
 
 std::vector<shaderio::BuildJob> Scene::getBuildJobs2(glm::ivec3 currCamId0, glm::ivec3 prevCamId0){
-  std::vector<nvutils::Bbox> aabbs;
-  std::vector<shaderio::BuildJob> out, baseJobs, levelSplitted;
+  std::vector<shaderio::BuildJob> out = getBuildJobs(currCamId0, prevCamId0);
 
-  for (auto &node : m_root) {
-    if(node.needsRefresh){
-      aabbs.push_back(node.gp.bbox);
-      aabbs.push_back(node.gp.prevBbox);
-      node.gp.prevBbox = nvutils::Bbox(node.gp.bbox);
-      node.needsRefresh = false;
-    }
-  }
-
-  out.reserve(aabbs.size()*4+3);
-  baseJobs = createCamBuildJobs(currCamId0,prevCamId0);
-
-  for(auto& bbox: aabbs){
-    // Negative volume build job check
-    if(glm::any(glm::lessThan(bbox.max(),bbox.min())))
-      continue;
-
-    levelSplitted = createBaseBuildJobs(bbox, currCamId0);
-    baseJobs.insert(baseJobs.end(),levelSplitted.begin(),levelSplitted.end());
-  }
-
-  for(auto& bbox: m_removeList){
-    // Negative volume build job check
-    if(glm::any(glm::lessThan(bbox.max(),bbox.min())))
-      continue;
-
-    levelSplitted = createBaseBuildJobs(bbox, currCamId0);
-    baseJobs.insert(baseJobs.end(),levelSplitted.begin(),levelSplitted.end());
-  }
-  m_removeList.clear();
-
-  LOGI("HASTA AQUI FUNCIONA\n");
-
-  for(auto& buildJob: baseJobs){
+  for(auto& buildJob: out){
     markDirtyChunks(buildJob,currCamId0);
   }
+  out.clear();
 
   out = dirtyChunksToBuildJobs(currCamId0);
 
-  LOGI("HASTA AQUI FUNCIONA 2\n");
-
+  /*
   int bricks = 0;
   for(auto& job: out){
     bricks += job.num_b.x+job.num_b.y+job.num_b.z;
   }
   LOGI("Num brick in build jobs: %i \n",bricks);
+  */
 
   return out;
 }
@@ -1202,7 +1198,7 @@ std::vector<shaderio::BuildJob> Scene::getDenseBuildJobs(glm::ivec3 currCamId0, 
   baseJobs = createBaseBuildJobs(bbox,currCamId0);
 
   for(auto& buildJob: baseJobs){
-    auto splited = splitBuildJob(buildJob);
+    auto splited = splitBuildJob(buildJob,currCamId0);
     out.insert(out.end(),splited.begin(),splited.end());
   }
 
