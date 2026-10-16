@@ -46,9 +46,11 @@
 [[vk::binding(BindingPoints::indirectCommands)]] RWStructuredBuffer<DispatchIndirectCommand> indirect_commands;
 [[vk::binding(BindingPoints::freeList)]] RWStructuredBuffer<uint32_t> free_list;
 
-// Raytracing
-[[vk::binding(BindingPoints::tLas)]] RaytracingAccelerationStructure topLevelAS;
-[[vk::binding(BindingPoints::instances)]] RWStructuredBuffer<InstanceData> instances;
+// Accel structures
+[[vk::binding(BindingPoints::tLasBrick)]] RaytracingAccelerationStructure tlasBrick;
+[[vk::binding(BindingPoints::instancesBrick)]] RWStructuredBuffer<InstanceData> instancesBrick;
+[[vk::binding(BindingPoints::tLasObj)]] RaytracingAccelerationStructure tlasObj[CLIPMAP_LEVELS];
+[[vk::binding(BindingPoints::instancesObj)]] RWStructuredBuffer<InstanceData> instancesObj[CLIPMAP_LEVELS];
 
 // RNG
 [[vk::binding(BindingPoints::noise)]] Texture2D<float4> noiseImage;

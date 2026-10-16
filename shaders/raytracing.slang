@@ -57,12 +57,12 @@ void rgenMain(){
   payload.debug = float3(0);
   payload.normal = float3(1);
   payload.depth = -1;
-  
+
 
   // Cast the ray into the scene using the acceleration structure
   // Parameters: AS, flags, instance mask, sbt offset, sbt stride, miss offset, ray, payload
-  TraceRay(topLevelAS, rayFlags, 0xff, 0,0,0, ray, payload);
-  
+  TraceRay(tlasBrick, rayFlags, 0xff, 0,0,0, ray, payload);
+
   albedo = payload.mat.albedo_shininess.xyz;
   shininess = payload.mat.albedo_shininess.w;
   alpha = payload.mat.alpha_metalness.x;
@@ -97,11 +97,11 @@ void rgenMain(){
         float3 randUnitVec = shadowKernels[i];
         ray.Direction = randUnitVec;
         shadowPayload.occluded = false;
-        TraceRay(topLevelAS, shadowRayFlags, 0xff, 1, 0, 1, ray, shadowPayload);
+        TraceRay(tlasBrick, shadowRayFlags, 0xff, 1, 0, 1, ray, shadowPayload);
         if(shadowPayload.occluded)
           occlussion++;
       }
-      
+
       shadow = 1.0 - occlussion/pushConst.lp.shadowSamples;
     }
     shadowImage[int2(launchID/pushConst.lp.shadowTexelSize)] = shadow;
@@ -119,7 +119,7 @@ void rintMain(){
   const float eps = 1e-4;
 
   IntersectionPayload payload;
-  Ray r; 
+  Ray r;
   r.orig = WorldRayOrigin();
   r.dir  = WorldRayDirection();
 
@@ -140,7 +140,7 @@ void rintMain(){
     payload.depth = depthToBbox;
 
     if(sphereTraceBrick(brickRay,instanceID,pos,level,payload.depth)){
-      payload.depth += depthToBbox; 
+      payload.depth += depthToBbox;
       //payload.debug = scalarToColor(float(instanceID)/float(NUM_BRICKS_IN_ATLAS));
       payload.debug = scalarToColor(float(level)/float(CLIPMAP_LEVELS-1));
 
@@ -158,7 +158,7 @@ void rintShadow() {
   const float eps = VOXEL_SIZES[0]/2.0;
 
   ShadowPayload payload;
-  Ray r; 
+  Ray r;
   r.orig = WorldRayOrigin();
   r.dir  = WorldRayDirection();
 
@@ -189,7 +189,7 @@ void rchitMain(inout HitPayload payload, in IntersectionPayload attr){
   payload.debug = attr.debug;
   payload.depth = attr.depth;
   payload.level = attr.level;
-  Ray r; 
+  Ray r;
   r.orig = WorldRayOrigin();
   r.dir  = WorldRayDirection();
   float3 p = r.orig + r.dir*payload.depth;
@@ -214,6 +214,6 @@ void rmissMain(inout HitPayload payload){
 }
 
 [shader("miss")]
-void rmissShadow(inout ShadowPayload payload){   
+void rmissShadow(inout ShadowPayload payload){
   payload.occluded = false;
 }

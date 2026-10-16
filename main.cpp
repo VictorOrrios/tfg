@@ -52,6 +52,7 @@
 #include "_autogen/compute_tracing.slang.h"
 #include "_autogen/lighting.slang.h"
 #include "_autogen/raytracing.slang.h"
+#include "_autogen/obj_as_update.slang.h"
 #include "_autogen/brick.slang.h"
 #include "_autogen/build.slang.h"
 #include "_autogen/ao.slang.h"
@@ -249,6 +250,7 @@ public:
     destroyPipeline(&m_tracingPipeline);
     destroyPipeline(&m_lightingPipeline);
     destroyPipeline(&m_rtPipeline);
+    destroyPipeline(&m_objASupdatePipeline);
     destroyPipeline(&m_brickJobPipeline);
     destroyPipeline(&m_buildJobPipeline);
     destroyPipeline(&m_aoPipeline);
@@ -260,6 +262,7 @@ public:
     vkDestroyShaderModule(device,m_tracingPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_lightingPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_rtPipeline.shader,nullptr);
+    vkDestroyShaderModule(device,m_objASupdatePipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_brickJobPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_buildJobPipeline.shader,nullptr);
     vkDestroyShaderModule(device,m_aoPipeline.shader,nullptr);
@@ -269,7 +272,8 @@ public:
     //vkDestroyShaderModule(device,m_simConstraintPipeline.shader,nullptr);
 
     m_alloc.destroyAcceleration(m_bLas);
-    m_alloc.destroyAcceleration(m_tLas);
+    m_alloc.destroyAcceleration(m_tLasBrick);
+    for(auto& tlas: m_tLasObj) m_alloc.destroyAcceleration(tlas);
 
     m_alloc.destroyBuffer(m_sceneInfoB);
     m_alloc.destroyBuffer(m_sceneAabbB);
@@ -293,9 +297,11 @@ public:
     m_alloc.destroyImage(m_matAtlas);
     m_alloc.destroyImage(m_nearObjectsAtlas);
 
-    m_alloc.destroyBuffer(m_tLasB);
+    m_alloc.destroyBuffer(m_tLasBricksB);
+    m_alloc.destroyBuffer(m_instancesBrick);
+    for(auto& tlasB: m_tLasObjB) m_alloc.destroyBuffer(tlasB);
+    for(auto& instanceB: m_instancesObj) m_alloc.destroyBuffer(instanceB);
     m_alloc.destroyBuffer(m_bLasB);
-    m_alloc.destroyBuffer(m_instancesB);
     m_alloc.destroyBuffer(m_sbtB);
 
     m_gBuffers.deinit();
@@ -783,6 +789,31 @@ public:
                                     VK_IMAGE_LAYOUT_GENERAL});
   }
 
+  void updateObjInstances(VkCommandBuffer cmd){
+    // Bind pipeline
+    bindComputePipeline(cmd,&m_objASupdatePipeline);
+    // Dispatch
+    const uint32_t numGroups = (m_pushConst.numObjects + 7) / 8;
+    vkCmdDispatch(cmd, numGroups, 1, 1);
+
+    // End barrier
+    VkMemoryBarrier2 barrier{
+      .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+      .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+      .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+      .dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+      .dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR
+    };
+
+    VkDependencyInfo dependencyInfo{
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .memoryBarrierCount = 1,
+      .pMemoryBarriers = &barrier
+    };
+
+    vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+  }
+
   void executeBuildJobs(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Build jobs");
@@ -863,7 +894,7 @@ public:
       // the acceleration structure build that reads them, so the builder can
       // see a mix of fresh and stale instances: bricks whose mask has not
       // landed yet are simply absent from the TLAS.
-      nvvk::cmdBufferMemoryBarrier(cmd, {m_instancesB.buffer,
+      nvvk::cmdBufferMemoryBarrier(cmd, {m_instancesBrick.buffer,
                                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                          VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
                                          0,
@@ -871,7 +902,7 @@ public:
                                          VK_ACCESS_2_SHADER_WRITE_BIT,
                                          VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR
                                              | VK_ACCESS_2_SHADER_READ_BIT});
-      updateTopLevelAS(cmd,m_rebuildTlas);
+      updateBrickTLAS(cmd,m_rebuildTlas);
       m_rebuildTlas = false;
     }else{
       // Empty timer so it doesn't break the profiler config
@@ -885,6 +916,9 @@ public:
 
   void genJobsPass(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
+
+    updateObjInstances(cmd);
+    updateObjTLAS(cmd, false);
 
     executeBuildJobs(cmd);
     executeBrickJobs(cmd);
@@ -1393,15 +1427,15 @@ public:
     NVVK_DBG_NAME(m_bLas.accel);
   }
 
-  void createTopLevelAS(){
+  void createBrickTLAS(){
     SCOPED_TIMER(__FUNCTION__);
 
-    m_alloc.destroyAcceleration(m_tLas);
+    m_alloc.destroyAcceleration(m_tLasBrick);
 
     nvvk::AccelerationStructureGeometryInfo geoInfo{};
     VkAccelerationStructureGeometryInstancesDataKHR geometryInstances{
       .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
-      .data = {.deviceAddress = m_instancesB.address}
+      .data = {.deviceAddress = m_instancesBrick.address}
     };
     geoInfo.geometry = {.sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
                         .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
@@ -1411,25 +1445,54 @@ public:
 
     createAccelerationStructure(
       VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
-      m_tLas,
+      m_tLasBrick,
       geoInfo,
       VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
       VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR,
-      m_tLasB
+      m_tLasBricksB
     );
-    NVVK_DBG_NAME(m_tLas.accel);
+    NVVK_DBG_NAME(m_tLasBrick.accel);
   }
 
-  void updateTopLevelAS(VkCommandBuffer cmd, bool rebuild){
-    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Accel struct update");
+  void createObjTLAS(){
+    SCOPED_TIMER(__FUNCTION__);
+
+    for(int i = 0; i<CLIPMAP_LEVELS; i++){
+      m_alloc.destroyAcceleration(m_tLasObj[i]);
+
+      nvvk::AccelerationStructureGeometryInfo geoInfo{};
+      VkAccelerationStructureGeometryInstancesDataKHR geometryInstances{
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
+        .data = {.deviceAddress = m_instancesObj[i].address}
+      };
+      geoInfo.geometry = {.sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+                          .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
+                          .geometry     = {.instances = geometryInstances}};
+      geoInfo.rangeInfo = {.primitiveCount = static_cast<uint32_t>(shaderio::NUM_BRICKS_IN_ATLAS)};
+
+
+      createAccelerationStructure(
+        VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
+        m_tLasObj[i],
+        geoInfo,
+        VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
+        VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR,
+        m_tLasObjB[i]
+      );
+      NVVK_DBG_NAME(m_tLasObj[i].accel);
+    }
+  }
+
+  void updateBrickTLAS(VkCommandBuffer cmd, bool rebuild){
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Brick AS update");
 
     if(rebuild)
-      LOGI("REBUILDING TLAS\n");
+      LOGI("REBUILDING BRICK TLAS\n");
 
     nvvk::AccelerationStructureGeometryInfo geoInfo{};
     VkAccelerationStructureGeometryInstancesDataKHR geometryInstances{
       .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
-      .data = {.deviceAddress = m_instancesB.address}
+      .data = {.deviceAddress = m_instancesBrick.address}
     };
     geoInfo.geometry = {.sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
                         .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
@@ -1444,11 +1507,11 @@ public:
           VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR,
         .mode          = rebuild ?
           VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR: VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR,
-        .srcAccelerationStructure = rebuild ? VK_NULL_HANDLE : m_tLas.accel,
-        .dstAccelerationStructure = m_tLas.accel,
+        .srcAccelerationStructure = rebuild ? VK_NULL_HANDLE : m_tLasBrick.accel,
+        .dstAccelerationStructure = m_tLasBrick.accel,
         .geometryCount = 1,
         .pGeometries   = &geoInfo.geometry,
-        .scratchData = {.deviceAddress = m_tLasB.address}
+        .scratchData = {.deviceAddress = m_tLasBricksB.address}
     };
 
     VkMemoryBarrier barrier{
@@ -1485,7 +1548,94 @@ public:
       0, nullptr);
   }
 
-  void createInstanceBuffer(){
+  void updateObjTLAS(VkCommandBuffer cmd, bool rebuild) {
+    const auto profiledSection =
+        m_profilerGpuTimer.cmdFrameSection(cmd, "Obj AS update");
+
+    if (rebuild)
+      LOGI("REBUILDING OBJ TLAS\n");
+
+    VkMemoryBarrier barrier{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR};
+
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+                         VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                         0, 1, &barrier, 0, nullptr, 0, nullptr);
+
+    for (uint32_t i = 0; i < CLIPMAP_LEVELS; i++) {
+      nvvk::AccelerationStructureGeometryInfo geoInfo{};
+
+      VkAccelerationStructureGeometryInstancesDataKHR geometryInstances{
+          .sType =
+              VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
+          .data = {.deviceAddress = m_instancesObj[i].address}};
+
+      geoInfo.geometry = {
+          .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+          .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
+          .geometry = {.instances = geometryInstances}};
+
+      geoInfo.rangeInfo = {.primitiveCount = MAX_SCENE_OBJECTS};
+
+      VkAccelerationStructureBuildGeometryInfoKHR asBuildInfo{
+          .sType =
+              VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
+          .type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
+          .flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
+                   VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR,
+          .mode = rebuild ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR
+                          : VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR,
+          .srcAccelerationStructure =
+              rebuild ? VK_NULL_HANDLE : m_tLasObj[i].accel,
+          .dstAccelerationStructure = m_tLasObj[i].accel,
+          .geometryCount = 1,
+          .pGeometries = &geoInfo.geometry,
+          .scratchData = {.deviceAddress = m_tLasObjB[i].address}};
+
+      VkAccelerationStructureBuildRangeInfoKHR *pBuildRangeInfo =
+          &geoInfo.rangeInfo;
+
+      vkCmdBuildAccelerationStructuresKHR(cmd, 1, &asBuildInfo,
+                                          &pBuildRangeInfo);
+    }
+
+    barrier = {.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+               .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+               .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR};
+
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                         VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, 0, 1,
+                         &barrier, 0, nullptr, 0, nullptr);
+  }
+
+  void createObjInstanceB(){
+
+    const int instanceCount = MAX_SCENE_OBJECTS;
+    std::vector<VkAccelerationStructureInstanceKHR> tlasInstances;
+    for(int i = 0; i < instanceCount; i++) {
+        VkAccelerationStructureInstanceKHR ray_inst{};
+        ray_inst.transform = nvvk::toTransformMatrixKHR(glm::mat4(1.0f));
+        ray_inst.accelerationStructureReference = m_bLas.address;
+        ray_inst.instanceCustomIndex = i;
+        ray_inst.mask = 0x00;
+        ray_inst.instanceShaderBindingTableRecordOffset = 0;
+        ray_inst.flags = 0;
+        tlasInstances.push_back(ray_inst);
+    }
+
+    VkCommandBuffer cmd = m_app->createTempCmdBuffer();
+    for(int i = 0; i<CLIPMAP_LEVELS; i++){
+        m_stagingUploader.appendBuffer(m_instancesObj[i], 0, std::span(tlasInstances));
+    }
+    m_stagingUploader.cmdUploadAppended(cmd);
+    m_app->submitAndWaitTempCmdBuffer(cmd);
+
+  }
+
+  void createBrickInstanceB(){
     const int instanceCount = shaderio::NUM_BRICKS_IN_ATLAS;
     std::vector<VkAccelerationStructureInstanceKHR> tlasInstances;
     for(int i = 0; i < instanceCount; i++) {
@@ -1500,7 +1650,7 @@ public:
     }
 
     VkCommandBuffer cmd = m_app->createTempCmdBuffer();
-      m_stagingUploader.appendBuffer(m_instancesB, 0, std::span(tlasInstances));
+      m_stagingUploader.appendBuffer(m_instancesBrick, 0, std::span(tlasInstances));
       m_stagingUploader.cmdUploadAppended(cmd);
     m_app->submitAndWaitTempCmdBuffer(cmd);
   }
@@ -1510,9 +1660,11 @@ public:
 
     createBottomLevelAS(primitiveToGeometry(1));
 
-    createInstanceBuffer();
+    createBrickInstanceB();
+    createBrickTLAS();
 
-    createTopLevelAS();
+    createObjInstanceB();
+    createObjTLAS();
   }
 
   void updateSceneObjects(VkCommandBuffer cmd){
@@ -1721,14 +1873,14 @@ public:
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_bLasB, 0,std::span(aabbVector)));
 
       const int instanceCount = shaderio::NUM_BRICKS_IN_ATLAS;
-      NVVK_CHECK(m_alloc.createBuffer(m_instancesB,
+      NVVK_CHECK(m_alloc.createBuffer(m_instancesBrick,
                                     instanceCount*sizeof(VkAccelerationStructureInstanceKHR),
                                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
                                         | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                                         | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
                                         | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                       ));
-      NVVK_DBG_NAME(m_instancesB.buffer);
+      NVVK_DBG_NAME(m_instancesBrick.buffer);
 
       // ------------------
       // Job queues
@@ -1847,9 +1999,10 @@ public:
     bindings.addBinding(shaderio::BindingPoints::materials, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::dynamicObjects, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
 
-    bindings.addBinding(shaderio::BindingPoints::tLas, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
-    bindings.addBinding(shaderio::BindingPoints::bLas, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
-    bindings.addBinding(shaderio::BindingPoints::instances, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::tLasBrick, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::instancesBrick, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::tLasObj, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, CLIPMAP_LEVELS, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::instancesObj, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, CLIPMAP_LEVELS, VK_SHADER_STAGE_ALL);
 
     bindings.addBinding(shaderio::BindingPoints::clipMap, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::brickAtlas, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
@@ -1881,9 +2034,13 @@ public:
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::materials), m_sceneMaterialsB.buffer);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::dynamicObjects), m_sceneDynamicObjects.nvbuffer.buffer);
 
-    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLas), m_tLas);
-    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::bLas), m_bLasB.buffer);
-    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::instances), m_instancesB.buffer);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLasBrick), m_tLasBrick);
+    writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::instancesBrick), m_instancesBrick.buffer);
+
+    for(int i = 0; i<CLIPMAP_LEVELS; i++){
+      writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLasObj,0,i,1), m_tLasObj[i].buffer);
+      writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::instancesObj,0,i,1), m_instancesObj[i].buffer);
+    }
 
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::clipMap), m_clipMap.descriptor);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::brickAtlas), m_brickAtlas.descriptor);
@@ -1958,6 +2115,7 @@ public:
     createShaderModule(&m_tracingPipeline.shader,"compute_tracing.slang",compute_tracing_slang);
     createShaderModule(&m_lightingPipeline.shader,"lighting.slang",lighting_slang);
     createShaderModule(&m_rtPipeline.shader,"raytracing.slang",raytracing_slang);
+    createShaderModule(&m_objASupdatePipeline.shader,"obj_as_update.slang",obj_as_update_slang);
     createShaderModule(&m_brickJobPipeline.shader,"brick.slang",brick_slang);
     createShaderModule(&m_buildJobPipeline.shader,"build.slang",build_slang);
     createShaderModule(&m_aoPipeline.shader,"ao.slang",ao_slang);
@@ -1973,6 +2131,7 @@ public:
     createComputePipeline(&m_tracingPipeline);
     createComputePipeline(&m_lightingPipeline);
     createRTPipeline(&m_rtPipeline);
+    createComputePipeline(&m_objASupdatePipeline);
     createComputePipeline(&m_brickJobPipeline);
     createComputePipeline(&m_buildJobPipeline);
     createComputePipeline(&m_aoPipeline);
@@ -2204,6 +2363,7 @@ private:
   Pipeline m_tracingPipeline{};       // Tracing pipeline, fills the gbuffers with info
   Pipeline m_lightingPipeline{};      // Lighting pipeline, uses the gbuffers to paint th viewport
   Pipeline m_rtPipeline{};            // Hardware accelerated ray tracing pipeline
+  Pipeline m_objASupdatePipeline{};   // Objects acceleration structure update pipeline
   Pipeline m_buildJobPipeline{};      // Build job pipeline
   Pipeline m_brickJobPipeline{};      // Brick job pipeline
   Pipeline m_aoPipeline{};            // Ambient occlussion generation pipeline
@@ -2234,11 +2394,14 @@ private:
   RWBuffer              m_sceneDynamicObjects;   // Buffers binded to the scene dynamic objects array
 
   // Acceleration structure buffers and components
-  nvvk::AccelerationStructure   m_tLas{};       // Top-level acceleration structure
-  nvvk::AccelerationStructure   m_bLas{};       // Bottom-level acceleration structure
-  nvvk::Buffer                  m_tLasB{};      // Top-level acceleration structures scratch buffer
-  nvvk::Buffer                  m_bLasB{};      // Bottom-level acceleration structures buffer
-  nvvk::Buffer                  m_instancesB{}; // Instances buffer
+  nvvk::AccelerationStructure   m_tLasBrick{};        // Top-level acceleration structure for bricks
+  nvvk::Buffer                  m_tLasBricksB{};      // Top-level acceleration structures scratch buffer for bricks
+  nvvk::Buffer                  m_instancesBrick{};   // Instances buffer for bricks
+  nvvk::AccelerationStructure   m_tLasObj [CLIPMAP_LEVELS];       // Top-level acceleration structure for bricks
+  nvvk::Buffer                  m_tLasObjB [CLIPMAP_LEVELS];      // Top-level acceleration structures scratch buffer for bricks
+  nvvk::Buffer                  m_instancesObj [CLIPMAP_LEVELS];  // Instances buffer for bricks
+  nvvk::AccelerationStructure   m_bLas{};             // Bottom-level acceleration structure
+  nvvk::Buffer                  m_bLasB{};            // Bottom-level acceleration structures buffer
 
   // Job queues and utils
   nvvk::Buffer m_buildJobQueue{};   // Queue for the Build jobs

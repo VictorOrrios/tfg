@@ -37,12 +37,79 @@ inline float3x4 createTransform(int3 id, int level) {
 }
 
 void updateInstance(int instIdx, int3 id, int level) {
-  instances[instIdx].mask = 0xFF;
-  instances[instIdx].transform = createTransform(id, level);
-  instances[instIdx].instanceCustomIndex = level;
+  instancesBrick[instIdx].mask = 0xFF;
+  instancesBrick[instIdx].transform = createTransform(id, level);
+  instancesBrick[instIdx].instanceCustomIndex = level;
 }
 
-void maskInstance(int instIdx) { instances[instIdx].mask = 0x00; }
+void maskInstance(int instIdx) { instancesBrick[instIdx].mask = 0x00; }
+
+/*
+// Potential optimization
+[[vk::binding(BindingPoints::cullMask)]] RWStructuredBuffer<uint> cullMask;
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void cullMain(uint3 groupId: SV_GroupID, uint3 groupThreadId: SV_GroupThreadID) {
+  const uint jobIdx = groupId.x;              // one row of groups per build job
+  const uint ob = groupId.y * 256 + groupThreadId.x; // one thread per object
+  const BuildJob job = build_job_queue[jobIdx];
+
+  const int lvl = job.min_id_level.w;
+  const float bs = BRICK_SIZES[lvl];
+  const float r = MAX_BRICK_VALUES[lvl];
+  const float3 cMin = (float3(job.min_id_level.xyz) + 0.5) * bs;
+  const float3 cMax = (float3(job.min_id_level.xyz + job.num_b.xyz - 1) + 0.5) * bs;
+
+  bool near = false;
+  if (ob < uint(pushConst.numObjects)) {
+    const Bbox bb = aabbs[ob];
+    near = all(cMax >= bb.bMin - r) && all(cMin <= bb.bMax + r);
+  }
+  // The 32 threads of a warp hold 32 consecutive objects: their answers
+  // form exactly one 32-bit word of the mask.
+  const uint4 ballot = WaveActiveBallot(near);
+  if (WaveIsFirstLane())
+    cullMask[jobIdx * MASK_WORDS + ob / 32] = ballot.x;
+}
+float buildJobMapGlobalCulled(float3 point, int level, uint jobIdx,
+                              out uint16_t nearObjectList[NEAR_OBJECT_LIST_SIZE]) {
+  const float iniD = 10000.0f;
+  const float nearRange = MAX_BRICK_VALUES[level];
+  float result = iniD;
+  int nearObejctListIdx = 0;
+  const uint numWords = (uint(pushConst.numObjects) + 31) / 32;
+
+  for (uint w = 0; w < numWords; w++) {
+    uint bits = cullMask[jobIdx * MASK_WORDS + w];
+    while (bits != 0) {
+      const uint b = firstbitlow(bits);
+      bits &= bits - 1;
+      const int obIdx = int(w * 32 + b);
+
+      float3 p = float3(point);
+      Bbox bbox = aabbs[obIdx];
+      if (!nearBbox(p, bbox, nearRange))
+        continue;
+
+      SceneObject params = objects[obIdx];
+      result = mapSceneObject(p, params, result);
+
+      if (nearObejctListIdx < NEAR_OBJECT_LIST_SIZE)
+        nearObjectList[nearObejctListIdx] = uint16_t(obIdx);
+      nearObejctListIdx++;
+    }
+  }
+
+  if (nearObejctListIdx < NEAR_OBJECT_LIST_SIZE) {
+    nearObjectList[nearObejctListIdx] = MAX_SCENE_OBJECTS + 1;
+  } else {
+    nearObjectList[0] = MAX_SCENE_OBJECTS + 1;
+  }
+
+  return result;
+}
+*/
 
 float buildJobMap(float3 point, int level,
                   out uint16_t nearObjectList[NEAR_OBJECT_LIST_SIZE]) {
