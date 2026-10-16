@@ -1398,7 +1398,6 @@ public:
         .type  = asType,  // The type of acceleration structure (BLAS or TLAS)
     };
     NVVK_CHECK(m_alloc.createAcceleration(accelStruct, createInfo));
-    LOGI("\nAS size: %lu bytes\n",asBuildSize.accelerationStructureSize);
 
     // Build the acceleration structure
     {
@@ -1468,7 +1467,7 @@ public:
       geoInfo.geometry = {.sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
                           .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
                           .geometry     = {.instances = geometryInstances}};
-      geoInfo.rangeInfo = {.primitiveCount = static_cast<uint32_t>(shaderio::NUM_BRICKS_IN_ATLAS)};
+      geoInfo.rangeInfo = {.primitiveCount = static_cast<uint32_t>(MAX_SCENE_OBJECTS)};
 
 
       createAccelerationStructure(
@@ -1628,7 +1627,7 @@ public:
 
     VkCommandBuffer cmd = m_app->createTempCmdBuffer();
     for(int i = 0; i<CLIPMAP_LEVELS; i++){
-        m_stagingUploader.appendBuffer(m_instancesObj[i], 0, std::span(tlasInstances));
+      m_stagingUploader.appendBuffer(m_instancesObj[i], 0, std::span(tlasInstances));
     }
     m_stagingUploader.cmdUploadAppended(cmd);
     m_app->submitAndWaitTempCmdBuffer(cmd);
@@ -1872,15 +1871,27 @@ public:
       NVVK_DBG_NAME(m_bLasB.buffer);
       NVVK_CHECK(m_stagingUploader.appendBuffer(m_bLasB, 0,std::span(aabbVector)));
 
-      const int instanceCount = shaderio::NUM_BRICKS_IN_ATLAS;
+      const int instanceBrickCount = shaderio::NUM_BRICKS_IN_ATLAS;
       NVVK_CHECK(m_alloc.createBuffer(m_instancesBrick,
-                                    instanceCount*sizeof(VkAccelerationStructureInstanceKHR),
+                                    instanceBrickCount*sizeof(VkAccelerationStructureInstanceKHR),
                                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
                                         | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                                         | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
                                         | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                       ));
       NVVK_DBG_NAME(m_instancesBrick.buffer);
+
+      const int instanceObjCount = MAX_SCENE_OBJECTS;
+      for(int i = 0; i<CLIPMAP_LEVELS; i++){
+        NVVK_CHECK(m_alloc.createBuffer(m_instancesObj[i],
+                                      instanceObjCount*sizeof(VkAccelerationStructureInstanceKHR),
+                                      VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+                                          | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                          | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
+                                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+                                        ));
+        NVVK_DBG_NAME(m_instancesBrick.buffer);
+      }
 
       // ------------------
       // Job queues
@@ -2038,7 +2049,7 @@ public:
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::instancesBrick), m_instancesBrick.buffer);
 
     for(int i = 0; i<CLIPMAP_LEVELS; i++){
-      writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLasObj,0,i,1), m_tLasObj[i].buffer);
+      writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLasObj,0,i,1), m_tLasObj[i]);
       writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::instancesObj,0,i,1), m_instancesObj[i].buffer);
     }
 

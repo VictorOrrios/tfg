@@ -23,7 +23,7 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
   if (id >= MAX_SCENE_OBJECTS) return;
 
   if (id >= pushConst.numObjects){
-    instancesObj[id][level].mask = 0x00;
+    instancesObj[level][id].mask = 0x00;
     return;
   }
 
@@ -34,6 +34,6 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
   bbox.bMin -= nearRange;
   bbox.bMax += nearRange;
 
-  instancesObj[id][level].mask = 0xFF;
-  instancesObj[id][level].transform = createTransform(bbox);
+  instancesObj[level][id].mask = 0xFF;
+  instancesObj[level][id].transform = createTransform(bbox);
 }

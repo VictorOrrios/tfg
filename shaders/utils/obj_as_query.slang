@@ -22,7 +22,7 @@ uint16_t [NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level){
 
   int i = 0;
   while (query.Proceed() && i<NEAR_OBJECT_LIST_SIZE){
-    out[i] = query.CandidateInstanceID();
+    out[i] = (uint16_t)query.CandidateInstanceID();
     i++;
   }
 
@@ -31,4 +31,6 @@ uint16_t [NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level){
   }else{
     out[0] = -1;
   }
+
+  return out;
 }
