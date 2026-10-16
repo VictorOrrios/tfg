@@ -15,10 +15,10 @@ inline float3x4 createTransform(Bbox bbox) {
 }
 
 [shader("compute")]
-[numthreads(8, CLIPMAP_LEVELS, 1)]
+[numthreads(8, 1, 1)]
 void computeMain(uint3 tId: SV_DispatchThreadID) {
   const int id = tId.x;
-  const int level = tId.y;
+  const int level = tId.z;
 
   if (id >= MAX_SCENE_OBJECTS) return;
 
@@ -27,10 +27,9 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
     return;
   }
 
-
   const float nearRange = MAX_BRICK_VALUES[level];
 
-  Bbox bbox = aabbs[tId.x];
+  Bbox bbox = aabbs[id];
   bbox.bMin -= nearRange;
   bbox.bMax += nearRange;
 

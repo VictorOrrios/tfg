@@ -49,8 +49,8 @@
 // Accel structures
 [[vk::binding(BindingPoints::tLasBrick)]] RaytracingAccelerationStructure tlasBrick;
 [[vk::binding(BindingPoints::instancesBrick)]] RWStructuredBuffer<InstanceData> instancesBrick;
-[[vk::binding(BindingPoints::tLasObj)]] RaytracingAccelerationStructure tlasObj[CLIPMAP_LEVELS];
-[[vk::binding(BindingPoints::instancesObj)]] RWStructuredBuffer<InstanceData> instancesObj[CLIPMAP_LEVELS];
+[[vk::binding(BindingPoints::tLasObj, 0)]] RaytracingAccelerationStructure tlasObj[CLIPMAP_LEVELS];
+[[vk::binding(BindingPoints::instancesObj, 0)]] RWStructuredBuffer<InstanceData> instancesObj[CLIPMAP_LEVELS];
 
 // RNG
 [[vk::binding(BindingPoints::noise)]] Texture2D<float4> noiseImage;

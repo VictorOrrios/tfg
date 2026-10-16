@@ -1,8 +1,9 @@
-#include "shaderio.h"              // Shared definitions with CPU
-#include "utils/common.slang"      // Shared definitions with shaders
-#include "utils/bbox.slang"        // AABB helpers
-#include "utils/sdf.slang"         // SDF functions, operations and primitives
-#include "utils/descriptors.slang" // External memory definitions
+#include "shaderio.h"               // Shared definitions with CPU
+#include "utils/common.slang"       // Shared definitions with shaders
+#include "utils/bbox.slang"         // AABB helpers
+#include "utils/sdf.slang"          // SDF functions, operations and primitives
+#include "utils/obj_as_query.slang" // Hardware accelerated object culling
+#include "utils/descriptors.slang"  // External memory definitions
 
 static constexpr bool USE_NEAR_OBJECT_LIST = NEAR_OBJECT_LIST_SIZE > 0;
 
@@ -139,7 +140,32 @@ float buildJobMap(float3 point, int level,
   if (nearObejctListIdx < NEAR_OBJECT_LIST_SIZE) {
     nearObjectList[nearObejctListIdx] = MAX_SCENE_OBJECTS + 1;
   } else {
-    nearObjectList[0] = MAX_SCENE_OBJECTS + 1;
+    nearObjectList[0] = MAX_SCENE_OBJECTS;
+  }
+
+  return result;
+}
+
+float buildJobMapRayQ(float3 point, int level,
+                  out uint16_t nearObjectList[NEAR_OBJECT_LIST_SIZE]) {
+  const float iniD = 10000.0f;
+  const float nearRange = MAX_BRICK_VALUES[level];
+  float result = iniD;
+
+  nearObjectList = objASQuery(point,level);
+
+  if(nearObjectList[0] == MAX_SCENE_OBJECTS){
+    printf("objASQuery failed: %i, %i, %i, %i\n",nearObjectList[0],nearObjectList[1],nearObjectList[2],nearObjectList[3]);
+    return map(point, level);
+  }
+
+  for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
+    int obIdx = nearObjectList[i];
+    if (obIdx >= pushConst.numObjects)
+      break;
+    float3 p = float3(point);
+    SceneObject params = objects[obIdx];
+    result = mapSceneObject(p, params, result);
   }
 
   return result;
@@ -200,7 +226,7 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
       uint16_t nearObjectList[NEAR_OBJECT_LIST_SIZE];
       float centerSDF;
       if (USE_NEAR_OBJECT_LIST) {
-        centerSDF = buildJobMap(p, level, nearObjectList);
+        centerSDF = buildJobMapRayQ(p, level, nearObjectList);
       } else {
         centerSDF = map(p, level);
       }
@@ -233,7 +259,7 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
           for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
             int3 idx = int3(nolIdx.x, nolIdx.y, i);
             nearObjectListAtlas[idx] = nearObjectList[i];
-            if (nearObjectList[i] > MAX_SCENE_OBJECTS)
+            if (nearObjectList[i] >= MAX_SCENE_OBJECTS)
               break;
           }
         }

@@ -20,6 +20,7 @@
 // This is an extension from the proyect template of nvpro_core2
 
 
+#include <cassert>
 #define VMA_IMPLEMENTATION
 
 #include <vulkan/vulkan_core.h>
@@ -790,11 +791,13 @@ public:
   }
 
   void updateObjInstances(VkCommandBuffer cmd){
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Update Object instances");
+
     // Bind pipeline
     bindComputePipeline(cmd,&m_objASupdatePipeline);
     // Dispatch
-    const uint32_t numGroups = (m_pushConst.numObjects + 7) / 8;
-    vkCmdDispatch(cmd, numGroups, 1, 1);
+    const uint32_t numGroups = (MAX_SCENE_OBJECTS + 7) / 8;
+    vkCmdDispatch(cmd, numGroups, 1, CLIPMAP_LEVELS);
 
     // End barrier
     VkMemoryBarrier2 barrier{
@@ -918,7 +921,7 @@ public:
     NVVK_DBG_SCOPE(cmd);
 
     updateObjInstances(cmd);
-    updateObjTLAS(cmd, false);
+    updateObjTLAS(cmd, true);
 
     executeBuildJobs(cmd);
     executeBrickJobs(cmd);
@@ -1548,11 +1551,7 @@ public:
   }
 
   void updateObjTLAS(VkCommandBuffer cmd, bool rebuild) {
-    const auto profiledSection =
-        m_profilerGpuTimer.cmdFrameSection(cmd, "Obj AS update");
-
-    if (rebuild)
-      LOGI("REBUILDING OBJ TLAS\n");
+    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Object AS update");
 
     VkMemoryBarrier barrier{
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
@@ -1890,7 +1889,7 @@ public:
                                           | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
                                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                         ));
-        NVVK_DBG_NAME(m_instancesBrick.buffer);
+        NVVK_DBG_NAME(m_instancesObj[i].buffer);
       }
 
       // ------------------

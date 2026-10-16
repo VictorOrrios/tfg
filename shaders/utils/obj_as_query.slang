@@ -3,33 +3,37 @@
 #include "descriptors.slang" // External memory definitions
 
 uint16_t [NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level){
+  const float nearRange = MAX_BRICK_VALUES[level];
+
   uint16_t [NEAR_OBJECT_LIST_SIZE] out;
 
   RayQuery<RAY_FLAG_NONE> query;
 
   RayDesc ray;
   ray.Origin = point;
-  ray.Direction = float3(1,0,0);
-  ray.TMin = 0.001;
-  ray.TMax = 0.002;
+  ray.Direction = float3(0,0,1);
+  ray.TMin = 0.0;
+  ray.TMax = 1e30;
 
   query.TraceRayInline(
     tlasObj[level],
-    RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
+    RAY_FLAG_NONE,
     0xFF,
     ray
   );
 
   int i = 0;
   while (query.Proceed() && i<NEAR_OBJECT_LIST_SIZE){
-    out[i] = (uint16_t)query.CandidateInstanceID();
+    uint16_t objIdx = (uint16_t)query.CandidateInstanceIndex();
+    //if (!nearBbox(point, aabbs[objIdx], nearRange)) continue;
+    out[i] = objIdx;
     i++;
   }
 
   if(i<NEAR_OBJECT_LIST_SIZE){
-    out[i] = -1;
+    out[i] = MAX_SCENE_OBJECTS + 1;
   }else{
-    out[0] = -1;
+    out[1] = MAX_SCENE_OBJECTS;
   }
 
   return out;
