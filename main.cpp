@@ -886,6 +886,8 @@ public:
       m_scene.m_needsRefresh = false;
     }else{
       // Empty timers so it doesn't break the profiler config
+      { const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Update Object instances"); }
+      { const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Object AS update"); }
       { const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Build jobs"); }
       { const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Brick jobs"); }
     }
@@ -920,6 +922,18 @@ public:
   void genJobsPass(VkCommandBuffer cmd){
     NVVK_DBG_SCOPE(cmd);
 
+    /*
+    for(int i = 0; i<CLIPMAP_LEVELS; i++){
+    nvvk::cmdBufferMemoryBarrier(cmd, {m_instancesObj[i].buffer,
+                                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                       VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                                       0,
+                                       VK_WHOLE_SIZE,
+                                       VK_ACCESS_2_SHADER_WRITE_BIT,
+                                       VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR
+                                           | VK_ACCESS_2_SHADER_READ_BIT});
+    }
+    */
     updateObjInstances(cmd);
     updateObjTLAS(cmd, true);
 
@@ -1387,13 +1401,16 @@ public:
                                             maxPrimCount.data(), &asBuildSize);
 
     // Make sure the scratch buffer is properly aligned
-    VkDeviceSize scratchSize = alignUp(asBuildSize.buildScratchSize, m_asProperties.minAccelerationStructureScratchOffsetAlignment);
+    VkDeviceSize scratchSize = std::max(asBuildSize.buildScratchSize, asBuildSize.updateScratchSize);
+    scratchSize = alignUp(scratchSize, m_asProperties.minAccelerationStructureScratchOffsetAlignment);
+    printf("buildScratchSize = %lu, updateScratchSize = %lu\n",
+           asBuildSize.buildScratchSize, asBuildSize.updateScratchSize);
+
 
     // Create the scratch buffer to store the temporary data for the build
     m_alloc.destroyBuffer(scratchBuffer);
     NVVK_CHECK(m_alloc.createBuffer(scratchBuffer, scratchSize,
-                                        VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
-                                            | VK_BUFFER_USAGE_2_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, VMA_MEMORY_USAGE_AUTO, {}, m_asProperties.minAccelerationStructureScratchOffsetAlignment));
+                                        VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_AUTO, {}, m_asProperties.minAccelerationStructureScratchOffsetAlignment));
     // Create the acceleration structure
     VkAccelerationStructureCreateInfoKHR createInfo{
         .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
@@ -1551,33 +1568,47 @@ public:
   }
 
   void updateObjTLAS(VkCommandBuffer cmd, bool rebuild) {
-    const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Object AS update");
+    const auto profiledSection =
+        m_profilerGpuTimer.cmdFrameSection(cmd, "Object AS update");
 
-    VkMemoryBarrier barrier{
+    VkMemoryBarrier inBarrier{
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
         .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
         .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR};
 
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR |
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+                             VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
                          VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-                         0, 1, &barrier, 0, nullptr, 0, nullptr);
+                         0, 1, &inBarrier, 0, nullptr, 0, nullptr);
 
-    for (uint32_t i = 0; i < CLIPMAP_LEVELS; i++) {
-      nvvk::AccelerationStructureGeometryInfo geoInfo{};
+    const uint32_t count = CLIPMAP_LEVELS;
 
-      VkAccelerationStructureGeometryInstancesDataKHR geometryInstances{
+    // Necesitamos almacenamiento estable para todos los structs que se pasan
+    // por puntero
+    std::vector<VkAccelerationStructureGeometryInstancesDataKHR> instancesData(
+        count);
+    std::vector<VkAccelerationStructureGeometryKHR> geometries(count);
+    std::vector<VkAccelerationStructureBuildRangeInfoKHR> rangeInfos(count);
+    std::vector<VkAccelerationStructureBuildGeometryInfoKHR> buildInfos(count);
+    std::vector<VkAccelerationStructureBuildRangeInfoKHR *> pRangeInfos(count);
+
+    for (uint32_t i = 0; i < count; ++i) {
+      instancesData[i] = VkAccelerationStructureGeometryInstancesDataKHR{
           .sType =
               VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
           .data = {.deviceAddress = m_instancesObj[i].address}};
 
-      geoInfo.geometry = {
+      geometries[i] = VkAccelerationStructureGeometryKHR{
           .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
           .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
-          .geometry = {.instances = geometryInstances}};
+          .geometry = {.instances = instancesData[i]}};
 
-      geoInfo.rangeInfo = {.primitiveCount = MAX_SCENE_OBJECTS};
+      rangeInfos[i] = VkAccelerationStructureBuildRangeInfoKHR{
+          .primitiveCount = MAX_SCENE_OBJECTS};
 
-      VkAccelerationStructureBuildGeometryInfoKHR asBuildInfo{
+      buildInfos[i] = VkAccelerationStructureBuildGeometryInfoKHR{
           .sType =
               VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
           .type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
@@ -1589,24 +1620,26 @@ public:
               rebuild ? VK_NULL_HANDLE : m_tLasObj[i].accel,
           .dstAccelerationStructure = m_tLasObj[i].accel,
           .geometryCount = 1,
-          .pGeometries = &geoInfo.geometry,
+          .pGeometries = &geometries[i],
           .scratchData = {.deviceAddress = m_tLasObjB[i].address}};
 
-      VkAccelerationStructureBuildRangeInfoKHR *pBuildRangeInfo =
-          &geoInfo.rangeInfo;
-
-      vkCmdBuildAccelerationStructuresKHR(cmd, 1, &asBuildInfo,
-                                          &pBuildRangeInfo);
+      pRangeInfos[i] = &rangeInfos[i];
     }
 
-    barrier = {.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-               .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
-               .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR};
+    vkCmdBuildAccelerationStructuresKHR(cmd, count, buildInfos.data(),
+                                        pRangeInfos.data());
+
+    VkMemoryBarrier outBarrier{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+        .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR};
 
     vkCmdPipelineBarrier(cmd,
                          VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-                         VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, 0, 1,
-                         &barrier, 0, nullptr, 0, nullptr);
+                         VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR |
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+                             VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+                         0, 1, &outBarrier, 0, nullptr, 0, nullptr);
   }
 
   void createObjInstanceB(){
