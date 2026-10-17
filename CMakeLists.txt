@@ -29,12 +29,15 @@ set(SKIP_PERFORMANCE_COMPARISON ON CACHE BOOL "" FORCE)
 set(JUST_INSTALL_CEREAL ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(cereal)
 
+#####################################################################################
+# OpenMP
+find_package(OpenMP REQUIRED)
 
 #####################################################################################
 # Compile shaders
 set(SHADER_OUTPUT_DIR "${CMAKE_CURRENT_LIST_DIR}/_autogen")
 file(GLOB SHADER_SLANG_FILES "shaders/*.slang")
-list(APPEND SHADER_SLANG_FILES 
+list(APPEND SHADER_SLANG_FILES
     ${NVSHADERS_DIR}/nvshaders/sky_simple.slang
     ${NVSHADERS_DIR}/nvshaders/tonemapper.slang
 )
@@ -46,7 +49,7 @@ compile_slang(
     "${SHADER_SLANG_FILES}"
     "${SHADER_OUTPUT_DIR}"
     GENERATED_SHADER_HEADERS
-    EXTRA_FLAGS 
+    EXTRA_FLAGS
     ${SHADER_INCLUDE_FLAGS}
     ${SHADER_DEBUG_FLAGS}
 )
@@ -57,7 +60,7 @@ compile_slang(
 #
 
 # Utils
-file(GLOB UTILS_SOURCES CONFIGURE_DEPENDS 
+file(GLOB UTILS_SOURCES CONFIGURE_DEPENDS
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.c
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.hpp
@@ -94,13 +97,14 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   nvpro2::nvvk
   nvpro2::nvshaders_host
   cereal::cereal
+  OpenMP::OpenMP_CXX
 )
 
 add_project_definitions(${PROJECT_NAME})
 
 # This sample doesn't need addtional files, but one might need to
 # copy required dlls, additional commands etc. through this command
-copy_to_runtime_and_install(${PROJECT_NAME} 
+copy_to_runtime_and_install(${PROJECT_NAME}
   FILES ${Slang_GLSLANG} ${Slang_GLSL_MODULE} ${Slang_DLL}
   PROGRAMS ${Slang_SLANGD_EXECUTABLE}
   AUTO

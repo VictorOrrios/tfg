@@ -74,7 +74,7 @@ void cullMain(uint3 groupId: SV_GroupID, uint3 groupThreadId: SV_GroupThreadID) 
     cullMask[jobIdx * MASK_WORDS + ob / 32] = ballot.x;
 }
 float buildJobMapGlobalCulled(float3 point, int level, uint jobIdx,
-                              out uint16_t nearObjectList[NEAR_OBJECT_LIST_SIZE]) {
+                              out uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE]) {
   const float iniD = 10000.0f;
   const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
@@ -97,7 +97,7 @@ float buildJobMapGlobalCulled(float3 point, int level, uint jobIdx,
       result = mapSceneObject(p, params, result);
 
       if (nearObejctListIdx < NEAR_OBJECT_LIST_SIZE)
-        nearObjectList[nearObejctListIdx] = uint16_t(obIdx);
+        nearObjectList[nearObejctListIdx] = uint32_t(obIdx);
       nearObejctListIdx++;
     }
   }
@@ -113,7 +113,7 @@ float buildJobMapGlobalCulled(float3 point, int level, uint jobIdx,
 */
 
 float buildJobMap(float3 point, int level,
-                  out uint16_t nearObjectList[NEAR_OBJECT_LIST_SIZE]) {
+                  out uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE]) {
   const float iniD = 10000.0f;
   const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
@@ -133,7 +133,7 @@ float buildJobMap(float3 point, int level,
 
     // Add object to near list
     if (nearObejctListIdx < NEAR_OBJECT_LIST_SIZE)
-      nearObjectList[nearObejctListIdx] = uint16_t(obIdx);
+      nearObjectList[nearObejctListIdx] = uint32_t(obIdx);
     nearObejctListIdx++;
   }
 
@@ -147,7 +147,7 @@ float buildJobMap(float3 point, int level,
 }
 
 float buildJobMapRayQ(float3 point, int level,
-                  out uint16_t nearObjectList[NEAR_OBJECT_LIST_SIZE]) {
+                  out uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE]) {
   const float iniD = 10000.0f;
   const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
@@ -223,7 +223,7 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
       // Evaluate scene at brick center
       float3 p = (float3(brickId) + 0.5) * brick_size;
 
-      uint16_t nearObjectList[NEAR_OBJECT_LIST_SIZE];
+      uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE];
       float centerSDF;
       if (USE_NEAR_OBJECT_LIST) {
         centerSDF = buildJobMapRayQ(p, level, nearObjectList);

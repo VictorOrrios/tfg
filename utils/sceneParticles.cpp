@@ -73,7 +73,7 @@ void Scene::dynamicTestUpdate(float time) {
   static int maxPhase = 4;
 
   static int iniPower = 4;
-  static int maxPower = 14;
+  static int maxPower = 16;
   static int currPower = maxPower;
   static int maxSamples = 140;
   static int currSamples = maxSamples+1;

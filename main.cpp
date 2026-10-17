@@ -1337,7 +1337,7 @@ public:
     // Near object list atlas
     if(NEAR_OBJECT_LIST_SIZE > 0){
       extent = {BRICK_PER_ATLAS_AXIS,BRICK_PER_ATLAS_AXIS,NEAR_OBJECT_LIST_SIZE};  // XYZ size
-      format = VK_FORMAT_R16_UINT;  // Texel format
+      format = VK_FORMAT_R32_UINT;  // Texel format
       clearValueF = -1.0f;
       clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
       create3DStorageTexture(m_nearObjectsAtlas, extent, format, clearColor);

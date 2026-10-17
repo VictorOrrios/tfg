@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include <omp.h>
+
 #include <imgui.h>
 #include <nvutils/bounding_box.hpp>
 #include <nvutils/logger.hpp>
@@ -1170,23 +1172,109 @@ std::vector<shaderio::BuildJob> Scene::getBuildJobs(glm::ivec3 currCamId0, glm::
   return out;
 }
 
+void Scene::markDirtyChunksInto(const shaderio::BuildJob& job, glm::ivec3 camId0,
+                                std::vector<std::vector<bool>>& dirty) const {
+  const int dirtyAxisSize = NUM_BRICKS_PER_AXIS / MAX_BUILD_JOB_SIZE;
+
+  glm::ivec3 min_id(job.min_id_level.x, job.min_id_level.y, job.min_id_level.z);
+  glm::ivec3 num_b (job.num_b.x,        job.num_b.y,        job.num_b.z);
+  glm::ivec3 max_id = min_id + num_b;
+  const int level   = job.min_id_level.w;
+
+  glm::ivec3 camId     = camId0 >> level;
+  glm::ivec3 min_rel_id = min_id - camId + (NUM_BRICKS_PER_AXIS / 2);
+  glm::ivec3 max_rel_id = max_id - camId + (NUM_BRICKS_PER_AXIS / 2);
+
+  glm::ivec3 min_rel_Cid = min_rel_id / MAX_BUILD_JOB_SIZE;
+  glm::ivec3 max_rel_Cid = max_rel_id / MAX_BUILD_JOB_SIZE;
+
+  const int last = dirtyAxisSize - 1;
+  min_rel_Cid = glm::clamp(min_rel_Cid, glm::ivec3(0), glm::ivec3(last));
+  max_rel_Cid = glm::clamp(max_rel_Cid, glm::ivec3(0), glm::ivec3(last));
+
+  auto& lvl = dirty[level];
+  for (int z = min_rel_Cid.z; z <= max_rel_Cid.z; z++)
+  for (int y = min_rel_Cid.y; y <= max_rel_Cid.y; y++)
+  for (int x = min_rel_Cid.x; x <= max_rel_Cid.x; x++) {
+    int chunkIdx = x + y * dirtyAxisSize + z * (dirtyAxisSize * dirtyAxisSize);
+    lvl[chunkIdx] = true;
+  }
+}
+
 std::vector<shaderio::BuildJob> Scene::getBuildJobs2(glm::ivec3 currCamId0, glm::ivec3 prevCamId0){
-  std::vector<shaderio::BuildJob> out = getBuildJobs(currCamId0, prevCamId0);
-
-  for(auto& buildJob: out){
-    markDirtyChunks(buildJob,currCamId0);
+  std::vector<nvutils::Bbox> aabbs;
+  aabbs.reserve(m_root.size() / 4);   // heurística; crece si hace falta
+  for (auto& node : m_root) {
+    if (node.needsRefresh) {
+      aabbs.push_back(node.gp.bbox);
+      aabbs.push_back(node.gp.prevBbox);
+      node.gp.prevBbox = nvutils::Bbox(node.gp.bbox);
+      node.needsRefresh = false;
+    }
   }
-  out.clear();
 
-  out = dirtyChunksToBuildJobs(currCamId0);
+  const int nthreads = std::max(1, omp_get_max_threads());
+  std::vector<std::vector<shaderio::BuildJob>> threadBase(nthreads);
+  const int nAabbs = (int)aabbs.size();
 
-  /*
-  int bricks = 0;
-  for(auto& job: out){
-    bricks += job.num_b.x+job.num_b.y+job.num_b.z;
+  // Modified objects
+  #pragma omp parallel for schedule(dynamic, 64) if (nAabbs > 256)
+  for (int i = 0; i < nAabbs; ++i) {
+    const auto& bbox = aabbs[i];
+    if (glm::any(glm::lessThan(bbox.max(), bbox.min()))) continue;
+    auto jobs = createBaseBuildJobs(bbox, currCamId0);
+    auto& t = threadBase[omp_get_thread_num()];
+    t.insert(t.end(), jobs.begin(), jobs.end());
   }
-  LOGI("Num brick in build jobs: %i \n",bricks);
-  */
+
+  // Removed objects
+  for (auto& bbox : m_removeList) {
+    if (glm::any(glm::lessThan(bbox.max(), bbox.min()))) continue;
+    auto jobs = createBaseBuildJobs(bbox, currCamId0);
+    threadBase[0].insert(threadBase[0].end(), jobs.begin(), jobs.end());
+  }
+  m_removeList.clear();
+
+  // Camera movement
+  std::vector<shaderio::BuildJob> baseJobs = createCamBuildJobs(currCamId0, prevCamId0);
+  size_t totalBase = baseJobs.size();
+  for (auto& t : threadBase) totalBase += t.size();
+  baseJobs.reserve(totalBase);
+  for (auto& t : threadBase) baseJobs.insert(baseJobs.end(), t.begin(), t.end());
+
+  for (auto& t : threadBase) { std::vector<shaderio::BuildJob>().swap(t); }
+
+  // Mark dirty in mask
+  const int dirtyAxisSize  = NUM_BRICKS_PER_AXIS / MAX_BUILD_JOB_SIZE;
+  const int dirtyLevelSize = dirtyAxisSize * dirtyAxisSize * dirtyAxisSize;
+
+  std::vector<std::vector<std::vector<bool>>> threadDirty(nthreads);
+  for (auto& td : threadDirty) {
+    td.resize(CLIPMAP_LEVELS);
+    for (auto& lvl : td) lvl.resize(dirtyLevelSize, false);
+  }
+
+  const int nBase = (int)baseJobs.size();
+
+  #pragma omp parallel for schedule(dynamic, 64) if (nBase > 256)
+  for (int i = 0; i < nBase; ++i) {
+    auto& td = threadDirty[omp_get_thread_num()];
+    markDirtyChunksInto(baseJobs[i], currCamId0, td);
+  }
+
+  // Merge
+  for (int t = 0; t < nthreads; ++t) {
+    const auto& td = threadDirty[t];
+    for (int level = 0; level < CLIPMAP_LEVELS; ++level) {
+      const auto& lvl = td[level];
+      for (int chunkIdx = 0; chunkIdx < dirtyLevelSize; ++chunkIdx) {
+        if (lvl[chunkIdx]) m_dirtyChunks[level][chunkIdx] = true;
+      }
+    }
+  }
+
+  // Mask to build jobs
+  std::vector<shaderio::BuildJob> out = dirtyChunksToBuildJobs(currCamId0);
 
   return out;
 }
