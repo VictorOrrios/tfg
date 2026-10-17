@@ -13,7 +13,7 @@ uint16_t [NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level){
   ray.Origin = point;
   ray.Direction = float3(0,0,1);
   ray.TMin = 0.0;
-  ray.TMax = 1e30;
+  ray.TMax = 0.001;
 
   query.TraceRayInline(
     tlasObj[level],
