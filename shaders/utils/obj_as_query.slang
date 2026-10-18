@@ -2,11 +2,13 @@
 #include "common.slang"      // Shared definitions with shaders
 #include "descriptors.slang" // External memory definitions
 
-/*
 uint32_t [NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level){
   const float nearRange = MAX_BRICK_VALUES[level];
 
   uint32_t [NEAR_OBJECT_LIST_SIZE] out;
+  for(int i = 0; i<NEAR_OBJECT_LIST_SIZE; i++){
+    out[i]=0;
+  }
 
   RayQuery<RAY_FLAG_NONE> query;
 
@@ -23,21 +25,10 @@ uint32_t [NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level){
     ray
   );
 
-  int i = 0;
-  while (query.Proceed() && i<NEAR_OBJECT_LIST_SIZE){
+  while (query.Proceed()){
     uint32_t objIdx = (uint32_t)query.CandidateInstanceIndex();
-    //if (!nearBbox(point, aabbs[objIdx], nearRange)) continue;
-    out[i] = objIdx;
-    i++;
-  }
-
-  if(i<NEAR_OBJECT_LIST_SIZE){
-    out[i] = MAX_SCENE_OBJECTS + 1;
-  }else{
-    //printf("RayQ: List full\n");
-    out[1] = MAX_SCENE_OBJECTS;
+    setBit(out[objIdx/32],objIdx%32);
   }
 
   return out;
 }
-*/

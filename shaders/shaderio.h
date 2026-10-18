@@ -41,6 +41,7 @@ CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS) // Power of two needed for faster calc
 
 // Near objects list atlas
 #define USE_NEAR_OBJECT_LIST 1
+#define NEAR_OBJECT_LIST_SIZE MAX_SCENE_OBJECTS/32
 
 // Extent calculations
 const static int NUM_VOXELS_PER_AXIS = NUM_BRICKS_PER_AXIS*(BRICK_SIZE-1);
