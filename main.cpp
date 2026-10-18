@@ -859,6 +859,21 @@ public:
     nvvk::cmdBufferMemoryBarrier(cmd, {m_buildJobQueue.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
 
+    // Clean the near object list
+    /*
+    VkClearColorValue clearColor = {.uint32={0,0,0,0}};
+    nvvk::cmdImageMemoryBarrier(cmd, {m_nearObjectsAtlas.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL});
+    VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdClearColorImage(cmd, m_nearObjectsAtlas.image, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
+    nvvk::cmdMemoryBarrier(cmd,
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        VK_ACCESS_2_SHADER_READ_BIT |
+            VK_ACCESS_2_SHADER_WRITE_BIT
+    );
+    */
+
     // Bind pipeline
     bindComputePipeline(cmd,&m_buildJobPipeline);
     // Dispatch
@@ -1335,10 +1350,10 @@ public:
     }
 
     // Near object list atlas
-    if(NEAR_OBJECT_LIST_SIZE > 0){
-      extent = {BRICK_PER_ATLAS_AXIS,BRICK_PER_ATLAS_AXIS,NEAR_OBJECT_LIST_SIZE};  // XYZ size
+    if(USE_NEAR_OBJECT_LIST){
+      extent = {BRICK_PER_ATLAS_AXIS,BRICK_PER_ATLAS_AXIS,MAX_SCENE_OBJECTS/32};  // XYZ size
       format = VK_FORMAT_R32_UINT;  // Texel format
-      clearValueF = -1.0f;
+      clearValueF = 0.0f;
       clearColor = {.float32={clearValueF,clearValueF,clearValueF,clearValueF}};
       create3DStorageTexture(m_nearObjectsAtlas, extent, format, clearColor);
       NVVK_DBG_NAME(m_nearObjectsAtlas.image);

@@ -4,20 +4,23 @@
 #include "utils/sdf.slang"         // SDF functions, operations and primitives
 #include "utils/descriptors.slang" // External memory definitions
 
-static constexpr bool USE_NEAR_OBJECT_LIST = NEAR_OBJECT_LIST_SIZE > 0;
-
 float brickJobMap(float3 point, int3 nolIdx) {
-  const float iniD = 10000.0f;
-  float result = iniD;
+  float result = 10000.0f;
 
-  for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
-    int3 idx = int3(nolIdx.x, nolIdx.y, i);
-    int obIdx = nearObjectListAtlas[idx];
-    if (obIdx >= pushConst.numObjects)
-      break;
-    float3 p = float3(point);
-    SceneObject params = objects[obIdx];
-    result = mapSceneObject(p, params, result);
+  for (uint i = 0; i < MAX_SCENE_OBJECTS / 32; ++i) {
+    int3 idx = int3(nolIdx.x, nolIdx.y, int(i));
+
+    uint bits = nearObjectListAtlas[idx];
+
+    while (bits != 0) {
+      uint bit = firstbitlow(bits);
+      bits &= bits - 1;
+
+      uint objIdx = i * 32 + bit;
+
+      SceneObject params = objects[objIdx];
+      result = mapSceneObject(point, params, result);
+    }
   }
 
   return result;

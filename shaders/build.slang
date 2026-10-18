@@ -5,8 +5,6 @@
 #include "utils/obj_as_query.slang" // Hardware accelerated object culling
 #include "utils/descriptors.slang"  // External memory definitions
 
-static constexpr bool USE_NEAR_OBJECT_LIST = NEAR_OBJECT_LIST_SIZE > 0;
-
 int allocPointer() {
   int index;
   InterlockedAdd(counters[int(Counters::allocCounter)], 1, index);
@@ -46,73 +44,7 @@ void updateInstance(int instIdx, int3 id, int level) {
 void maskInstance(int instIdx) { instancesBrick[instIdx].mask = 0x00; }
 
 /*
-// Potential optimization
-[[vk::binding(BindingPoints::cullMask)]] RWStructuredBuffer<uint> cullMask;
-
-[shader("compute")]
-[numthreads(256, 1, 1)]
-void cullMain(uint3 groupId: SV_GroupID, uint3 groupThreadId: SV_GroupThreadID) {
-  const uint jobIdx = groupId.x;              // one row of groups per build job
-  const uint ob = groupId.y * 256 + groupThreadId.x; // one thread per object
-  const BuildJob job = build_job_queue[jobIdx];
-
-  const int lvl = job.min_id_level.w;
-  const float bs = BRICK_SIZES[lvl];
-  const float r = MAX_BRICK_VALUES[lvl];
-  const float3 cMin = (float3(job.min_id_level.xyz) + 0.5) * bs;
-  const float3 cMax = (float3(job.min_id_level.xyz + job.num_b.xyz - 1) + 0.5) * bs;
-
-  bool near = false;
-  if (ob < uint(pushConst.numObjects)) {
-    const Bbox bb = aabbs[ob];
-    near = all(cMax >= bb.bMin - r) && all(cMin <= bb.bMax + r);
-  }
-  // The 32 threads of a warp hold 32 consecutive objects: their answers
-  // form exactly one 32-bit word of the mask.
-  const uint4 ballot = WaveActiveBallot(near);
-  if (WaveIsFirstLane())
-    cullMask[jobIdx * MASK_WORDS + ob / 32] = ballot.x;
-}
-float buildJobMapGlobalCulled(float3 point, int level, uint jobIdx,
-                              out uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE]) {
-  const float iniD = 10000.0f;
-  const float nearRange = MAX_BRICK_VALUES[level];
-  float result = iniD;
-  int nearObejctListIdx = 0;
-  const uint numWords = (uint(pushConst.numObjects) + 31) / 32;
-
-  for (uint w = 0; w < numWords; w++) {
-    uint bits = cullMask[jobIdx * MASK_WORDS + w];
-    while (bits != 0) {
-      const uint b = firstbitlow(bits);
-      bits &= bits - 1;
-      const int obIdx = int(w * 32 + b);
-
-      float3 p = float3(point);
-      Bbox bbox = aabbs[obIdx];
-      if (!nearBbox(p, bbox, nearRange))
-        continue;
-
-      SceneObject params = objects[obIdx];
-      result = mapSceneObject(p, params, result);
-
-      if (nearObejctListIdx < NEAR_OBJECT_LIST_SIZE)
-        nearObjectList[nearObejctListIdx] = uint32_t(obIdx);
-      nearObejctListIdx++;
-    }
-  }
-
-  if (nearObejctListIdx < NEAR_OBJECT_LIST_SIZE) {
-    nearObjectList[nearObejctListIdx] = MAX_SCENE_OBJECTS + 1;
-  } else {
-    nearObjectList[0] = MAX_SCENE_OBJECTS + 1;
-  }
-
-  return result;
-}
-*/
-
-float buildJobMap(float3 point, int level,
+float buildJobMapOld(float3 point, int level,
                   out uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE]) {
   const float iniD = 10000.0f;
   const float nearRange = MAX_BRICK_VALUES[level];
@@ -145,27 +77,37 @@ float buildJobMap(float3 point, int level,
 
   return result;
 }
+*/
 
-float buildJobMapRayQ(float3 point, int level,
-                  out uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE]) {
+float buildJobMap(float3 point, int level, int3 nolAtlasIndex) {
   const float iniD = 10000.0f;
-  const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
 
-  nearObjectList = objASQuery(point,level);
-
-  if(nearObjectList[0] == MAX_SCENE_OBJECTS){
-    printf("objASQuery failed: %i, %i, %i, %i\n",nearObjectList[0],nearObjectList[1],nearObjectList[2],nearObjectList[3]);
-    return map(point, level);
+  for (uint i = 0; i < MAX_SCENE_OBJECTS / 32; ++i) {
+    nolAtlasIndex.z = i;
+    nearObjectListAtlas[nolAtlasIndex] = 0;
   }
 
-  for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
-    int obIdx = nearObjectList[i];
-    if (obIdx >= pushConst.numObjects)
-      break;
-    float3 p = float3(point);
-    SceneObject params = objects[obIdx];
-    result = mapSceneObject(p, params, result);
+  RayQuery<RAY_FLAG_NONE> query;
+
+  RayDesc ray;
+  ray.Origin = point;
+  ray.Direction = float3(0, 0, 1);
+  ray.TMin = 0.0;
+  ray.TMax = 0.001;
+
+  query.TraceRayInline(tlasObj[level], RAY_FLAG_NONE, 0xFF, ray);
+
+  while (query.Proceed()) {
+    uint32_t objIdx = query.CandidateInstanceIndex();
+
+    // Process object
+    SceneObject params = objects[objIdx];
+    result = mapSceneObject(point, params, result);
+
+    // Set bit in bitmask
+    nolAtlasIndex.z = objIdx / 32;
+    setBit(nearObjectListAtlas[nolAtlasIndex],objIdx%32);
   }
 
   return result;
@@ -220,50 +162,39 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
       const float max_brick_value = MAX_BRICK_VALUES[level];
       const float max_brick_instance_value = MAX_BRICK_INSTANCE_VALUES[level];
 
+      int instance_ptr = prevClipPointer; // Pointer to update/mask
+
+      // Preallocate if necesary to store the bitmask
+      if (!brick_allocated) {
+        int newPointer = allocPointer();
+        instance_ptr = newPointer;
+        clipMap[clipIndex] = newPointer | DIRTY_BIT;
+      }
+
       // Evaluate scene at brick center
       float3 p = (float3(brickId) + 0.5) * brick_size;
 
-      uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE];
       float centerSDF;
       if (USE_NEAR_OBJECT_LIST) {
-        centerSDF = buildJobMapRayQ(p, level, nearObjectList);
+        int3 nolIdx = pointer2nearObejctListIdx(instance_ptr);
+        centerSDF = buildJobMap(p, level, nolIdx);
       } else {
         centerSDF = map(p, level);
       }
 
       bool outside_max = abs(centerSDF) > max_brick_value; // Atlas cull
-      int instance_ptr = prevClipPointer; // Pointer to update/mask
 
       // Uniform value brick check
       if (outside_max) {
-        if (brick_allocated) {
-          freePointer(prevClipPointer);
-          // The brick is gone, so its instance has to leave the TLAS too.
-          // Without this the freed brick keeps being intersected and masks
-          // whatever is really there.
-          maskInstance(prevClipPointer);
-        }
+        freePointer(prevClipPointer);
+        // The brick is gone, so its instance has to leave the TLAS too.
+        // Without this the freed brick keeps being intersected and masks
+        // whatever is really there.
+        maskInstance(prevClipPointer);
         int newPointer = centerSDF < 0 ? UNIFORM_NEGATIVE_BRICK_POINTER
                                        : UNIFORM_POSITIVE_BRICK_POINTER;
         clipMap[clipIndex] = newPointer | DIRTY_BIT;
       } else {
-        if (!brick_allocated) {
-          int newPointer = allocPointer();
-          instance_ptr = newPointer;
-          clipMap[clipIndex] = newPointer | DIRTY_BIT;
-        }
-
-        if (USE_NEAR_OBJECT_LIST) {
-          // Write near object list
-          int3 nolIdx = pointer2nearObejctListIdx(instance_ptr);
-          for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
-            int3 idx = int3(nolIdx.x, nolIdx.y, i);
-            nearObjectListAtlas[idx] = nearObjectList[i];
-            if (nearObjectList[i] >= MAX_SCENE_OBJECTS)
-              break;
-          }
-        }
-
         if (abs(centerSDF) <= max_brick_instance_value) { // RTX Instance cull
           updateInstance(instance_ptr, brickId, level);
         } else if (brick_allocated) {

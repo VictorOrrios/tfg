@@ -2,6 +2,7 @@
 #include "common.slang"      // Shared definitions with shaders
 #include "descriptors.slang" // External memory definitions
 
+/*
 uint32_t [NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level){
   const float nearRange = MAX_BRICK_VALUES[level];
 
@@ -33,8 +34,10 @@ uint32_t [NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level){
   if(i<NEAR_OBJECT_LIST_SIZE){
     out[i] = MAX_SCENE_OBJECTS + 1;
   }else{
+    //printf("RayQ: List full\n");
     out[1] = MAX_SCENE_OBJECTS;
   }
 
   return out;
 }
+*/

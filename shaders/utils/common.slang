@@ -58,3 +58,13 @@ inline int3 pointer2matAtlasIdx(int pointer){
 inline int3 pointer2nearObejctListIdx(int pointer){
   return int3(pointer % BRICK_PER_ATLAS_AXIS, pointer / BRICK_PER_ATLAS_AXIS, 0);
 }
+
+bool readBit(uint mask, uint bitIdx) { return (mask & (1u << bitIdx)) != 0; }
+
+void setBit(inout uint mask, uint bitIdx) { mask |= (1u << bitIdx); }
+
+void clearBit(inout uint mask, uint bitIdx) { mask &= ~(1u << bitIdx); }
+
+void writeBit(inout uint mask, uint bitIdx, uint value) {
+  mask = (mask & ~(1u << bitIdx)) | ((value & 1u) << bitIdx);
+}
