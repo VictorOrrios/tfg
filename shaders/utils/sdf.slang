@@ -405,6 +405,26 @@ float mapSceneObject(float3 p, SceneObject params, float prevResult){
     //return opSmoothUnion(d,prevResult,params.smoothness);
 }
 
+float mapSceneObjectMat(float3 p, SceneObject params, float prevResult, Material matA, inout Material matB){
+    p = mul(params.tInv, float4(p, 1.0)).xyz;
+
+    p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit_octaves.xyz);
+
+    p = applyDefOp(params.defOp, p, params.defP);
+
+    p /= params.scale;
+
+    float d = evalPrimitive(params.type, p, params.primMod, params.bevel, params.round) - params.roundness;
+
+    d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
+
+    d = params.morph>0.0 ? applyMorphOp(p,d,params.morphPrim,params.morph,params.roundness) : d;
+
+    d *= params.scale;
+
+    return evalCombOpMat(params.combOp, d, prevResult, params.smoothness, matA, matB);
+}
+
 // General map function
 float map(float3 point, int level){
   const float iniD = 10000.0f;
@@ -519,24 +539,25 @@ float map(float3 point, out Material matResult) {
 
       SceneObject params = objects[obIdx];
 
-      p = mul(params.tInv, float4(p, 1.0)).xyz;
-
-      p = applyRepOp(params.repOp, p, params.spacing.xyz, params.limit_octaves.xyz);
-
-      p = applyDefOp(params.defOp, p, params.defP);
-
-      p /= params.scale;
-
-      float d = evalPrimitive(params.type, p, params.primMod, params.bevel, params.round) - params.roundness;
-
-      d = params.morph > 0.0 ? applyMorphOp(p, d, params.morphPrim, params.morph, params.roundness) : d;
-
-      d = d>0.0 ? applyTerrainOp(p, d, params.limit_octaves.w, params.terrain, VOXEL_SIZES[0]/10.0): d;
-
-      d *= params.scale;
-
-      result = evalCombOpMat(params.combOp, d, result, params.smoothness,materials[params.mat],matResult);
+      result = mapSceneObjectMat(p,params,result,materials[params.mat],matResult);
     }
+  }
+
+  return result;
+}
+
+float mapRayQ(float3 point, int3 nolIdx, out Material matResult) {
+  const float iniD = 10000.0f;
+  float result = iniD;
+
+  for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
+    int3 idx = int3(nolIdx.x, nolIdx.y, i);
+    int obIdx = nearObjectListAtlas[idx];
+    if (obIdx >= pushConst.numObjects)
+      break;
+    float3 p = float3(point);
+    SceneObject params = objects[obIdx];
+    result = mapSceneObjectMat(p, params, result, materials[params.mat],matResult);
   }
 
   return result;
