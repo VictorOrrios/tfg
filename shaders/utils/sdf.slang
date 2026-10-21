@@ -546,13 +546,34 @@ float map(float3 point, out Material matResult) {
   return result;
 }
 
-float mapRayQ(float3 point, int3 nolIdx, out Material matResult) {
+float mapNOL(float3 point, int3 nolIdx, out Material matResult) {
   const float iniD = 10000.0f;
   float result = iniD;
 
   for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
     int3 idx = int3(nolIdx.x, nolIdx.y, i);
     int obIdx = nearObjectListAtlas[idx];
+    if (obIdx >= pushConst.numObjects)
+      break;
+    float3 p = float3(point);
+    SceneObject params = objects[obIdx];
+    result = mapSceneObjectMat(p, params, result, materials[params.mat],matResult);
+  }
+
+  return result;
+}
+
+float mapRayQ(float3 point, out Material matResult) {
+  const float iniD = 10000.0f;
+  float result = iniD;
+
+  uint32_t nol[NEAR_OBJECT_LIST_SIZE] = objASQuery(point,CLIPMAP_LEVELS);
+  if(nol[0] == MAX_SCENE_OBJECTS){
+    return iniD;
+  }
+
+  for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
+    int obIdx = nol[i];
     if (obIdx >= pushConst.numObjects)
       break;
     float3 p = float3(point);

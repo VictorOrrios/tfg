@@ -27,7 +27,7 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
     return;
   }
 
-  const float nearRange = MAX_BRICK_VALUES[level];
+  const float nearRange = level == CLIPMAP_LEVELS ? 0.0 : MAX_BRICK_VALUES[level];
 
   Bbox bbox = aabbs[id];
   bbox.bMin -= nearRange;

@@ -33,7 +33,7 @@ uint32_t [NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level){
   if(i<NEAR_OBJECT_LIST_SIZE){
     out[i] = MAX_SCENE_OBJECTS + 1;
   }else{
-    out[1] = MAX_SCENE_OBJECTS;
+    out[0] = MAX_SCENE_OBJECTS;
   }
 
   return out;

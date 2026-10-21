@@ -797,7 +797,7 @@ public:
     bindComputePipeline(cmd,&m_objASupdatePipeline);
     // Dispatch
     const uint32_t numGroups = (MAX_SCENE_OBJECTS + 7) / 8;
-    vkCmdDispatch(cmd, numGroups, 1, CLIPMAP_LEVELS);
+    vkCmdDispatch(cmd, numGroups, 1, CLIPMAP_LEVELS + 1);
 
     // End barrier
     VkMemoryBarrier2 barrier{
@@ -1476,7 +1476,7 @@ public:
   void createObjTLAS(){
     SCOPED_TIMER(__FUNCTION__);
 
-    for(int i = 0; i<CLIPMAP_LEVELS; i++){
+    for(int i = 0; i<CLIPMAP_LEVELS+1; i++){
       m_alloc.destroyAcceleration(m_tLasObj[i]);
 
       nvvk::AccelerationStructureGeometryInfo geoInfo{};
@@ -1583,7 +1583,7 @@ public:
                          VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
                          0, 1, &inBarrier, 0, nullptr, 0, nullptr);
 
-    const uint32_t count = CLIPMAP_LEVELS;
+    const uint32_t count = CLIPMAP_LEVELS + 1;
 
     // Necesitamos almacenamiento estable para todos los structs que se pasan
     // por puntero
@@ -1658,7 +1658,7 @@ public:
     }
 
     VkCommandBuffer cmd = m_app->createTempCmdBuffer();
-    for(int i = 0; i<CLIPMAP_LEVELS; i++){
+    for(int i = 0; i<CLIPMAP_LEVELS+1; i++){
       m_stagingUploader.appendBuffer(m_instancesObj[i], 0, std::span(tlasInstances));
     }
     m_stagingUploader.cmdUploadAppended(cmd);
@@ -1914,7 +1914,7 @@ public:
       NVVK_DBG_NAME(m_instancesBrick.buffer);
 
       const int instanceObjCount = MAX_SCENE_OBJECTS;
-      for(int i = 0; i<CLIPMAP_LEVELS; i++){
+      for(int i = 0; i<CLIPMAP_LEVELS+1; i++){
         NVVK_CHECK(m_alloc.createBuffer(m_instancesObj[i],
                                       instanceObjCount*sizeof(VkAccelerationStructureInstanceKHR),
                                       VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
@@ -2044,8 +2044,8 @@ public:
 
     bindings.addBinding(shaderio::BindingPoints::tLasBrick, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::instancesBrick, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL);
-    bindings.addBinding(shaderio::BindingPoints::tLasObj, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, CLIPMAP_LEVELS, VK_SHADER_STAGE_ALL);
-    bindings.addBinding(shaderio::BindingPoints::instancesObj, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, CLIPMAP_LEVELS, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::tLasObj, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, CLIPMAP_LEVELS+1, VK_SHADER_STAGE_ALL);
+    bindings.addBinding(shaderio::BindingPoints::instancesObj, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, CLIPMAP_LEVELS+1, VK_SHADER_STAGE_ALL);
 
     bindings.addBinding(shaderio::BindingPoints::clipMap, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
     bindings.addBinding(shaderio::BindingPoints::brickAtlas, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
@@ -2080,7 +2080,7 @@ public:
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLasBrick), m_tLasBrick);
     writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::instancesBrick), m_instancesBrick.buffer);
 
-    for(int i = 0; i<CLIPMAP_LEVELS; i++){
+    for(int i = 0; i<CLIPMAP_LEVELS+1; i++){
       writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::tLasObj,0,i,1), m_tLasObj[i]);
       writeContainer.append(m_descPack.makeWrite(shaderio::BindingPoints::instancesObj,0,i,1), m_instancesObj[i].buffer);
     }
@@ -2440,9 +2440,9 @@ private:
   nvvk::AccelerationStructure   m_tLasBrick{};        // Top-level acceleration structure for bricks
   nvvk::Buffer                  m_tLasBricksB{};      // Top-level acceleration structures scratch buffer for bricks
   nvvk::Buffer                  m_instancesBrick{};   // Instances buffer for bricks
-  nvvk::AccelerationStructure   m_tLasObj [CLIPMAP_LEVELS];       // Top-level acceleration structure for bricks
-  nvvk::Buffer                  m_tLasObjB [CLIPMAP_LEVELS];      // Top-level acceleration structures scratch buffer for bricks
-  nvvk::Buffer                  m_instancesObj [CLIPMAP_LEVELS];  // Instances buffer for bricks
+  nvvk::AccelerationStructure   m_tLasObj [CLIPMAP_LEVELS + 1];       // Top-level acceleration structure for bricks
+  nvvk::Buffer                  m_tLasObjB [CLIPMAP_LEVELS + 1];      // Top-level acceleration structures scratch buffer for bricks
+  nvvk::Buffer                  m_instancesObj [CLIPMAP_LEVELS + 1];  // Instances buffer for bricks
   nvvk::AccelerationStructure   m_bLas{};             // Bottom-level acceleration structure
   nvvk::Buffer                  m_bLasB{};            // Bottom-level acceleration structures buffer
 
