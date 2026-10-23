@@ -503,7 +503,7 @@ float mapDebugColor(float3 point, float nearRange){
 float map(float3 point, out Material matResult) {
   // Debug
   matResult = materials[0];
-  return 0.0;
+  //return 0.0;
   //------------------
 
   const float iniD = 1e5;
@@ -567,18 +567,25 @@ float mapRayQ(float3 point, out Material matResult) {
   const float iniD = 10000.0f;
   float result = iniD;
 
-  uint32_t nol[NEAR_OBJECT_LIST_SIZE] = objASQuery(point,CLIPMAP_LEVELS);
-  if(nol[0] == MAX_SCENE_OBJECTS){
-    return iniD;
-  }
+  RayQuery<RAY_FLAG_NONE> query;
 
-  for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
-    int obIdx = nol[i];
-    if (obIdx >= pushConst.numObjects)
-      break;
-    float3 p = float3(point);
-    SceneObject params = objects[obIdx];
-    result = mapSceneObjectMat(p, params, result, materials[params.mat],matResult);
+  RayDesc ray;
+  ray.Origin = point;
+  ray.Direction = float3(0,0,1);
+  ray.TMin = 0.0;
+  ray.TMax = 0.001;
+
+  query.TraceRayInline(
+    tlasObj[CLIPMAP_LEVELS],
+    RAY_FLAG_NONE,
+    0xFF,
+    ray
+  );
+
+  while (query.Proceed()){
+    uint32_t objIdx = (uint32_t)query.CandidateInstanceIndex();
+    SceneObject params = objects[objIdx];
+    result = mapSceneObjectMat(point, params, result, materials[params.mat],matResult);
   }
 
   return result;

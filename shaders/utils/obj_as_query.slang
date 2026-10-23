@@ -22,19 +22,11 @@ uint32_t [NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level){
     ray
   );
 
-  int lastIdx = -1;
-
   int i = 0;
   while (query.Proceed() && i<NEAR_OBJECT_LIST_SIZE){
     uint32_t objIdx = (uint32_t)query.CandidateInstanceIndex();
     //if (!nearBbox(point, aabbs[objIdx], nearRange)) continue;
     out[i] = objIdx;
-
-    if(lastIdx>objIdx && i>0){
-      printf("Ray query out of order guard @ it %i last(%i)>objIdx(%i)\n",i,lastIdx,objIdx);
-    }
-    lastIdx = objIdx;
-
     i++;
   }
 

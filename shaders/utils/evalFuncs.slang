@@ -57,8 +57,8 @@ float3 evalNormalStatic(float3 p,float nearRange){
   const float2 k = float2(1,-1);
   return normalize(
     k.xyy*mapStatic(p + k.xyy*h,nearRange) +
-    k.yyx*mapStatic(p + k.yyx*h,nearRange) + 
-    k.yxy*mapStatic(p + k.yxy*h,nearRange) + 
+    k.yyx*mapStatic(p + k.yyx*h,nearRange) +
+    k.yxy*mapStatic(p + k.yxy*h,nearRange) +
     k.xxx*mapStatic(p + k.xxx*h,nearRange)
   );
 }
@@ -72,8 +72,8 @@ float3 evalGradStatic(float3 p, float h, float nearRange){
   const float2 k = float2(1,-1);
   return (
     k.xyy*mapStatic(p + k.xyy*h,nearRange) +
-    k.yyx*mapStatic(p + k.yyx*h,nearRange) + 
-    k.yxy*mapStatic(p + k.yxy*h,nearRange) + 
+    k.yyx*mapStatic(p + k.yyx*h,nearRange) +
+    k.yxy*mapStatic(p + k.yxy*h,nearRange) +
     k.xxx*mapStatic(p + k.xxx*h,nearRange)
   )/(2*h);
 }
@@ -83,22 +83,22 @@ float3 evalGradStatic(float3 p, float h, float nearRange){
 float evalTraceMap(Ray ray, float maxDepth){
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
   const float MIN_DIST = 0.0001;
-  
+
   float depth = 0.0;
 
   for(int i = 0; i < MAX_ITERATIONS; i++){
     float3 p = ray.orig + ray.dir * depth;
     float dist = map(p);
-    
+
     if(abs(dist) < MIN_DIST){
       return depth;  // Hit
     }
-    
+
     if(depth >= maxDepth) return -1.0;  // No hit
 
     depth += dist;
   }
-  
+
   return -1.0;
 }
 
@@ -122,29 +122,29 @@ float evalShadow(float3 p, float k){
 
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS * int(CLIPMAP_LEVELS*0.5);
   const float MIN_DIST = 0.0001;
-  
+
   for(int i = 0; i < MAX_ITERATIONS; i++){
     float3 p = r.orig + r.dir * depth;
-    float dist = map(p);    
+    float dist = map(p);
 
     if(abs(dist) < MIN_DIST){
       shadow = 0.0;
       break;  // Hit
     }
-    
+
     if(depth >= maxDepth) break;  // No hit
 
     shadow = min(shadow,k*dist/depth);
     depth += dist;
   }
-  
+
   return shadow;
 }
 
 Material evalMat(float3 p, float3 n){
   Material mat;
-  map(p,mat);
-  
+  mapRayQ(p,mat);
+
   if(mat.type == MaterialType::Debug){
     const float debug_scale = 1.0;
     float debug_value = mapDebugColor(p,BRICK_SIZES[CLIPMAP_LEVELS-1])*debug_scale;

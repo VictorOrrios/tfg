@@ -1310,28 +1310,12 @@ Scene::Scene() {
     m_dirtyChunks[level] = std::vector<bool>(dirtyAxisSize,false);
   }
 
-  Material defaultMat = createMaterial();
-  defaultMat.name = "Default";
-  defaultMat.shininess = 1.0;
-  int dMat = addMaterial(defaultMat);
 
-  const int NUM_OF_PARTICLES = 2048*2*2*2;
-  for(int i = 0; i<NUM_OF_PARTICLES; i++){
-    Node *particle = createNode(shaderio::PrimType::Box);
-    particle->gp.scale = 0.2;
-    particle->gp.position = glm::vec3(0.0);
-    particle->gp.rotation = glm::vec3(0.0);
-    particle->sdp.combOp = (int)CombinationOp::Union ;
-    particle->sdp.smoothness = 0.0;
-    particle->gp.mat = dMat;
-    updateNodeData(particle);
-    addNode(particle);
-  }
 
-  return;
   Material mat = createMaterial();
   mat.name = "Default";
   mat.shininess = 1.0;
+  mat.albedo = glm::vec3(1,1,0);
   int grey = addMaterial(mat);
 
   mat = createMaterial();
@@ -1349,6 +1333,20 @@ Scene::Scene() {
   mat.albedo = glm::vec3(0.22, 0.533, 1);
   int blue = addMaterial(mat);
 
+  const int NUM_OF_PARTICLES = 2048*2*2*2;
+  for(int i = 0; i<NUM_OF_PARTICLES; i++){
+    Node *particle = createNode(shaderio::PrimType::Box);
+    particle->gp.scale = 0.2;
+    particle->gp.position = glm::vec3(0.0);
+    particle->gp.rotation = glm::vec3(0.0);
+    particle->sdp.combOp = (int)CombinationOp::Union ;
+    particle->sdp.smoothness = 0.0;
+    particle->gp.mat = grey;
+    updateNodeData(particle);
+    addNode(particle);
+  }
+
+  return;
 
   // Create the scene
   Node *terrain = createNode(shaderio::PrimType::Plane);

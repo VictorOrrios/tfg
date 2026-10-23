@@ -156,7 +156,7 @@ void Scene::setSceneObjects(int preset, int numOfParticles) {
       particle->sdp.combOp = (int)CombinationOp::Union + 2;
       particle->sdp.smoothness = 0.02;
     }
-    particle->gp.mat = 0;
+    particle->gp.mat = int(randomFloat1()*4.0);
     updateNodeData(particle);
     addNode(particle);
   }
