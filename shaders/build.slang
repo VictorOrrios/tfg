@@ -2,7 +2,6 @@
 #include "utils/common.slang"       // Shared definitions with shaders
 #include "utils/bbox.slang"         // AABB helpers
 #include "utils/sdf.slang"          // SDF functions, operations and primitives
-#include "utils/obj_as_query.slang" // Hardware accelerated object culling
 #include "utils/descriptors.slang"  // External memory definitions
 
 static constexpr bool USE_NEAR_OBJECT_LIST = NEAR_OBJECT_LIST_SIZE > 0;

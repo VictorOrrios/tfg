@@ -7,10 +7,12 @@
 #define CHECK_STRUCT_ALIGNMENT(_s) static_assert(sizeof(_s) % 8 == 0);
 #define CHECK_GRID_ALIGNMENT(_s) static_assert((_s) % 8 == 0);
 #define CHECK_ARRAY_SIZE(_a) static_assert(int(sizeof(_a) / sizeof((_a)[0])) == CLIPMAP_LEVELS)
+#define CHECK_24_BIT_LIMIT(_s) static_assert((_s) < (1<<24));
 #elif defined(__SLANG__)
 #define CHECK_STRUCT_ALIGNMENT(_s)
 #define CHECK_GRID_ALIGNMENT(_s)
 #define CHECK_ARRAY_SIZE(_a)
+#define CHECK_24_BIT_LIMIT(_s)
 #endif
 
 #include "nvshaders/slang_types.h"
@@ -24,6 +26,7 @@ NAMESPACE_SHADERIO_BEGIN()
 
 // Buffers static max limit
 #define MAX_SCENE_OBJECTS 2048*8*4
+CHECK_24_BIT_LIMIT(MAX_SCENE_OBJECTS)
 #define MAX_SCENE_DYNAMIC_OBJECTS 512
 #define MAX_MATERIALS 32
 #define BRICK_PER_ATLAS_AXIS 512
@@ -40,7 +43,7 @@ CHECK_GRID_ALIGNMENT(NUM_BRICKS_PER_AXIS) // Power of two needed for faster calc
 #define MAT_PER_BRICK_AXIS  0   // How many materials are stored per brick axis. Needs to be >= 2 to work, if not it deactivates
 
 // Near objects list atlas
-#define NEAR_OBJECT_LIST_SIZE 512*4 // How big is the near object list that the brick jobs use. Needs to be >= 1 to work, if not it deactivates
+#define NEAR_OBJECT_LIST_SIZE 512*8 // How big is the near object list that the brick jobs use. Needs to be >= 1 to work, if not it deactivates
 
 // Extent calculations
 const static int NUM_VOXELS_PER_AXIS = NUM_BRICKS_PER_AXIS*(BRICK_SIZE-1);

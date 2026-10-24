@@ -141,11 +141,11 @@ float evalShadow(float3 p, float k){
   return shadow;
 }
 
-Material evalMat(float3 p, float3 n){
-  //return materials[0];
+Material evalMat(float3 p, float3 n, int3 NOLidx){
+  return materials[0];
 
   Material mat;
-  mapRayQ(p,mat);
+  mapNOL(p,NOLidx,mat);
 
   if(mat.type == MaterialType::Debug){
     const float debug_scale = 1.0;

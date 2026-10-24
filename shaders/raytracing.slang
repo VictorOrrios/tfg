@@ -197,7 +197,7 @@ void rchitMain(inout HitPayload payload, in IntersectionPayload attr){
   // payload.normal = analyticNormal(p);
   payload.normal = pushConst.lp.smoothNormals != 0 ? analyticSmoothNormal(p) : analyticNormal(p);
 
-  payload.mat = evalMat(p,payload.normal);
+  payload.mat = evalMat(p,payload.normal, point2NOLidx(p));
   //payload.mat = sampleInterpolatedMat(p);
 }
 

@@ -6,24 +6,6 @@
 
 static constexpr bool USE_NEAR_OBJECT_LIST = NEAR_OBJECT_LIST_SIZE > 0;
 
-float brickJobMap(float3 point, int3 nolIdx) {
-  const float iniD = 10000.0f;
-  const int size = nearObjectListAtlas[nolIdx];
-  float result = iniD;
-
-  for (int i = 1; i < size; i++) {
-    int3 idx = int3(nolIdx.x, nolIdx.y, i);
-    int obIdx = nearObjectListAtlas[idx];
-    if (obIdx >= pushConst.numObjects)
-      break;
-    float3 p = float3(point);
-    SceneObject params = objects[obIdx];
-    result = mapSceneObject(p, params, result);
-  }
-
-  return result;
-}
-
 // groupshared int4 g_brickIdLevel;
 // groupshared int  g_clipPointer;
 
@@ -93,7 +75,7 @@ void computeMain(uint3 groupId: SV_GroupID,
 
     float sdfValue;
     if (map_using_nol) {
-      sdfValue = brickJobMap(p, nolIndex);
+      sdfValue = mapNOL(p, nolIndex);
     } else {
       printf("Using map in brick job: %u\n", nearObjectListAtlas[nolIndex]);
       sdfValue = map(p, level);

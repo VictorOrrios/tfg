@@ -8,6 +8,7 @@
 #include "materials.slang"    // material functions
 #include "rng.slang"          // Random numbers and hashes
 #include "quat.slang"         // Quaternion support
+#include "obj_as_query.slang" // Hardware accelerated object culling
 
 //---------------------------------------
 // Operations
@@ -546,11 +547,51 @@ float map(float3 point, out Material matResult) {
   return result;
 }
 
-float mapNOL(float3 point, int3 nolIdx, out Material matResult) {
+// General map function using cached nol
+float mapNOL(float3 point, int3 nolIdx) {
+  const float iniD = 10000.0f;
+  const int size = nearObjectListAtlas[nolIdx];
+  float result = iniD;
+
+  for (int i = 1; i < size; i++) {
+    int3 idx = int3(nolIdx.x, nolIdx.y, i);
+    int obIdx = nearObjectListAtlas[idx];
+    float3 p = float3(point);
+    SceneObject params = objects[obIdx];
+    result = mapSceneObject(p, params, result);
+  }
+
+  return result;
+}
+
+// General map function using ray query
+float mapRayQ(float3 point, int level) {
   const float iniD = 10000.0f;
   float result = iniD;
 
-  for (int i = 1; i < nearObjectListAtlas[nolIdx]+1; i++) {
+  uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE] = objASQuery(point,level);
+
+  if(nearObjectList[0] >= NEAR_OBJECT_LIST_SIZE)
+    return map(point, level);
+
+  const int size = nearObjectList[0];
+  for (int i = 1; i < size; i++) {
+    int obIdx = nearObjectList[i];
+    float3 p = float3(point);
+    SceneObject params = objects[obIdx];
+    result = mapSceneObject(p, params, result);
+  }
+
+  return result;
+}
+
+// Map function for getting the material at point using cached nol
+float mapNOL(float3 point, int3 nolIdx, out Material matResult) {
+  const float iniD = 10000.0f;
+  const int size = nearObjectListAtlas[nolIdx];
+  float result = iniD;
+
+  for (int i = 1; i < size; i++) {
     int3 idx = int3(nolIdx.x, nolIdx.y, i);
     int obIdx = nearObjectListAtlas[idx];
     float3 p = float3(point);
@@ -561,28 +602,21 @@ float mapNOL(float3 point, int3 nolIdx, out Material matResult) {
   return result;
 }
 
+// Map function for getting the material at point using ray query
 float mapRayQ(float3 point, out Material matResult) {
   const float iniD = 10000.0f;
   float result = iniD;
 
-  RayQuery<RAY_FLAG_NONE> query;
+  uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE] = objASQuery(point,CLIPMAP_LEVELS);
 
-  RayDesc ray;
-  ray.Origin = point;
-  ray.Direction = float3(0,0,1);
-  ray.TMin = 0.0;
-  ray.TMax = 0.001;
+  if(nearObjectList[0] >= NEAR_OBJECT_LIST_SIZE)
+    return map(point, matResult);
 
-  query.TraceRayInline(
-    tlasObj[CLIPMAP_LEVELS],
-    RAY_FLAG_NONE,
-    0xFF,
-    ray
-  );
-
-  while (query.Proceed()){
-    uint32_t objIdx = (uint32_t)query.CandidateInstanceIndex();
-    SceneObject params = objects[objIdx];
+  const int size = nearObjectList[0];
+  for (int i = 1; i < size; i++) {
+    int obIdx = nearObjectList[i];
+    float3 p = float3(point);
+    SceneObject params = objects[obIdx];
     result = mapSceneObjectMat(point, params, result, materials[params.mat],matResult);
   }
 

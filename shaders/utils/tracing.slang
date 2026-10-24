@@ -8,6 +8,17 @@
 #include "palettes.slang"     // Debug color palette
 #include "evalFuncs.slang"    // Scene evaluation functions
 
+int3 point2NOLidx(float3 p){
+  int level = getLevelOfPoint(p);
+  const float brick_size = BRICK_SIZES[level];
+  float3 pBrickNorm = p/brick_size;
+  int3 brickId = int3(floor(pBrickNorm));
+  int3 brickIndex = id2index(brickId);
+  int3 clipIndex = brickIdx2clipIdx(brickIndex, level);
+  int clipPointer = clipMap[clipIndex];
+  return pointer2nearObejctListIdx(clipPointer);
+}
+
 void fetchBrickValue(int pointer, int3 voxel_offset, float max_voxel_value, out float4 sBottom, out float4 sTop){
   int3 brickAtlasIndex = int3(pointer%BRICK_PER_ATLAS_AXIS,pointer/BRICK_PER_ATLAS_AXIS,0);
   int3 voxelIndex = brickAtlasIndex*BRICK_SIZE + voxel_offset;
@@ -42,7 +53,7 @@ bool sphereTraceBrick(Ray r, int pointer, float3 brickPos, int level, out float 
   for(int step = 0; step<MAX_ITERATIONS; step++){
     if(any(diff<0.0) || any(diff>brick_size))
       break;
-    
+
     float3 diffNorm = diff/voxel_size;
     // Clamp: at the far face of the brick this reaches BRICK_SIZE-1 and
     // fetchBrickValue then reads offset+1, one texel into the next brick.
@@ -83,7 +94,7 @@ bool sphereTraceBrickShadow(Ray r, int pointer, float3 brickPos, int level){
   for(int step = 0; step<MAX_ITERATIONS; step++){
     if(any(diff<0.0) || any(diff>brick_size))
       break;
-    
+
     float3 diffNorm = diff/voxel_size;
     // Clamp: at the far face of the brick this reaches BRICK_SIZE-1 and
     // fetchBrickValue then reads offset+1, one texel into the next brick.
@@ -167,14 +178,14 @@ float sphereTraceBbox(Ray r, Bbox bbox, out float3 debug){
 
       // Brick pointer visualizer
       if(drawBrickPointer) debug = scalarToColor(float(clipPointer)/float(NUM_BRICKS_IN_ATLAS));
-      
+
       // Returns depth of hit
       return length(p - r.orig);
     }
-    
+
     // Update p to move the estimated length to surface
     p += r.dir*t;
-  
+
     // Check if ray has left the bbox
     if(!insideBbox(p,bbox)){
       // Outside grid
@@ -188,7 +199,7 @@ float sphereTraceBbox(Ray r, Bbox bbox, out float3 debug){
     }
   }
 
-  // Over iterated 
+  // Over iterated
   if(drawSteps){
     // Debug visualizer of step count
     debug = scalarToColor(2.0);
@@ -354,8 +365,8 @@ float traceScene(Ray r, out float3 normal, out Material mat, out float3 debug){
     }else{
       normal = evalNormal(p);
     }
-    
-    mat = evalMat(p,normal);
+
+    mat = evalMat(p,normal, point2NOLidx(p));
     //mat = sampleInterpolatedMat(p);
 
   }
@@ -368,7 +379,7 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal, out float3 debug){
   const int MAX_ITERATIONS = NUM_VOXELS_PER_AXIS*3;
 
   // Debug visualizers
-  const bool drawSilhouette = debugColor && true;   // Draw the silhouette of the grid 
+  const bool drawSilhouette = debugColor && true;   // Draw the silhouette of the grid
   const bool drawSteps      = debugColor && true;   // Draw the numer of steps taken
   const bool drawHitIndex   = debugColor && false;  // Draw the grid voxel index at the hit point
   const bool drawFirstStep  = debugColor && false;  // Draw the axis of the step taken by the first iteration
@@ -393,7 +404,7 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal, out float3 debug){
   const float3 voxelDensity = numVoxelsPerAxis/gridSize;  // How many voxels per unit of world space
   const float3 voxelSize = gridSize/numVoxelsPerAxis;     // Size of a voxel
   const float3 delta = voxelSize/abs(dir);                // How much to travel in each direction till we meet the next voxel of that axis
-  
+
   float3 hitCoorPos = (orig-bbox.bMin)*voxelDensity;
   float3 hitCoorNeg = max(bbox.bMax-orig,float3(0))*voxelDensity;
   float3 hitCoor = lerp(hitCoorNeg,hitCoorPos,step*0.5+0.5);
@@ -428,7 +439,7 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal, out float3 debug){
       float3 deltas = voxelSize*abs(index-origIndex);
       return length(deltas*step + orig - r.orig);
     }
-    
+
     if (maxD.x < maxD.y && maxD.x < maxD.z) {
       // X-axis traversal.
       maxD.x += delta.x;
@@ -464,7 +475,7 @@ float rayMarchAmaWoo(Ray r, Bbox bbox, out float3 normal, out float3 debug){
     }
   };
 
-  // Over iterated 
+  // Over iterated
   if(drawSteps){
     // Debug visualizer of step count
     debug = scalarToColor(1.1);
