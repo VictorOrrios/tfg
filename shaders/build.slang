@@ -117,7 +117,7 @@ float buildJobMap(float3 point, int level,
   const float iniD = 10000.0f;
   const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
-  int nearObejctListIdx = 0;
+  int nearObejctListIdx = 1;
 
   for (int obIdx = 0; obIdx < pushConst.numObjects; obIdx++) {
     float3 p = float3(point);
@@ -137,11 +137,7 @@ float buildJobMap(float3 point, int level,
     nearObejctListIdx++;
   }
 
-  if (nearObejctListIdx < NEAR_OBJECT_LIST_SIZE) {
-    nearObjectList[nearObejctListIdx] = MAX_SCENE_OBJECTS + 1;
-  } else {
-    nearObjectList[0] = MAX_SCENE_OBJECTS;
-  }
+  nearObjectList[0] = nearObejctListIdx-1;
 
   return result;
 }
@@ -154,15 +150,14 @@ float buildJobMapRayQ(float3 point, int level,
 
   nearObjectList = objASQuery(point,level);
 
-  if(nearObjectList[0] == MAX_SCENE_OBJECTS){
+  if(nearObjectList[0] >= NEAR_OBJECT_LIST_SIZE){
     printf("objASQuery failed: %i, %i, %i, %i\n",nearObjectList[0],nearObjectList[1],nearObjectList[2],nearObjectList[3]);
     return map(point, level);
   }
 
-  for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
+  const int size = nearObjectList[0];
+  for (int i = 1; i < size; i++) {
     int obIdx = nearObjectList[i];
-    if (obIdx >= pushConst.numObjects)
-      break;
     float3 p = float3(point);
     SceneObject params = objects[obIdx];
     result = mapSceneObject(p, params, result);
@@ -256,11 +251,10 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
         if (USE_NEAR_OBJECT_LIST) {
           // Write near object list
           int3 nolIdx = pointer2nearObejctListIdx(instance_ptr);
-          for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
+          const int size = nearObjectList[0];
+          for (int i = 0; i < size; i++) {
             int3 idx = int3(nolIdx.x, nolIdx.y, i);
             nearObjectListAtlas[idx] = nearObjectList[i];
-            if (nearObjectList[i] >= MAX_SCENE_OBJECTS)
-              break;
           }
         }
 

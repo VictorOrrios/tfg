@@ -22,7 +22,7 @@ uint32_t [NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level){
     ray
   );
 
-  int i = 0;
+  int i = 1;
   while (query.Proceed() && i<NEAR_OBJECT_LIST_SIZE){
     uint32_t objIdx = (uint32_t)query.CandidateInstanceIndex();
     //if (!nearBbox(point, aabbs[objIdx], nearRange)) continue;
@@ -30,11 +30,7 @@ uint32_t [NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level){
     i++;
   }
 
-  if(i<NEAR_OBJECT_LIST_SIZE){
-    out[i] = MAX_SCENE_OBJECTS + 1;
-  }else{
-    out[0] = MAX_SCENE_OBJECTS;
-  }
+  out[0] = i;
 
   return out;
 }

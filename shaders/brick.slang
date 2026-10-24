@@ -8,9 +8,10 @@ static constexpr bool USE_NEAR_OBJECT_LIST = NEAR_OBJECT_LIST_SIZE > 0;
 
 float brickJobMap(float3 point, int3 nolIdx) {
   const float iniD = 10000.0f;
+  const int size = nearObjectListAtlas[nolIdx];
   float result = iniD;
 
-  for (int i = 0; i < NEAR_OBJECT_LIST_SIZE; i++) {
+  for (int i = 1; i < size; i++) {
     int3 idx = int3(nolIdx.x, nolIdx.y, i);
     int obIdx = nearObjectListAtlas[idx];
     if (obIdx >= pushConst.numObjects)
@@ -88,13 +89,13 @@ void computeMain(uint3 groupId: SV_GroupID,
     float3 p = brickPos + float3(brixelOffset) * voxel_size;
 
     bool map_using_nol = USE_NEAR_OBJECT_LIST &&
-                         nearObjectListAtlas[nolIndex] != MAX_SCENE_OBJECTS;
+                         nearObjectListAtlas[nolIndex] < NEAR_OBJECT_LIST_SIZE;
 
     float sdfValue;
     if (map_using_nol) {
       sdfValue = brickJobMap(p, nolIndex);
     } else {
-      printf("Using map in brick job: %i\n", nearObjectListAtlas[nolIndex]);
+      printf("Using map in brick job: %u\n", nearObjectListAtlas[nolIndex]);
       sdfValue = map(p, level);
     }
     sdfValue = clamp(sdfValue / max_voxel_value, -1.0, 1.0);

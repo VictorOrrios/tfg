@@ -142,6 +142,8 @@ float evalShadow(float3 p, float k){
 }
 
 Material evalMat(float3 p, float3 n){
+  //return materials[0];
+
   Material mat;
   mapRayQ(p,mat);
 
