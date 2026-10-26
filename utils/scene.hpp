@@ -125,9 +125,11 @@ public:
   void simulate(float dts, int substeps);
   void processDynamicObjects(std::vector<shaderio::DynamicObject> data);
 
-  void dynamicTestUpdate(float time);
+  void dynamicTestUpdateChess(float time);
+  void dynamicTestUpdateBox(float time);
   void setSceneObjects(int preset, int numOfParticles);
-  void animateParticles(float time);
+  void animateParticlesChess(float time, int numObjects);
+  void animateParticlesBox(float time);
 
   void userAction(glm::vec3 pos, glm::vec3 dir, float dts);
   void drawUserActionMenu();
