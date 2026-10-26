@@ -1,4 +1,7 @@
 
+#include "glm/exponential.hpp"
+#include "glm/ext/vector_float3.hpp"
+#include "glm/trigonometric.hpp"
 #include "nvutils/logger.hpp"
 #include "scene.hpp"
 #include "rng.hpp"
@@ -61,7 +64,7 @@ glm::vec3 particlePosition(int index, float time, float speed,
   return domainMin + (u * 0.5f + 0.5f) * extent;
 }
 
-void Scene::dynamicTestUpdate(float time) {
+void Scene::dynamicTestUpdateChess(float time) {
   static float timeLast = 0;
   float delta = time - timeLast;
   timeLast = time;
@@ -117,7 +120,66 @@ void Scene::dynamicTestUpdate(float time) {
     currSamples++;
   }
 
-  animateParticles(time+10.0);
+  animateParticlesChess(time+10.0,1<<currPower);
+}
+
+void Scene::dynamicTestUpdateBox(float time) {
+  static float timeLast = 0;
+  float delta = time - timeLast;
+  timeLast = time;
+  static float result = 0.0;
+
+  static ofstream output("output.txt");
+
+  static int phase = -1;
+  static int maxPhase = 4;
+
+  static int iniPower = 4;
+  static int maxPower = 16;
+  static int currPower = maxPower;
+  static int maxSamples = 140;
+  static int currSamples = maxSamples+1;
+
+  const std::string phases []= {
+    "boxes","cylinders","mixed","spheres", "spheres_blobby"
+  };
+
+  // If ended
+  if(phase>maxPhase) return;
+  if(time<1.0) return;
+
+  if(currSamples >= maxSamples){
+    // Record test
+    if(phase>=0){
+      output << phases[phase]<<" "<<(1<<currPower)<<" "<<(result/maxSamples*1000.0)<<endl;
+    }
+
+    // Advance power
+    currPower++;
+    currSamples = 0;
+    result = 0.0;
+
+    // Advance phase
+    if(currPower>maxPower){
+      phase += 1;
+      currPower = iniPower;
+
+      if(phase>maxPhase){
+        LOGI("TEST DONE");
+        output.close();
+      }
+    }
+
+    // Update scene
+    setSceneObjects(phase,1<<currPower);
+
+  }else{
+    // Record sample
+    result+=delta;
+    currSamples++;
+  }
+
+  animateParticlesBox(time+10.0);
 }
 
 void Scene::setSceneObjects(int preset, int numOfParticles) {
@@ -164,7 +226,37 @@ void Scene::setSceneObjects(int preset, int numOfParticles) {
   m_selected = -1;
 }
 
-void Scene::animateParticles(float time) {
+void Scene::animateParticlesChess(float time, int numObjects) {
+  const float speed = 1.0f;
+
+  const glm::vec3 domainMin(-100.0f, -1.0f, -100.0f);
+  const glm::vec3 domainMax(100.0f, 1.0f, 100.0f);
+
+  int gridSize = static_cast<int>(glm::ceil(glm::sqrt(float(numObjects))));
+
+  glm::vec3 domain = domainMax - domainMin;
+
+  float spacingX = domain.x / gridSize;
+  float spacingZ = domain.z / gridSize;
+
+#pragma omp parallel for schedule(static)
+  for (int i = 0; i < m_root.size(); i++) {
+    Node &n = m_root[i];
+
+    int row = i / gridSize;
+    int col = i % gridSize;
+
+    float x = domainMin.x + (col + 0.5f) * spacingX;
+    float z = domainMin.z + (row + 0.5f) * spacingZ;
+    float y = glm::sin(time * speed + i) * (domain.y / 2.0f);
+
+    n.gp.position = glm::vec3(x, y, z);
+
+    updateNodeData(&n);
+  }
+}
+
+void Scene::animateParticlesBox(float time) {
   const float speed = 1.0;
   const glm::vec3 domainMin = glm::vec3(-10.0);
   const glm::vec3 domainMax = glm::vec3(10.0);
