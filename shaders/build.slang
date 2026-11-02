@@ -154,7 +154,7 @@ float buildJobMapRayQ(float3 point, int level,
     return map(point, level);
   }
 
-  const int size = nearObjectList[0];
+  const int size = nearObjectList[0]+1;
   for (int i = 1; i < size; i++) {
     int obIdx = nearObjectList[i];
     float3 p = float3(point);
@@ -250,7 +250,7 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
         if (USE_NEAR_OBJECT_LIST) {
           // Write near object list
           int3 nolIdx = pointer2nearObejctListIdx(instance_ptr);
-          const int size = nearObjectList[0];
+          const int size = nearObjectList[0]+1;
           for (int i = 0; i < size; i++) {
             int3 idx = int3(nolIdx.x, nolIdx.y, i);
             nearObjectListAtlas[idx] = nearObjectList[i];

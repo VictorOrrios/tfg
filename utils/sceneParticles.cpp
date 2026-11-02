@@ -229,8 +229,8 @@ void Scene::setSceneObjects(int preset, int numOfParticles) {
 void Scene::animateParticlesChess(float time, int numObjects) {
   const float speed = 1.0f;
 
-  const glm::vec3 domainMin(-100.0f, -1.0f, -100.0f);
-  const glm::vec3 domainMax(100.0f, 1.0f, 100.0f);
+  const glm::vec3 domainMin(-20.0f, -1.0f, -20.0f);
+  const glm::vec3 domainMax(20.0f, 1.0f, 20.0f);
 
   int gridSize = static_cast<int>(glm::ceil(glm::sqrt(float(numObjects))));
 

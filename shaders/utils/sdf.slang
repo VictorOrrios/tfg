@@ -550,7 +550,7 @@ float map(float3 point, out Material matResult) {
 // General map function using cached nol
 float mapNOL(float3 point, int3 nolIdx) {
   const float iniD = 10000.0f;
-  const int size = nearObjectListAtlas[nolIdx];
+  const int size = nearObjectListAtlas[nolIdx]+1;
   float result = iniD;
 
   for (int i = 1; i < size; i++) {
@@ -574,7 +574,7 @@ float mapRayQ(float3 point, int level) {
   if(nearObjectList[0] >= NEAR_OBJECT_LIST_SIZE)
     return map(point, level);
 
-  const int size = nearObjectList[0];
+  const int size = nearObjectList[0]+1;
   for (int i = 1; i < size; i++) {
     int obIdx = nearObjectList[i];
     float3 p = float3(point);
@@ -588,7 +588,7 @@ float mapRayQ(float3 point, int level) {
 // Map function for getting the material at point using cached nol
 float mapNOL(float3 point, int3 nolIdx, out Material matResult) {
   const float iniD = 10000.0f;
-  const int size = nearObjectListAtlas[nolIdx];
+  const int size = nearObjectListAtlas[nolIdx]+1;
   float result = iniD;
 
   for (int i = 1; i < size; i++) {
@@ -612,7 +612,7 @@ float mapRayQ(float3 point, out Material matResult) {
   if(nearObjectList[0] >= NEAR_OBJECT_LIST_SIZE)
     return map(point, matResult);
 
-  const int size = nearObjectList[0];
+  const int size = nearObjectList[0]+1;
   for (int i = 1; i < size; i++) {
     int obIdx = nearObjectList[i];
     float3 p = float3(point);
