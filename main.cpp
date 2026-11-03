@@ -279,6 +279,7 @@ public:
     m_alloc.destroyBuffer(m_sceneInfoB);
     m_alloc.destroyBuffer(m_sceneAabbB);
     m_alloc.destroyBuffer(m_sceneObjectsB);
+    m_alloc.destroyBuffer(m_sceneUploadB);
     m_alloc.destroyBuffer(m_sceneMaterialsB);
     m_alloc.destroyBuffer(m_sceneDynamicObjects.nvbuffer);
 
@@ -1721,14 +1722,20 @@ public:
       m_pushConst.numObjects = aabbVector.size();
     }
 
-    unsigned long size = aabbVector.size() * sizeof(nvutils::Bbox);
-    vkCmdUpdateBuffer(cmd, m_sceneAabbB.buffer, 0, size, aabbVector.data());
-
-    size = objectsVector.size() * sizeof(shaderio::SceneObject);
-    vkCmdUpdateBuffer(cmd, m_sceneObjectsB.buffer, 0, size, objectsVector.data());
-
-    size = materialsVector.size() * sizeof(shaderio::Material);
-    vkCmdUpdateBuffer(cmd, m_sceneMaterialsB.buffer, 0, size, materialsVector.data());
+    // vkCmdUpdateBuffer only allows 64 KB, so copy through a mapped buffer.
+    // waitForAuxFences() already waited for last frame's copies.
+    VkDeviceSize offset = 0;
+    auto upload = [&](VkBuffer dst, const void* data, size_t count, size_t stride, size_t maxCount){
+      const VkDeviceSize size = std::min(count, maxCount) * stride;
+      if(size == 0) return;
+      memcpy(m_sceneUploadB.mapping + offset, data, size);
+      const VkBufferCopy region{.srcOffset = offset, .dstOffset = 0, .size = size};
+      vkCmdCopyBuffer(cmd, m_sceneUploadB.buffer, dst, 1, &region);
+      offset += size;
+    };
+    upload(m_sceneAabbB.buffer, aabbVector.data(), aabbVector.size(), sizeof(nvutils::Bbox), MAX_SCENE_OBJECTS);
+    upload(m_sceneObjectsB.buffer, objectsVector.data(), objectsVector.size(), sizeof(shaderio::SceneObject), MAX_SCENE_OBJECTS);
+    upload(m_sceneMaterialsB.buffer, materialsVector.data(), materialsVector.size(), sizeof(shaderio::Material), MAX_MATERIALS);
 
     nvvk::cmdBufferMemoryBarrier(cmd, {m_sceneAabbB.buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT});
@@ -1878,6 +1885,15 @@ public:
                                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                         ));
       NVVK_DBG_NAME(m_sceneMaterialsB.buffer);
+
+      NVVK_CHECK(allocator->createBuffer(m_sceneUploadB,
+                                     MAX_SCENE_OBJECTS*(sizeof(nvutils::Bbox) + sizeof(shaderio::SceneObject))
+                                          + MAX_MATERIALS*sizeof(shaderio::Material),
+                                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                     VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+                                     VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+                                          | VMA_ALLOCATION_CREATE_MAPPED_BIT));
+      NVVK_DBG_NAME(m_sceneUploadB.buffer);
 
       NVVK_CHECK(allocator->createBuffer(m_sceneDynamicObjects.nvbuffer,
                                     MAX_SCENE_DYNAMIC_OBJECTS*sizeof(shaderio::DynamicObject),
@@ -2433,6 +2449,7 @@ private:
   nvvk::Buffer          m_sceneInfoB{};           // Buffer binded to the UBO of scene info
   nvvk::Buffer          m_sceneAabbB{};           // Buffer binded to the scene aabbs array
   nvvk::Buffer          m_sceneObjectsB{};        // Buffer binded to the scene objects array
+  nvvk::Buffer          m_sceneUploadB{};         // Host buffer the scene objects are copied from
   nvvk::Buffer          m_sceneMaterialsB{};      // Buffer binded to the scene materials array
   RWBuffer              m_sceneDynamicObjects;   // Buffers binded to the scene dynamic objects array
 
