@@ -2,6 +2,22 @@
 #include "common.slang"      // Shared definitions with shaders
 #include "descriptors.slang" // External memory definitions
 
+#define INSERTION_SORT_THRESHOLD 32
+
+void insertionSort(inout uint list[], uint count) {
+  for (uint i = 2; i <= count; ++i) {
+    uint key = list[i];
+    int j = int(i) - 1;
+
+    while (j >= 1 && list[j] > key) {
+      list[j + 1] = list[j];
+      --j;
+    }
+
+    list[j + 1] = key;
+  }
+}
+
 void radixSort(inout uint list[]) {
   uint count = list[0];
 
@@ -69,9 +85,13 @@ uint32_t[NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level) {
     i++;
   }
 
-  out[0] = i-1;
+  out[0] = i - 1;
 
-  radixSort(out);
+  if ((i-1) > INSERTION_SORT_THRESHOLD) {
+    radixSort(out);
+  } else {
+    insertionSort(out, i-1);
+  }
 
   return out;
 }
