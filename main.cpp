@@ -796,7 +796,10 @@ public:
     // Bind pipeline
     bindComputePipeline(cmd,&m_objASupdatePipeline);
     // Dispatch
-    const uint32_t numGroups = (MAX_SCENE_OBJECTS + 7) / 8;
+    // Only update the live objects
+    const uint32_t liveObjects = static_cast<uint32_t>(
+        std::min<int>(m_pushConst.numObjects, MAX_SCENE_OBJECTS));
+    const uint32_t numGroups = std::max<uint32_t>((liveObjects + 7) / 8, 1);
     vkCmdDispatch(cmd, numGroups, 1, CLIPMAP_LEVELS + 1);
 
     // End barrier
@@ -1584,6 +1587,9 @@ public:
                          0, 1, &inBarrier, 0, nullptr, 0, nullptr);
 
     const uint32_t count = CLIPMAP_LEVELS + 1;
+    // Only build over the live objects (fine because this is a full build)
+    const uint32_t liveObjects = static_cast<uint32_t>(
+        std::min<int>(m_pushConst.numObjects, MAX_SCENE_OBJECTS));
 
     // Necesitamos almacenamiento estable para todos los structs que se pasan
     // por puntero
@@ -1606,7 +1612,7 @@ public:
           .geometry = {.instances = instancesData[i]}};
 
       rangeInfos[i] = VkAccelerationStructureBuildRangeInfoKHR{
-          .primitiveCount = MAX_SCENE_OBJECTS};
+          .primitiveCount = liveObjects};
 
       buildInfos[i] = VkAccelerationStructureBuildGeometryInfoKHR{
           .sType =

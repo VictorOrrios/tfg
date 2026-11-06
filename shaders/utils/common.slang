@@ -30,16 +30,23 @@ struct Bbox{
 //--------------------------------------
 // Inline macros
 //--------------------------------------
+// Wraps x into [0,n), also for negative x.
+// ((x % n) + n) % n gives wrong results for negative x on some drivers.
+inline int3 floorMod(int3 x, int n){
+  int3 q = (x - select(x < 0, int3(n - 1), int3(0))) / n; // floor(x / n)
+  return x - q * n;
+}
+
 inline int3 id2index(int3 x){
-  return ((x % NUM_BRICKS_PER_AXIS) + NUM_BRICKS_PER_AXIS) % NUM_BRICKS_PER_AXIS;
+  return floorMod(x, NUM_BRICKS_PER_AXIS);
 }
 
 inline int3 id2voxelIdx(int3 x){
-  return ((x % NUM_VOXELS_PER_AXIS) + NUM_VOXELS_PER_AXIS) % NUM_VOXELS_PER_AXIS;
+  return floorMod(x, NUM_VOXELS_PER_AXIS);
 }
 
 inline int3 voxel2offset(int3 x){
-  return ((x % (BRICK_SIZE-1)) + (BRICK_SIZE-1)) % (BRICK_SIZE-1);
+  return floorMod(x, BRICK_SIZE-1);
 }
 
 inline int3 brickIdx2clipIdx(int3 id, int level){
