@@ -409,8 +409,10 @@ public:
 
       ImGui::Text("Camera id0: %i,%i,%i",m_sceneInfo.cameraId0.x,m_sceneInfo.cameraId0.y,m_sceneInfo.cameraId0.z);
       if(ImGui::Button("Reset TLas")){
+        LOGI("REBUILDING BRICK TLAS\n");
         m_rebuildTlas = true;
       }
+      ImGui::Checkbox("Rebuild brick TLAS every update", &m_rebuildBrickTlasAlways);
       ImGui::Text("Loaded objets %i",m_pushConst.numObjects);
     }
 
@@ -907,7 +909,12 @@ public:
                                          VK_ACCESS_2_SHADER_WRITE_BIT,
                                          VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR
                                              | VK_ACCESS_2_SHADER_READ_BIT});
-      updateBrickTLAS(cmd,m_rebuildTlas);
+      // Atlas slots are freed and reused, so a TLAS instance can jump to the
+      // other side of the scene between two updates. A refit keeps the old
+      // tree and only grows its boxes: on an RTX 4080 SUPER tracing went from
+      // 1.4 ms to 118 ms in 80 s with N=4096. A full build stays at ~1.4 ms
+      // for ~1.7 ms of build time.
+      updateBrickTLAS(cmd, m_rebuildTlas || m_rebuildBrickTlasAlways);
       m_rebuildTlas = false;
     }else{
       // Empty timer so it doesn't break the profiler config
@@ -1504,9 +1511,6 @@ public:
 
   void updateBrickTLAS(VkCommandBuffer cmd, bool rebuild){
     const auto profiledSection = m_profilerGpuTimer.cmdFrameSection(cmd, "Brick AS update");
-
-    if(rebuild)
-      LOGI("REBUILDING BRICK TLAS\n");
 
     nvvk::AccelerationStructureGeometryInfo geoInfo{};
     VkAccelerationStructureGeometryInstancesDataKHR geometryInstances{
@@ -2479,6 +2483,7 @@ private:
   bool m_debugActive = false;
   int m_debugMode = 0;
   bool m_rebuildTlas = false;
+  bool m_rebuildBrickTlasAlways = true; // full brick TLAS build instead of a refit
   bool m_refreshAOkernels = false;
   bool m_refreshShadowKernels = false;
   bool m_updateTlas = false;
