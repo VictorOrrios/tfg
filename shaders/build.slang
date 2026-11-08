@@ -149,9 +149,9 @@ float buildJobMapRayQ(float3 point, int level,
 
   objASQuery(point, level, nearObjectList);
 
-  // Overflowed list: evaluate every object instead
+  // Overflowed list: report a surface so the brick isn't culled; brick jobs use mapOverflowed().
   if(nearObjectList[0] >= NEAR_OBJECT_LIST_SIZE)
-    return map(point, level);
+    return 0.0;
 
   const int size = nearObjectList[0]+1;
   for (int i = 1; i < size; i++) {

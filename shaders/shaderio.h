@@ -289,6 +289,8 @@ struct PushConstant{
   int numObjects;
   int numDynamicObjects;
   uint frameCount = 0;
+  int   orderFreeOps  = 0;    // 1 if every op is union or smooth union
+  float maxSmoothness = 0.0f; // Largest smoothness in the scene
 };
 
 struct SceneInfo{

@@ -1713,6 +1713,16 @@ public:
     if(materialsVector.size()>MAX_MATERIALS)
       LOGE("Number of scene materials exceeds maximum %zu > %i\n",materialsVector.size(),MAX_MATERIALS);
 
+    // Overflowed bricks are evaluated in TLAS order, which is only exact if every op commutes.
+    bool  orderFree = true;
+    float maxSmooth = 0.0f;
+    for(const shaderio::SceneObject& o : objectsVector){
+      orderFree = orderFree && (o.combOp == 0 || o.combOp == 2);  // union, smooth union
+      maxSmooth = std::max(maxSmooth, o.smoothness);
+    }
+    m_pushConst.orderFreeOps  = orderFree ? 1 : 0;
+    m_pushConst.maxSmoothness = maxSmooth;
+
     if(aabbVector.size() == 0){
       aabbVector.push_back({});
       objectsVector.push_back({});
