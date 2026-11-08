@@ -978,7 +978,9 @@ public:
 
     // Cam and scene update
     updateSceneBuffer(cmd);
-    updateSceneObjects(cmd);
+    // Only upload the objects when something changed them
+    if(m_scene.m_needsRefresh || m_firstFrame)
+      updateSceneObjects(cmd);
     updateSceneDynamicObjects(cmd);
 
     // Kernels update
