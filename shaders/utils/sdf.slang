@@ -569,7 +569,8 @@ float mapRayQ(float3 point, int level) {
   const float iniD = 10000.0f;
   float result = iniD;
 
-  uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE] = objASQuery(point,level);
+  uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE];
+  objASQuery(point, level, nearObjectList);
 
   if(nearObjectList[0] >= NEAR_OBJECT_LIST_SIZE)
     return map(point, level);
@@ -607,7 +608,8 @@ float mapRayQ(float3 point, out Material matResult) {
   const float iniD = 10000.0f;
   float result = iniD;
 
-  uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE] = objASQuery(point,CLIPMAP_LEVELS);
+  uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE];
+  objASQuery(point, CLIPMAP_LEVELS, nearObjectList);
 
   if(nearObjectList[0] >= NEAR_OBJECT_LIST_SIZE)
     return map(point, matResult);

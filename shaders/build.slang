@@ -147,7 +147,7 @@ float buildJobMapRayQ(float3 point, int level,
   const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
 
-  nearObjectList = objASQuery(point,level);
+  objASQuery(point, level, nearObjectList);
 
   if(nearObjectList[0] >= NEAR_OBJECT_LIST_SIZE){
     printf("objASQuery failed: %i, %i, %i, %i\n",nearObjectList[0],nearObjectList[1],nearObjectList[2],nearObjectList[3]);
