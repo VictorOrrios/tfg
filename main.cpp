@@ -909,11 +909,7 @@ public:
                                          VK_ACCESS_2_SHADER_WRITE_BIT,
                                          VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR
                                              | VK_ACCESS_2_SHADER_READ_BIT});
-      // Atlas slots are freed and reused, so a TLAS instance can jump to the
-      // other side of the scene between two updates. A refit keeps the old
-      // tree and only grows its boxes: on an RTX 4080 SUPER tracing went from
-      // 1.4 ms to 118 ms in 80 s with N=4096. A full build stays at ~1.4 ms
-      // for ~1.7 ms of build time.
+      // A refit degrades as atlas slots get reused, so rebuild by default
       updateBrickTLAS(cmd, m_rebuildTlas || m_rebuildBrickTlasAlways);
       m_rebuildTlas = false;
     }else{
