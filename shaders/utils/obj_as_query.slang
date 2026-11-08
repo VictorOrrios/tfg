@@ -94,17 +94,27 @@ void objASQuery(float3 point, int level, out uint32_t list[NEAR_OBJECT_LIST_SIZE
 
   query.TraceRayInline(tlasObj[level], RAY_FLAG_NONE, 0xFF, ray);
 
+  // Single exit: an early return makes the compiler copy the out array.
   int i = 1;
-  while (query.Proceed() && i < NEAR_OBJECT_LIST_SIZE) {
+  bool full = false;
+  while (query.Proceed()) {
+    if (i == NEAR_OBJECT_LIST_SIZE) {
+      full = true;
+      break;
+    }
     list[i] = (uint32_t)query.CandidateInstanceIndex();
     i++;
   }
 
-  list[0] = i - 1;
+  const uint count = i - 1;
+  // Full list: store the overflow marker and don't sort.
+  list[0] = full ? NEAR_OBJECT_LIST_SIZE : count;
 
-  if ((i-1) > INSERTION_SORT_THRESHOLD) {
-    radixSort(list);
-  } else {
-    insertionSort(list, i-1);
+  if (!full) {
+    if (count > INSERTION_SORT_THRESHOLD) {
+      radixSort(list);
+    } else {
+      insertionSort(list, count);
+    }
   }
 }
