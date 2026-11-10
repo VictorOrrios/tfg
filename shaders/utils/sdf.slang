@@ -27,10 +27,11 @@ float opSmoothUnion(float a, float b, float k){
   return min(a, b) - h*h*0.25/k;
 }
 float opSmoothUnionMat(float a, float b, float k, Material matA, inout Material matB){
-  float blend = a/(a+b);
-  matB = lerpMaterial(matA,matB,blend);
   k *= 4.0;
   float h = max(k-abs(a-b),0.0);
+  // Smooth-min weight: colours only mix inside the blend band and never overshoot
+  float m = 0.5*(h/k)*(h/k);
+  matB = lerpMaterial(matA,matB,a < b ? m : 1.0 - m);
   return min(a, b) - h*h*0.25/k;
 }
 
