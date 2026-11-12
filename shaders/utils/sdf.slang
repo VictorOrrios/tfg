@@ -591,6 +591,8 @@ float mapNOL(float3 point, int3 nolIdx, out Material matResult) {
   const float iniD = 10000.0f;
   const int size = nearObjectListAtlas[nolIdx]+1;
   float result = iniD;
+  // Start from a defined material: the fold reads it before the first write
+  matResult = materials[0];
 
   for (int i = 1; i < size; i++) {
     int3 idx = int3(nolIdx.x, nolIdx.y, i);
@@ -607,6 +609,7 @@ float mapNOL(float3 point, int3 nolIdx, out Material matResult) {
 float mapRayQ(float3 point, out Material matResult) {
   const float iniD = 10000.0f;
   float result = iniD;
+  matResult = materials[0];
 
   uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE] = objASQuery(point,CLIPMAP_LEVELS);
 
