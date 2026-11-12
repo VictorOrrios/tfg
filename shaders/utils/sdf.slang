@@ -27,10 +27,11 @@ float opSmoothUnion(float a, float b, float k){
   return min(a, b) - h*h*0.25/k;
 }
 float opSmoothUnionMat(float a, float b, float k, Material matA, inout Material matB){
-  float blend = a/(a+b);
-  matB = lerpMaterial(matA,matB,blend);
   k *= 4.0;
   float h = max(k-abs(a-b),0.0);
+  // Smooth-min weight: colours only mix inside the blend band and never overshoot
+  float m = 0.5*(h/k)*(h/k);
+  matB = lerpMaterial(matA,matB,a < b ? m : 1.0 - m);
   return min(a, b) - h*h*0.25/k;
 }
 
@@ -590,6 +591,8 @@ float mapNOL(float3 point, int3 nolIdx, out Material matResult) {
   const float iniD = 10000.0f;
   const int size = nearObjectListAtlas[nolIdx]+1;
   float result = iniD;
+  // Start from a defined material: the fold reads it before the first write
+  matResult = materials[0];
 
   for (int i = 1; i < size; i++) {
     int3 idx = int3(nolIdx.x, nolIdx.y, i);
@@ -606,6 +609,7 @@ float mapNOL(float3 point, int3 nolIdx, out Material matResult) {
 float mapRayQ(float3 point, out Material matResult) {
   const float iniD = 10000.0f;
   float result = iniD;
+  matResult = materials[0];
 
   uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE] = objASQuery(point,CLIPMAP_LEVELS);
 
