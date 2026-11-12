@@ -4,6 +4,11 @@
 
 #define INSERTION_SORT_THRESHOLD 32
 
+// Object indices fit in 16 bits, so two 8-bit passes are enough.
+#if MAX_SCENE_OBJECTS > 65536
+#error "radixSort assumes object indices fit in 16 bits"
+#endif
+
 void insertionSort(inout uint list[], uint count) {
   for (uint i = 2; i <= count; ++i) {
     uint key = list[i];
@@ -18,6 +23,8 @@ void insertionSort(inout uint list[], uint count) {
   }
 }
 
+// Radix sort: one 8-bit pass if every key is below 256, otherwise two.
+// No helper function: passing the arrays to one used too much local memory.
 void radixSort(inout uint list[]) {
   uint count = list[0];
 
@@ -27,46 +34,56 @@ void radixSort(inout uint list[]) {
   uint temp[NEAR_OBJECT_LIST_SIZE]; // scratch
   uint histogram[256];
 
-  // 4 pases: 8, 16, 24 y 32 bits.
-  for (uint shift = 0; shift < 24; shift += 8) {
-    // Init histogram to 0
-    for (uint i = 0; i < 256; ++i)
-      histogram[i] = 0;
+  uint maxKey = 0;
+  for (uint i = 1; i <= count; ++i)
+    maxKey = max(maxKey, list[i]);
 
-    // Fill with frecuency
-    for (uint i = 1; i <= count; ++i) {
-      uint digit = (list[i] >> shift) & 0xFF;
-      histogram[digit]++;
-    }
+  // Pass 1: low byte, list -> temp
+  for (uint i = 0; i < 256; ++i)
+    histogram[i] = 0;
+  for (uint i = 1; i <= count; ++i)
+    histogram[list[i] & 0xFF]++;
+  uint sum = 0;
+  for (uint i = 0; i < 256; ++i) {
+    uint frequency = histogram[i];
+    histogram[i] = sum;
+    sum += frequency;
+  }
+  for (uint i = 1; i <= count; ++i) {
+    uint value = list[i];
+    uint digit = value & 0xFF;
+    temp[histogram[digit] + 1] = value;
+    histogram[digit]++;
+  }
 
-    // Turn to acummulative sum
-    uint sum = 0;
-    for (uint i = 0; i < 256; ++i) {
-      uint frequency = histogram[i];
-      histogram[i] = sum;
-      sum += frequency;
-    }
-
-    // Fill scratch using acumm f
-    for (uint i = 1; i <= count; ++i) {
-      uint value = list[i];
-      uint digit = (value >> shift) & 0xFF;
-
-      temp[histogram[digit] + 1] = value;
-      histogram[digit]++;
-    }
-
-    // Copy to output
+  if (maxKey < 256) {
     for (uint i = 1; i <= count; ++i)
       list[i] = temp[i];
+    return;
+  }
+
+  // Pass 2: high byte, temp -> list
+  for (uint i = 0; i < 256; ++i)
+    histogram[i] = 0;
+  for (uint i = 1; i <= count; ++i)
+    histogram[(temp[i] >> 8) & 0xFF]++;
+  sum = 0;
+  for (uint i = 0; i < 256; ++i) {
+    uint frequency = histogram[i];
+    histogram[i] = sum;
+    sum += frequency;
+  }
+  for (uint i = 1; i <= count; ++i) {
+    uint value = temp[i];
+    uint digit = (value >> 8) & 0xFF;
+    list[histogram[digit] + 1] = value;
+    histogram[digit]++;
   }
 }
 
-uint32_t[NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level) {
-  const float nearRange = MAX_BRICK_VALUES[level];
-
-  uint32_t[NEAR_OBJECT_LIST_SIZE] out;
-
+// Sorted indices of the objects at point, with the count in list[0].
+// Filled in place: returning the array by value broke the pipeline at 512*8.
+void objASQuery(float3 point, int level, out uint32_t list[NEAR_OBJECT_LIST_SIZE]) {
   RayQuery<RAY_FLAG_NONE> query;
 
   RayDesc ray;
@@ -77,21 +94,27 @@ uint32_t[NEAR_OBJECT_LIST_SIZE] objASQuery(float3 point, int level) {
 
   query.TraceRayInline(tlasObj[level], RAY_FLAG_NONE, 0xFF, ray);
 
+  // Single exit: an early return makes the compiler copy the out array.
   int i = 1;
-  while (query.Proceed() && i < NEAR_OBJECT_LIST_SIZE) {
-    uint32_t objIdx = (uint32_t)query.CandidateInstanceIndex();
-    // if (!nearBbox(point, aabbs[objIdx], nearRange)) continue;
-    out[i] = objIdx;
+  bool full = false;
+  while (query.Proceed()) {
+    if (i == NEAR_OBJECT_LIST_SIZE) {
+      full = true;
+      break;
+    }
+    list[i] = (uint32_t)query.CandidateInstanceIndex();
     i++;
   }
 
-  out[0] = i - 1;
+  const uint count = i - 1;
+  // Full list: store the overflow marker and don't sort.
+  list[0] = full ? NEAR_OBJECT_LIST_SIZE : count;
 
-  if ((i-1) > INSERTION_SORT_THRESHOLD) {
-    radixSort(out);
-  } else {
-    insertionSort(out, i-1);
+  if (!full) {
+    if (count > INSERTION_SORT_THRESHOLD) {
+      radixSort(list);
+    } else {
+      insertionSort(list, count);
+    }
   }
-
-  return out;
 }

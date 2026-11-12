@@ -147,12 +147,11 @@ float buildJobMapRayQ(float3 point, int level,
   const float nearRange = MAX_BRICK_VALUES[level];
   float result = iniD;
 
-  nearObjectList = objASQuery(point,level);
+  objASQuery(point, level, nearObjectList);
 
-  if(nearObjectList[0] >= NEAR_OBJECT_LIST_SIZE){
-    printf("objASQuery failed: %i, %i, %i, %i\n",nearObjectList[0],nearObjectList[1],nearObjectList[2],nearObjectList[3]);
-    return map(point, level);
-  }
+  // Overflowed list: report a surface so the brick isn't culled; brick jobs use mapOverflowed().
+  if(nearObjectList[0] >= NEAR_OBJECT_LIST_SIZE)
+    return 0.0;
 
   const int size = nearObjectList[0]+1;
   for (int i = 1; i < size; i++) {
@@ -250,7 +249,8 @@ void computeMain(uint3 tId: SV_DispatchThreadID) {
         if (USE_NEAR_OBJECT_LIST) {
           // Write near object list
           int3 nolIdx = pointer2nearObejctListIdx(instance_ptr);
-          const int size = nearObjectList[0]+1;
+          // An overflowed list only stores its marker
+          const int size = nearObjectList[0] < NEAR_OBJECT_LIST_SIZE ? nearObjectList[0]+1 : 1;
           for (int i = 0; i < size; i++) {
             int3 idx = int3(nolIdx.x, nolIdx.y, i);
             nearObjectListAtlas[idx] = nearObjectList[i];

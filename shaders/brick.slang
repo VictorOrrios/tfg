@@ -77,8 +77,7 @@ void computeMain(uint3 groupId: SV_GroupID,
     if (map_using_nol) {
       sdfValue = mapNOL(p, nolIndex);
     } else {
-      printf("Using map in brick job: %u\n", nearObjectListAtlas[nolIndex]);
-      sdfValue = map(p, level);
+      sdfValue = mapOverflowed(p, level);
     }
     sdfValue = clamp(sdfValue / max_voxel_value, -1.0, 1.0);
     brickAtlas[atlasIndex] = sdfValue;

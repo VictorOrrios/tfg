@@ -9,6 +9,7 @@
 #include "rng.slang"          // Random numbers and hashes
 #include "quat.slang"         // Quaternion support
 #include "obj_as_query.slang" // Hardware accelerated object culling
+#include "grid.slang"         // Clip map level of a point
 
 //---------------------------------------
 // Operations
@@ -569,7 +570,8 @@ float mapRayQ(float3 point, int level) {
   const float iniD = 10000.0f;
   float result = iniD;
 
-  uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE] = objASQuery(point,level);
+  uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE];
+  objASQuery(point, level, nearObjectList);
 
   if(nearObjectList[0] >= NEAR_OBJECT_LIST_SIZE)
     return map(point, level);
@@ -585,10 +587,90 @@ float mapRayQ(float3 point, int level) {
   return result;
 }
 
+// Evaluates the objects near point straight from the TLAS, in traversal order.
+// Only exact if every op commutes; callers check pushConst.orderFreeOps.
+float mapStream(float3 point, int tlasLevel, float margin) {
+  const float iniD = 10000.0f;
+  float result = iniD;
+
+  RayQuery<RAY_FLAG_NONE> query;
+  RayDesc ray;
+  ray.Origin = point;
+  ray.Direction = float3(0, 0, 1);
+  ray.TMin = 0.0;
+  ray.TMax = 0.0000001;
+  query.TraceRayInline(tlasObj[tlasLevel], RAY_FLAG_NONE, 0xFF, ray);
+
+  while (query.Proceed()) {
+    const int obIdx = query.CandidateInstanceIndex();
+    if (!nearBbox(point, aabbs[obIdx], margin))
+      continue;
+    result = mapSceneObject(point, objects[obIdx], result);
+  }
+
+  return result;
+}
+
+float mapStreamMat(float3 point, int tlasLevel, float margin, out Material matResult) {
+  const float iniD = 10000.0f;
+  float result = iniD;
+  matResult = materials[0];
+
+  RayQuery<RAY_FLAG_NONE> query;
+  RayDesc ray;
+  ray.Origin = point;
+  ray.Direction = float3(0, 0, 1);
+  ray.TMin = 0.0;
+  ray.TMax = 0.0000001;
+  query.TraceRayInline(tlasObj[tlasLevel], RAY_FLAG_NONE, 0xFF, ray);
+
+  while (query.Proceed()) {
+    const int obIdx = query.CandidateInstanceIndex();
+    if (!nearBbox(point, aabbs[obIdx], margin))
+      continue;
+    SceneObject params = objects[obIdx];
+    result = mapSceneObjectMat(point, params, result, materials[params.mat], matResult);
+  }
+
+  return result;
+}
+
+// Finest object TLAS whose box inflation covers margin.
+int tlasLevelForMargin(float margin) {
+  for (int level = 0; level < CLIPMAP_LEVELS; level++)
+    if (MAX_BRICK_VALUES[level] >= margin)
+      return level;
+  return CLIPMAP_LEVELS - 1;
+}
+
+// Voxel value for an overflowed brick. Only objects within the clamp range
+// matter, so a finer TLAS than the brick's own level is enough.
+float mapOverflowed(float3 point, int level) {
+  if (pushConst.orderFreeOps == 0)
+    return map(point, level);
+
+  const float margin = MAX_VOXEL_VALUES[level] + pushConst.maxSmoothness;
+  return mapStream(point, tlasLevelForMargin(margin), margin);
+}
+
+// Material at a hit in an overflowed brick, using the same query as the voxels.
+float mapOverflowedMat(float3 point, out Material matResult) {
+  if (pushConst.orderFreeOps == 0)
+    return map(point, matResult);
+
+  const int level = getLevelOfPoint(point);
+  const float margin = MAX_VOXEL_VALUES[level] + pushConst.maxSmoothness;
+  return mapStreamMat(point, tlasLevelForMargin(margin), margin, matResult);
+}
+
 // Map function for getting the material at point using cached nol
 float mapNOL(float3 point, int3 nolIdx, out Material matResult) {
   const float iniD = 10000.0f;
-  const int size = nearObjectListAtlas[nolIdx]+1;
+  const int count = nearObjectListAtlas[nolIdx];
+  if (count >= NEAR_OBJECT_LIST_SIZE)
+    return mapOverflowedMat(point, matResult);
+
+  const int size = count+1;
   float result = iniD;
 
   for (int i = 1; i < size; i++) {
@@ -607,7 +689,8 @@ float mapRayQ(float3 point, out Material matResult) {
   const float iniD = 10000.0f;
   float result = iniD;
 
-  uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE] = objASQuery(point,CLIPMAP_LEVELS);
+  uint32_t nearObjectList[NEAR_OBJECT_LIST_SIZE];
+  objASQuery(point, CLIPMAP_LEVELS, nearObjectList);
 
   if(nearObjectList[0] >= NEAR_OBJECT_LIST_SIZE)
     return map(point, matResult);
